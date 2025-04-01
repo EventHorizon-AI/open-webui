@@ -1,5 +1,7 @@
 <script lang="ts">
-	import { getContext, createEventDispatcher} from 'svelte';
+	import { decode } from 'html-entities';
+
+	import { getContext, createEventDispatcher } from 'svelte';
 	const i18n = getContext('i18n');
 
 	import { settings } from '$lib/stores';
@@ -50,19 +52,40 @@
 	import ChevronUp from '../icons/ChevronUp.svelte';
 	import ChevronDown from '../icons/ChevronDown.svelte';
 	import Spinner from './Spinner.svelte';
+	import CodeBlock from '../chat/Messages/CodeBlock.svelte';
+	import Markdown from '../chat/Messages/Markdown.svelte';
 
 	export let open = false;
-	export let id = '';
+
 	export let className = '';
 	export let buttonClassName =
 		'w-fit text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition';
+
+	export let id = '';
 	export let title = null;
 	export let attributes = null;
 
+	export let chevron = false;
 	export let grow = false;
 
 	export let disabled = false;
 	export let hide = false;
+
+	function formatJSONString(obj) {
+		try {
+			const parsed = JSON.parse(JSON.parse(obj));
+			// If parsed is an object/array, then it's valid JSON
+			if (typeof parsed === 'object') {
+				return JSON.stringify(parsed, null, 2);
+			} else {
+				// It's a primitive value like a number, boolean, etc.
+				return String(parsed);
+			}
+		} catch (e) {
+			// Not valid JSON, return as-is
+			return obj;
+		}
+	}
 </script>
 
 <div {id} class={className}>
@@ -111,6 +134,22 @@
 						{:else}
 							{$i18n.t('Analyzing...')}
 						{/if}
+					{:else if attributes?.type === 'tool_calls'}
+						{#if attributes?.done === 'true'}
+							<Markdown
+								id={`tool-calls-${attributes?.id}`}
+								content={$i18n.t('View Result from `{{NAME}}`', {
+									NAME: attributes.name
+								})}
+							/>
+						{:else}
+							<Markdown
+								id={`tool-calls-${attributes?.id}`}
+								content={$i18n.t('Executing `{{NAME}}`...', {
+									NAME: attributes.name
+								})}
+							/>
+						{/if}
 					{:else}
 						{title}
 					{/if}
@@ -137,7 +176,19 @@
 			}}
 		>
 			<div>
-				<slot />
+				<div class="flex items-start justify-between">
+					<slot />
+
+					{#if chevron}
+						<div class="flex self-start translate-y-1">
+							{#if open}
+								<ChevronUp strokeWidth="3.5" className="size-3.5" />
+							{:else}
+								<ChevronDown strokeWidth="3.5" className="size-3.5" />
+							{/if}
+						</div>
+					{/if}
+				</div>
 
 				{#if grow}
 					{#if open && !hide}
@@ -158,7 +209,29 @@
 	{#if !grow}
 		{#if open && !hide}
 			<div transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
-				<slot name="content" />
+				{#if attributes?.type === 'tool_calls'}
+					{@const args = decode(attributes?.arguments)}
+					{@const result = decode(attributes?.result ?? '')}
+
+					{#if attributes?.done === 'true'}
+						<Markdown
+							id={`tool-calls-${attributes?.id}-result`}
+							content={`> \`\`\`json
+> ${formatJSONString(args)}
+> ${formatJSONString(result)}
+> \`\`\``}
+						/>
+					{:else}
+						<Markdown
+							id={`tool-calls-${attributes?.id}-result`}
+							content={`> \`\`\`json
+> ${formatJSONString(args)}
+> \`\`\``}
+						/>
+					{/if}
+				{:else}
+					<slot name="content" />
+				{/if}
 			</div>
 		{/if}
 	{/if}
