@@ -31,8 +31,6 @@
 	// Assuming $i18n.languages is an array of language codes
 	$: loadLocale($i18n.languages);
 
-	const dispatch = createEventDispatcher();
-
 	let previousDone = false;
 
 	$: {
