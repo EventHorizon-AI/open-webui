@@ -2,7 +2,7 @@
 	import { decode } from 'html-entities';
 	import { v4 as uuidv4 } from 'uuid';
 
-	import { getContext, createEventDispatcher } from 'svelte';
+	import { getContext } from 'svelte';
 	const i18n = getContext('i18n');
 
 	import { settings } from '$lib/stores';
@@ -72,6 +72,10 @@
 
 	export let disabled = false;
 	export let hide = false;
+
+	export let onChange: Function = () => {};
+
+	$: onChange(open);
 
 	const collapsibleId = uuidv4();
 
