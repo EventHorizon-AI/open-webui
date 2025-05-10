@@ -10,6 +10,10 @@ const DELIMITER_LIST = [
 	{ left: '\\begin{equation}', right: '\\end{equation}', display: true }
 ];
 
+// Defines characters that are allowed to immediately precede or follow a math delimiter.
+const ALLOWED_SURROUNDING_CHARS =
+	'\\s?。，、；!-\\/:-@\\[-`{-~\\p{Script=Han}\\p{Script=Hiragana}\\p{Script=Katakana}\\p{Script=Hangul}';
+
 // const DELIMITER_LIST = [
 //     { left: '$$', right: '$$', display: false },
 //     { left: '$', right: '$', display: false },
@@ -52,11 +56,13 @@ function generateRegexRules(delimiters) {
 	// Math formulas can end in special characters
     // Added CJK character ranges to support full-width characters in CJK languages
 	const inlineRule = new RegExp(
-		`^(${inlinePatterns.join('|')})(?=[\\s?。，!-\/:-@[-\`{-~${CJK_CHARS}]|$)`,
+		`^(${inlinePatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
 		'u'
 	);
-	// Added 's' flag for dotall (matching newlines)
-	const blockRule = new RegExp(`^(${blockPatterns.join('|')})(?=[\\s?。，!-\/:-@[-\`{-~${CJK_CHARS}]|$)`, 'us');
+	const blockRule = new RegExp(
+		`^(${blockPatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
+		'u'
+	);
 
 	return { inlineRule, blockRule };
 }
@@ -101,7 +107,9 @@ function katexStart(src, displayMode: boolean) {
 		// Check if the delimiter is preceded by a special character or CJK character
 		// Added CJK character range to support LaTeX after full-width characters in CJK languages
 		// If it does, then it's potentially a math formula.
-		const f = index === 0 || indexSrc.charAt(index - 1).match(new RegExp(`[\\s?。，!-\\/:-@[-\`{-~${CJK_CHARS}]`, 'u'));
+		const f =
+			index === 0 ||
+			indexSrc.charAt(index - 1).match(new RegExp(`[${ALLOWED_SURROUNDING_CHARS}]`, 'u'));
 		if (f) {
 			const possibleKatex = indexSrc.substring(index);
 
