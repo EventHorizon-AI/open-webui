@@ -83,10 +83,19 @@
 			});
 			return acc;
 		}, []);
+		console.log('citations', citations);
 
 		showRelevance = calculateShowRelevance(citations);
 		showPercentage = shouldShowPercentage(citations);
 	}
+
+	const decodeString = (str: string) => {
+		try {
+			return decodeURIComponent(str);
+		} catch (e) {
+			return str;
+		}
+	};
 </script>
 
 <CitationsModal
@@ -102,7 +111,7 @@
 			<div class="flex text-xs font-medium flex-wrap">
 				{#each citations as citation, idx}
 					<button
-						id={`source-${id}-${idx}`}
+						id={`source-${id}-${idx + 1}`}
 						class="no-toggle outline-hidden flex dark:text-gray-300 p-1 bg-white dark:bg-gray-900 rounded-xl max-w-96"
 						on:click={() => {
 							showCitationModal = true;
@@ -117,7 +126,7 @@
 						<div
 							class="flex-1 mx-1 truncate text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white transition"
 						>
-							{decodeURIComponent(citation.source.name)}
+							{decodeString(citation.source.name)}
 						</div>
 					</button>
 				{/each}
@@ -157,7 +166,7 @@
 											</div>
 										{/if}
 										<div class="flex-1 mx-1 truncate">
-											{decodeURIComponent(citation.source.name)}
+											{decodeString(citation.source.name)}
 										</div>
 									</button>
 								{/each}
@@ -181,7 +190,7 @@
 					<div class="flex text-xs font-medium flex-wrap">
 						{#each citations as citation, idx}
 							<button
-								id={`source-${id}-${idx}`}
+								id={`source-${id}-${idx + 1}`}
 								class="no-toggle outline-hidden flex dark:text-gray-300 p-1 bg-gray-50 hover:bg-gray-100 dark:bg-gray-900 dark:hover:bg-gray-850 transition rounded-xl max-w-96"
 								on:click={() => {
 									showCitationModal = true;
@@ -194,7 +203,7 @@
 									</div>
 								{/if}
 								<div class="flex-1 mx-1 truncate">
-									{decodeURIComponent(citation.source.name)}
+									{decodeString(citation.source.name)}
 								</div>
 							</button>
 						{/each}

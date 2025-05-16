@@ -1,5 +1,9 @@
 import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
+import { convertOpenApiToToolPayload } from '$lib/utils';
 import { getOpenAIModelsDirect } from './openai';
+
+import { parse } from 'yaml';
+import { toast } from 'svelte-sonner';
 
 export const getModels = async (
 	token: string = '',
@@ -21,7 +25,7 @@ export const getModels = async (
 		})
 		.catch((err) => {
 			error = err;
-			console.log(err);
+			console.error(err);
 			return null;
 		});
 
@@ -169,7 +173,7 @@ export const chatCompleted = async (token: string, body: ChatCompletedForm) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -208,7 +212,7 @@ export const chatAction = async (token: string, action_id: string, body: ChatAct
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -240,7 +244,7 @@ export const stopTask = async (token: string, id: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -254,6 +258,221 @@ export const stopTask = async (token: string, id: string) => {
 	}
 
 	return res;
+};
+
+export const getTaskIdsByChatId = async (token: string, chat_id: string) => {
+	let error = null;
+
+	const res = await fetch(`${WEBUI_BASE_URL}/api/tasks/chat/${chat_id}`, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		}
+	})
+		.then(async (res) => {
+			if (!res.ok) throw await res.json();
+			return res.json();
+		})
+		.catch((err) => {
+			console.error(err);
+			if ('detail' in err) {
+				error = err.detail;
+			} else {
+				error = err;
+			}
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	return res;
+};
+
+export const getToolServerData = async (token: string, url: string) => {
+	let error = null;
+
+	const res = await fetch(`${url}`, {
+		method: 'GET',
+		headers: {
+			Accept: 'application/json',
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		}
+	})
+		.then(async (res) => {
+			// Check if URL ends with .yaml or .yml to determine format
+			if (url.toLowerCase().endsWith('.yaml') || url.toLowerCase().endsWith('.yml')) {
+				if (!res.ok) throw await res.text();
+				const text = await res.text();
+				return parse(text);
+			} else {
+				if (!res.ok) throw await res.json();
+				return res.json();
+			}
+		})
+		.catch((err) => {
+			console.error(err);
+			if ('detail' in err) {
+				error = err.detail;
+			} else {
+				error = err;
+			}
+			return null;
+		});
+
+	if (error) {
+		throw error;
+	}
+
+	const data = {
+		openapi: res,
+		info: res.info,
+		specs: convertOpenApiToToolPayload(res)
+	};
+
+	console.log(data);
+	return data;
+};
+
+export const getToolServersData = async (i18n, servers: object[]) => {
+	return (
+		await Promise.all(
+			servers
+				.filter((server) => server?.config?.enable)
+				.map(async (server) => {
+					const data = await getToolServerData(
+						(server?.auth_type ?? 'bearer') === 'bearer' ? server?.key : localStorage.token,
+						server?.url + '/' + (server?.path ?? 'openapi.json')
+					).catch((err) => {
+						toast.error(
+							i18n.t(`Failed to connect to {{URL}} OpenAPI tool server`, {
+								URL: server?.url + '/' + (server?.path ?? 'openapi.json')
+							})
+						);
+						return null;
+					});
+
+					if (data) {
+						const { openapi, info, specs } = data;
+						return {
+							url: server?.url,
+							openapi: openapi,
+							info: info,
+							specs: specs
+						};
+					}
+				})
+		)
+	).filter((server) => server);
+};
+
+export const executeToolServer = async (
+	token: string,
+	url: string,
+	name: string,
+	params: Record<string, any>,
+	serverData: { openapi: any; info: any; specs: any }
+) => {
+	let error = null;
+
+	try {
+		// Find the matching operationId in the OpenAPI spec
+		const matchingRoute = Object.entries(serverData.openapi.paths).find(([_, methods]) =>
+			Object.entries(methods as any).some(([__, operation]: any) => operation.operationId === name)
+		);
+
+		if (!matchingRoute) {
+			throw new Error(`No matching route found for operationId: ${name}`);
+		}
+
+		const [routePath, methods] = matchingRoute;
+
+		const methodEntry = Object.entries(methods as any).find(
+			([_, operation]: any) => operation.operationId === name
+		);
+
+		if (!methodEntry) {
+			throw new Error(`No matching method found for operationId: ${name}`);
+		}
+
+		const [httpMethod, operation]: [string, any] = methodEntry;
+
+		// Split parameters by type
+		const pathParams: Record<string, any> = {};
+		const queryParams: Record<string, any> = {};
+		let bodyParams: any = {};
+
+		if (operation.parameters) {
+			operation.parameters.forEach((param: any) => {
+				const paramName = param.name;
+				const paramIn = param.in;
+				if (params.hasOwnProperty(paramName)) {
+					if (paramIn === 'path') {
+						pathParams[paramName] = params[paramName];
+					} else if (paramIn === 'query') {
+						queryParams[paramName] = params[paramName];
+					}
+				}
+			});
+		}
+
+		let finalUrl = `${url}${routePath}`;
+
+		// Replace path parameters (`{param}`)
+		Object.entries(pathParams).forEach(([key, value]) => {
+			finalUrl = finalUrl.replace(new RegExp(`{${key}}`, 'g'), encodeURIComponent(value));
+		});
+
+		// Append query parameters to URL if any
+		if (Object.keys(queryParams).length > 0) {
+			const queryString = new URLSearchParams(
+				Object.entries(queryParams).map(([k, v]) => [k, String(v)])
+			).toString();
+			finalUrl += `?${queryString}`;
+		}
+
+		// Handle requestBody composite
+		if (operation.requestBody && operation.requestBody.content) {
+			const contentType = Object.keys(operation.requestBody.content)[0];
+			if (params !== undefined) {
+				bodyParams = params;
+			} else {
+				// Optional: Fallback or explicit error if body is expected but not provided
+				throw new Error(`Request body expected for operation '${name}' but none found.`);
+			}
+		}
+
+		// Prepare headers and request options
+		const headers: Record<string, string> = {
+			'Content-Type': 'application/json',
+			...(token && { authorization: `Bearer ${token}` })
+		};
+
+		let requestOptions: RequestInit = {
+			method: httpMethod.toUpperCase(),
+			headers
+		};
+
+		if (['post', 'put', 'patch'].includes(httpMethod.toLowerCase()) && operation.requestBody) {
+			requestOptions.body = JSON.stringify(bodyParams);
+		}
+
+		const res = await fetch(finalUrl, requestOptions);
+		if (!res.ok) {
+			const resText = await res.text();
+			throw new Error(`HTTP error! Status: ${res.status}. Message: ${resText}`);
+		}
+
+		return await res.json();
+	} catch (err: any) {
+		error = err.message;
+		console.error('API Request Error:', error);
+		return { error };
+	}
 };
 
 export const getTaskConfig = async (token: string = '') => {
@@ -272,7 +491,7 @@ export const getTaskConfig = async (token: string = '') => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -301,7 +520,7 @@ export const updateTaskConfig = async (token: string, config: object) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -320,7 +539,7 @@ export const updateTaskConfig = async (token: string, config: object) => {
 export const generateTitle = async (
 	token: string = '',
 	model: string,
-	messages: string[],
+	messages: object[],
 	chat_id?: string
 ) => {
 	let error = null;
@@ -343,7 +562,7 @@ export const generateTitle = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			}
@@ -354,7 +573,39 @@ export const generateTitle = async (
 		throw error;
 	}
 
-	return res?.choices[0]?.message?.content.replace(/["']/g, '') ?? 'New Chat';
+	try {
+		// Step 1: Safely extract the response string
+		const response = res?.choices[0]?.message?.content ?? '';
+
+		// Step 2: Attempt to fix common JSON format issues like single quotes
+		const sanitizedResponse = response.replace(/['‘’`]/g, '"'); // Convert single quotes to double quotes for valid JSON
+
+		// Step 3: Find the relevant JSON block within the response
+		const jsonStartIndex = sanitizedResponse.indexOf('{');
+		const jsonEndIndex = sanitizedResponse.lastIndexOf('}');
+
+		// Step 4: Check if we found a valid JSON block (with both `{` and `}`)
+		if (jsonStartIndex !== -1 && jsonEndIndex !== -1) {
+			const jsonResponse = sanitizedResponse.substring(jsonStartIndex, jsonEndIndex + 1);
+
+			// Step 5: Parse the JSON block
+			const parsed = JSON.parse(jsonResponse);
+
+			// Step 6: If there's a "tags" key, return the tags array; otherwise, return an empty array
+			if (parsed && parsed.title) {
+				return parsed.title;
+			} else {
+				return null;
+			}
+		}
+
+		// If no valid JSON block found, return an empty array
+		return null;
+	} catch (e) {
+		// Catch and safely return empty array on any parsing errors
+		console.error('Failed to parse response: ', e);
+		return null;
+	}
 };
 
 export const generateTags = async (
@@ -383,7 +634,7 @@ export const generateTags = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			}
@@ -455,7 +706,7 @@ export const generateEmoji = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			}
@@ -505,7 +756,7 @@ export const generateQueries = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			}
@@ -577,7 +828,7 @@ export const generateAutoCompletion = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			}
@@ -641,7 +892,7 @@ export const generateMoACompletion = async (
 			stream: true
 		})
 	}).catch((err) => {
-		console.log(err);
+		console.error(err);
 		error = err;
 		return null;
 	});
@@ -669,7 +920,7 @@ export const getPipelinesList = async (token: string = '') => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -703,7 +954,7 @@ export const uploadPipeline = async (token: string, file: File, urlIdx: string) 
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -739,7 +990,7 @@ export const downloadPipeline = async (token: string, url: string, urlIdx: strin
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -775,7 +1026,7 @@ export const deletePipeline = async (token: string, id: string, urlIdx: string) 
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			if ('detail' in err) {
 				error = err.detail;
 			} else {
@@ -812,7 +1063,7 @@ export const getPipelines = async (token: string, urlIdx?: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -849,7 +1100,7 @@ export const getPipelineValves = async (token: string, pipeline_id: string, urlI
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -885,7 +1136,7 @@ export const getPipelineValvesSpec = async (token: string, pipeline_id: string, 
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -927,7 +1178,7 @@ export const updatePipelineValves = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 
 			if ('detail' in err) {
 				error = err.detail;
@@ -959,7 +1210,7 @@ export const getBackendConfig = async () => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -985,7 +1236,7 @@ export const getChangelog = async () => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1012,7 +1263,7 @@ export const getVersionUpdates = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1039,7 +1290,7 @@ export const getModelFilterConfig = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1074,7 +1325,7 @@ export const updateModelFilterConfig = async (
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1101,7 +1352,7 @@ export const getWebhookUrl = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1131,7 +1382,7 @@ export const updateWebhookUrl = async (token: string, url: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1158,7 +1409,7 @@ export const getCommunitySharingEnabledStatus = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1185,7 +1436,7 @@ export const toggleCommunitySharingEnabledStatus = async (token: string) => {
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err.detail;
 			return null;
 		});
@@ -1212,7 +1463,7 @@ export const getModelConfig = async (token: string): Promise<GlobalModelConfig> 
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});
@@ -1260,7 +1511,7 @@ export const updateModelConfig = async (token: string, config: GlobalModelConfig
 			return res.json();
 		})
 		.catch((err) => {
-			console.log(err);
+			console.error(err);
 			error = err;
 			return null;
 		});

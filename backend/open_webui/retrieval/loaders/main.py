@@ -20,6 +20,11 @@ from langchain_community.document_loaders import (
     YoutubeLoader,
 )
 from langchain_core.documents import Document
+
+
+from open_webui.retrieval.loaders.external_document import ExternalDocumentLoader
+from open_webui.retrieval.loaders.mistral import MistralLoader
+
 from open_webui.env import SRC_LOG_LEVELS, GLOBAL_LOG_LEVEL
 
 logging.basicConfig(stream=sys.stdout, level=GLOBAL_LOG_LEVEL)
@@ -82,10 +87,12 @@ known_source_ext = [
 
 
 class TikaLoader:
-    def __init__(self, url, file_path, mime_type=None):
+    def __init__(self, url, file_path, mime_type=None, extract_images=None):
         self.url = url
         self.file_path = file_path
         self.mime_type = mime_type
+
+        self.extract_images = extract_images
 
     def load(self) -> list[Document]:
         with open(self.file_path, "rb") as f:
@@ -95,6 +102,9 @@ class TikaLoader:
             headers = {"Content-Type": self.mime_type}
         else:
             headers = {}
+
+        if self.extract_images == True:
+            headers["X-Tika-PDFextractInlineImages"] = "true"
 
         endpoint = self.url
         if not endpoint.endswith("/"):
@@ -118,10 +128,12 @@ class TikaLoader:
 
 
 class DoclingLoader:
-    def __init__(self, url, file_path=None, mime_type=None):
+    def __init__(self, url, file_path=None, mime_type=None, params=None):
         self.url = url.rstrip("/")
         self.file_path = file_path
         self.mime_type = mime_type
+
+        self.params = params or {}
 
     def load(self) -> list[Document]:
         with open(self.file_path, "rb") as f:
@@ -137,6 +149,20 @@ class DoclingLoader:
                 "image_export_mode": "placeholder",
                 "table_mode": "accurate",
             }
+
+            if self.params:
+                if self.params.get("do_picture_classification"):
+                    params["do_picture_classification"] = self.params.get(
+                        "do_picture_classification"
+                    )
+
+                if self.params.get("ocr_engine") and self.params.get("ocr_lang"):
+                    params["ocr_engine"] = self.params.get("ocr_engine")
+                    params["ocr_lang"] = [
+                        lang.strip()
+                        for lang in self.params.get("ocr_lang").split(",")
+                        if lang.strip()
+                    ]
 
             endpoint = f"{self.url}/v1alpha/convert/file"
             r = requests.post(endpoint, files=files, data=params)
@@ -181,26 +207,51 @@ class Loader:
             for doc in docs
         ]
 
+    def _is_text_file(self, file_ext: str, file_content_type: str) -> bool:
+        return file_ext in known_source_ext or (
+            file_content_type and file_content_type.find("text/") >= 0
+        )
+
     def _get_loader(self, filename: str, file_content_type: str, file_path: str):
         file_ext = filename.split(".")[-1].lower()
 
+        if (
+            self.engine == "external"
+            and self.kwargs.get("EXTERNAL_DOCUMENT_LOADER_URL")
+            and self.kwargs.get("EXTERNAL_DOCUMENT_LOADER_API_KEY")
+        ):
+            loader = ExternalDocumentLoader(
+                file_path=file_path,
+                url=self.kwargs.get("EXTERNAL_DOCUMENT_LOADER_URL"),
+                api_key=self.kwargs.get("EXTERNAL_DOCUMENT_LOADER_API_KEY"),
+                mime_type=file_content_type,
+            )
         if self.engine == "tika" and self.kwargs.get("TIKA_SERVER_URL"):
-            if file_ext in known_source_ext or (
-                file_content_type and file_content_type.find("text/") >= 0
-            ):
+            if self._is_text_file(file_ext, file_content_type):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:
                 loader = TikaLoader(
                     url=self.kwargs.get("TIKA_SERVER_URL"),
                     file_path=file_path,
                     mime_type=file_content_type,
+                    extract_images=self.kwargs.get("PDF_EXTRACT_IMAGES"),
                 )
         elif self.engine == "docling" and self.kwargs.get("DOCLING_SERVER_URL"):
-            loader = DoclingLoader(
-                url=self.kwargs.get("DOCLING_SERVER_URL"),
-                file_path=file_path,
-                mime_type=file_content_type,
-            )
+            if self._is_text_file(file_ext, file_content_type):
+                loader = TextLoader(file_path, autodetect_encoding=True)
+            else:
+                loader = DoclingLoader(
+                    url=self.kwargs.get("DOCLING_SERVER_URL"),
+                    file_path=file_path,
+                    mime_type=file_content_type,
+                    params={
+                        "ocr_engine": self.kwargs.get("DOCLING_OCR_ENGINE"),
+                        "ocr_lang": self.kwargs.get("DOCLING_OCR_LANG"),
+                        "do_picture_classification": self.kwargs.get(
+                            "DOCLING_DO_PICTURE_DESCRIPTION"
+                        ),
+                    },
+                )
         elif (
             self.engine == "document_intelligence"
             and self.kwargs.get("DOCUMENT_INTELLIGENCE_ENDPOINT") != ""
@@ -222,13 +273,31 @@ class Loader:
                 api_endpoint=self.kwargs.get("DOCUMENT_INTELLIGENCE_ENDPOINT"),
                 api_key=self.kwargs.get("DOCUMENT_INTELLIGENCE_KEY"),
             )
+        elif (
+            self.engine == "mistral_ocr"
+            and self.kwargs.get("MISTRAL_OCR_API_KEY") != ""
+            and file_ext
+            in ["pdf"]  # Mistral OCR currently only supports PDF and images
+        ):
+            loader = MistralLoader(
+                api_key=self.kwargs.get("MISTRAL_OCR_API_KEY"), file_path=file_path
+            )
+        elif (
+            self.engine == "external"
+            and self.kwargs.get("MISTRAL_OCR_API_KEY") != ""
+            and file_ext
+            in ["pdf"]  # Mistral OCR currently only supports PDF and images
+        ):
+            loader = MistralLoader(
+                api_key=self.kwargs.get("MISTRAL_OCR_API_KEY"), file_path=file_path
+            )
         else:
             if file_ext == "pdf":
                 loader = PyPDFLoader(
                     file_path, extract_images=self.kwargs.get("PDF_EXTRACT_IMAGES")
                 )
             elif file_ext == "csv":
-                loader = CSVLoader(file_path)
+                loader = CSVLoader(file_path, autodetect_encoding=True)
             elif file_ext == "rst":
                 loader = UnstructuredRSTLoader(file_path, mode="elements")
             elif file_ext == "xml":
@@ -257,9 +326,7 @@ class Loader:
                 loader = UnstructuredPowerPointLoader(file_path)
             elif file_ext == "msg":
                 loader = OutlookMessageLoader(file_path)
-            elif file_ext in known_source_ext or (
-                file_content_type and file_content_type.find("text/") >= 0
-            ):
+            elif self._is_text_file(file_ext, file_content_type):
                 loader = TextLoader(file_path, autodetect_encoding=True)
             else:
                 loader = TextLoader(file_path, autodetect_encoding=True)

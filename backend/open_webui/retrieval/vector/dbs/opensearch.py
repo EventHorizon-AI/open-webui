@@ -2,7 +2,12 @@ from opensearchpy import OpenSearch
 from opensearchpy.helpers import bulk
 from typing import Optional
 
-from open_webui.retrieval.vector.main import VectorItem, SearchResult, GetResult
+from open_webui.retrieval.vector.main import (
+    VectorDBBase,
+    VectorItem,
+    SearchResult,
+    GetResult,
+)
 from open_webui.config import (
     OPENSEARCH_URI,
     OPENSEARCH_SSL,
@@ -12,7 +17,7 @@ from open_webui.config import (
 )
 
 
-class OpenSearchClient:
+class OpenSearchClient(VectorDBBase):
     def __init__(self):
         self.index_prefix = "open_webui"
         self.client = OpenSearch(
@@ -120,7 +125,7 @@ class OpenSearchClient:
                     "script_score": {
                         "query": {"match_all": {}},
                         "script": {
-                            "source": "cosineSimilarity(params.query_value, doc[params.field]) + 1.0",
+                            "source": "(cosineSimilarity(params.query_value, doc[params.field]) + 1.0) / 2.0",
                             "params": {
                                 "field": "vector",
                                 "query_value": vectors[0],
