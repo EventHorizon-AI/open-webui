@@ -120,6 +120,11 @@
 		(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.vision ?? true
 	);
 
+	let fileUploadCapableModels = [];
+	$: fileUploadCapableModels = (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).filter(
+		(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.file_upload ?? true
+	);
+
 	let webSearchCapableModels = [];
 	$: webSearchCapableModels = (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).filter(
 		(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.web_search ?? true
@@ -609,11 +614,15 @@
 													dismissible={true}
 													edit={true}
 													on:dismiss={async () => {
-														if (file.type !== 'collection' && !file?.collection) {
-															if (file.id) {
-																// This will handle both file deletion and Chroma cleanup
-																await deleteFileById(localStorage.token, file.id);
+														try {
+															if (file.type !== 'collection' && !file?.collection) {
+																if (file.id) {
+																	// This will handle both file deletion and Chroma cleanup
+																	await deleteFileById(localStorage.token, file.id);
+																}
 															}
+														} catch (error) {
+															console.error('Error deleting file:', error);
 														}
 
 														// Remove from UI state
@@ -1086,6 +1095,8 @@
 									<div class="ml-1 self-end flex items-center flex-1 max-w-[80%] gap-0.5">
 										<InputMenu
 											bind:selectedToolIds
+											selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
+											{fileUploadCapableModels}
 											{screenCaptureHandler}
 											{inputFilesHandler}
 											uploadFilesHandler={() => {
