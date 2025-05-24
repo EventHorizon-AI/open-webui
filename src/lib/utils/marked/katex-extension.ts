@@ -28,9 +28,6 @@ let blockPatterns = [];
 function escapeRegex(string) {
 	return string.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
 }
-// Define CJK character ranges for Chinese, Japanese and Korean characters and punctuations
-// Includes full-width punctuations and symbols commonly used in CJK text
-const CJK_CHARS = '\\u2E80-\\u2FFF\\u3000-\\u303F\\u3040-\\u309F\\u30A0-\\u30FF\\u3100-\\u312F\\u3130-\\u318F\\u3190-\\u31FF\\u3200-\\u32FF\\u3300-\\u33FF\\u3400-\\u4DBF\\u4E00-\\u9FFF\\uF900-\\uFAFF\\uFF00-\\uFFEF';
 
 function generateRegexRules(delimiters) {
 	delimiters.forEach((delimiter) => {
@@ -43,18 +40,13 @@ function generateRegexRules(delimiters) {
 			// For inline delimiters, we match everything
 			inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
 		} else {
-			// For block delimiters, allow multi-line content by using dotall flag
-			// Instead of restricting with (?!\n), we'll handle multi-line content better
-			inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
-			// Allow any character including newlines between delimiters for block content
-			blockPatterns.push(`${escapedLeft}([\\s\\S]+?)${escapedRight}`);
+			// Block delimiters doubles as inline delimiters when not followed by a newline
 			inlinePatterns.push(`${escapedLeft}(?!\\n)((?:\\\\[^]|[^\\\\])+?)(?!\\n)${escapedRight}`);
 			blockPatterns.push(`${escapedLeft}\\n((?:\\\\[^]|[^\\\\])+?)\\n${escapedRight}`);
 		}
 	});
 
 	// Math formulas can end in special characters
-    // Added CJK character ranges to support full-width characters in CJK languages
 	const inlineRule = new RegExp(
 		`^(${inlinePatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
 		'u'
@@ -104,8 +96,7 @@ function katexStart(src, displayMode: boolean) {
 			return;
 		}
 
-		// Check if the delimiter is preceded by a special character or CJK character
-		// Added CJK character range to support LaTeX after full-width characters in CJK languages
+		// Check if the delimiter is preceded by a special character.
 		// If it does, then it's potentially a math formula.
 		const f =
 			index === 0 ||
@@ -118,17 +109,7 @@ function katexStart(src, displayMode: boolean) {
 			}
 		}
 
-		// Improved handling of end delimiter to prevent issues with nested content
-		const nextStartPos = index + startDelimiter.length;
-		const endDelimPos = indexSrc.indexOf(endDelimiter, nextStartPos);
-
-		if (endDelimPos === -1) {
-			// If no end delimiter found, skip this potential match
-			indexSrc = indexSrc.substring(nextStartPos);
-		} else {
-			// Skip to after the end delimiter
-			indexSrc = indexSrc.substring(endDelimPos + endDelimiter.length);
-		}
+		indexSrc = indexSrc.substring(index + startDelimiter.length).replace(endDelimiter, '');
 	}
 }
 
