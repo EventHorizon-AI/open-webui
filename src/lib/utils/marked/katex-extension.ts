@@ -30,32 +30,32 @@ function escapeRegex(string) {
 }
 
 function generateRegexRules(delimiters) {
-    let inlinePatterns = [];
-    let blockPatterns = [];
+	let inlinePatterns = [];
+	let blockPatterns = [];
 
-    delimiters.forEach((delimiter) => {
-        const { left, right, display } = delimiter;
-        const escapedLeft = escapeRegex(left);
-        const escapedRight = escapeRegex(right);
+	delimiters.forEach((delimiter) => {
+		const { left, right, display } = delimiter;
+		const escapedLeft = escapeRegex(left);
+		const escapedRight = escapeRegex(right);
 
-        if (display) {
-            blockPatterns.push(`${escapedLeft}\\n((?:\\\\[^]|[^\\\\])+?)\\n${escapedRight}`);
-            blockPatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
-        } else {
-            inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
-        }
-    });
+		if (display) {
+			blockPatterns.push(`${escapedLeft}\\n((?:\\\\[^]|[^\\\\])+?)\\n${escapedRight}`);
+			blockPatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
+		} else {
+			inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
+		}
+	});
 
-    const inlineRule = new RegExp(
-        `^(${inlinePatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
-        'u'
-    );
-    const blockRule = new RegExp(
-        `^(${blockPatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
-        'u'
-    );
+	const inlineRule = new RegExp(
+		`^(${inlinePatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
+		'u'
+	);
+	const blockRule = new RegExp(
+		`^(${blockPatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
+		'u'
+	);
 
-    return { inlineRule, blockRule };
+	return { inlineRule, blockRule };
 }
 
 const { inlineRule, blockRule } = generateRegexRules(DELIMITER_LIST);
