@@ -152,6 +152,30 @@
 		.map((id) => ($models.find((model) => model.id === id) || {})?.filters ?? [])
 		.reduce((acc, filters) => acc.filter((f1) => filters.some((f2) => f2.id === f1.id)));
 
+	let showToolsButton = false;
+	$: showToolsButton = toolServers.length + selectedToolIds.length > 0;
+
+	let showWebSearchButton = false;
+	$: showWebSearchButton =
+		(atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).length ===
+			webSearchCapableModels.length &&
+		$config?.features?.enable_web_search &&
+		($_user.role === 'admin' || $_user?.permissions?.features?.web_search);
+
+	let showImageGenerationButton = false;
+	$: showImageGenerationButton =
+		(atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).length ===
+			imageGenerationCapableModels.length &&
+		$config?.features?.enable_image_generation &&
+		($_user.role === 'admin' || $_user?.permissions?.features?.image_generation);
+
+	let showCodeInterpreterButton = false;
+	$: showCodeInterpreterButton =
+		(atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).length ===
+			codeInterpreterCapableModels.length &&
+		$config?.features?.enable_code_interpreter &&
+		($_user.role === 'admin' || $_user?.permissions?.features?.code_interpreter);
+
 	const scrollToBottom = () => {
 		const element = document.getElementById('messages-container');
 		element.scrollTo({
@@ -1264,7 +1288,7 @@
 													</Tooltip>
 												{/each}
 
-												{#if (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).length === webSearchCapableModels.length && $config?.features?.enable_web_search && ($_user.role === 'admin' || $_user?.permissions?.features?.web_search)}
+												{#if showWebSearchButton}
 													<Tooltip content={$i18n.t('Search the internet')} placement="top">
 														<button
 															on:click|preventDefault={() => (webSearchEnabled = !webSearchEnabled)}
@@ -1283,7 +1307,7 @@
 													</Tooltip>
 												{/if}
 
-												{#if (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).length === imageGenerationCapableModels.length && $config?.features?.enable_image_generation && ($_user.role === 'admin' || $_user?.permissions?.features?.image_generation)}
+												{#if showImageGenerationButton}
 													<Tooltip content={$i18n.t('Generate an image')} placement="top">
 														<button
 															on:click|preventDefault={() =>
@@ -1302,7 +1326,7 @@
 													</Tooltip>
 												{/if}
 
-												{#if (atSelectedModel?.id ? [atSelectedModel.id] : selectedModels).length === codeInterpreterCapableModels.length && $config?.features?.enable_code_interpreter && ($_user.role === 'admin' || $_user?.permissions?.features?.code_interpreter)}
+												{#if showCodeInterpreterButton}
 													<Tooltip content={$i18n.t('Execute code for analysis')} placement="top">
 														<button
 															on:click|preventDefault={() =>
