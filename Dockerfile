@@ -153,8 +153,8 @@ RUN pip3 install --no-cache-dir uv && \
     fi; \
     chown -R $UID:$GID /app/backend/data/
     
-RUN wget -O /tmp/runsc "https://storage.googleapis.com/gvisor/releases/release/20250407/$(uname -m)/runsc" && \
-    wget -O /tmp/runsc.sha512 "https://storage.googleapis.com/gvisor/releases/release/20250407/$(uname -m)/runsc.sha512" && \
+RUN curl -L -o /tmp/runsc "https://storage.googleapis.com/gvisor/releases/release/latest/$(uname -m)/runsc" && \
+    curl -L -o /tmp/runsc.sha512 "https://storage.googleapis.com/gvisor/releases/release/latest/$(uname -m)/runsc.sha512" && \
     cd /tmp && sha512sum -c runsc.sha512 && \
     chmod 555 /tmp/runsc && rm /tmp/runsc.sha512 && mv /tmp/runsc /usr/bin/runsc
 
