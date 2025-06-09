@@ -106,7 +106,7 @@ function processChineseContent(content: string): string {
 		if (/[\u4e00-\u9fa5]/.test(line)) {
 			// Problems caused by Chinese parentheses
 			/* Discription:
-			 *   When `*` has Chinese parentheses on the inside, markdown parser ignore bold or italic style.
+			 *   When `*` has Chinese delimiters on the inside, markdown parser ignore bold or italic style.
 			 *   - e.g. `**中文名（English）**中文内容` will be parsed directly,
 			 *          instead of `<strong>中文名（English）</strong>中文内容`.
 			 * Solution:
@@ -118,10 +118,17 @@ function processChineseContent(content: string): string {
 			 *   Change the behavior in future if needed.
 			 */
 			if (line.includes('*')) {
-				// Handle **bold** with Chinese parentheses
-				line = processChineseParentheses(line, '**', '（', '）');
-				// Handle *italic* with Chinese parentheses
-				line = processChineseParentheses(line, '*', '（', '）');
+				// Handle **bold** and *italic*
+				// 1. With Chinese parentheses
+				if (/（|）/.test(line)) {
+					line = processChineseDelimiters(line, '**', '（', '）');
+					line = processChineseDelimiters(line, '*', '（', '）');
+				}
+				// 2. With Chinese quotations
+				if (/“|”/.test(line)) {
+					line = processChineseDelimiters(line, '**', '“', '”');
+					line = processChineseDelimiters(line, '*', '“', '”');
+				}
 			}
 		}
 		return line;
@@ -132,7 +139,7 @@ function processChineseContent(content: string): string {
 }
 
 // Helper function for `processChineseContent`
-function processChineseParentheses(
+function processChineseDelimiters(
 	line: string,
 	symbol: string,
 	leftSymbol: string,
@@ -842,7 +849,7 @@ export const removeAllDetails = (content) => {
 export const processDetails = (content) => {
 	content = removeDetails(content, ['reasoning', 'code_interpreter']);
 
-	// This regex matches <details> tags with type="tool_calls" and captures their attributes to convert them to <tool_calls> tags
+	// This regex matches <details> tags with type="tool_calls" and captures their attributes to convert them to a string
 	const detailsRegex = /<details\s+type="tool_calls"([^>]*)>([\s\S]*?)<\/details>/gis;
 	const matches = content.match(detailsRegex);
 	if (matches) {
@@ -854,10 +861,7 @@ export const processDetails = (content) => {
 				attributes[attributeMatch[1]] = attributeMatch[2];
 			}
 
-			content = content.replace(
-				match,
-				`<tool_calls name="${attributes.name}" result="${attributes.result}"/>`
-			);
+			content = content.replace(match, `"${attributes.result}"`);
 		}
 	}
 
@@ -1225,6 +1229,9 @@ export const createMessagesList = (history, messageId) => {
 	}
 
 	const message = history.messages[messageId];
+	if (message === undefined) {
+		return [];
+	}
 	if (message?.parentId) {
 		return [...createMessagesList(history, message.parentId), message];
 	} else {
