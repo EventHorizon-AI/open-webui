@@ -143,6 +143,7 @@ type Settings = {
 	audio?: AudioSettings;
 	showUsername?: boolean;
 	notificationEnabled?: boolean;
+	highContrastMode?: boolean;
 	title?: TitleSettings;
 	splitLargeDeltas?: boolean;
 	chatDirection: 'LTR' | 'RTL' | 'auto';
@@ -150,8 +151,6 @@ type Settings = {
 	unfoldBeforeCompletion?: boolean;
 
 	system?: string;
-	requestFormat?: string;
-	keepAlive?: string;
 	seed?: number;
 	temperature?: string;
 	repeat_penalty?: string;

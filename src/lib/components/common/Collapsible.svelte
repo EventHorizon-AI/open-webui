@@ -18,6 +18,9 @@
 	dayjs.extend(relativeTime);
 
 	async function loadLocale(locales) {
+		if (!locales || !Array.isArray(locales)) {
+			return;
+		}
 		for (const locale of locales) {
 			try {
 				dayjs.locale(locale);
