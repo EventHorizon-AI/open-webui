@@ -73,13 +73,12 @@ self.onmessage = async (event) => {
 		self[key] = context[key];
 	}
 
-	// make sure loading is done
-	await loadPyodideAndPackages(self.packages);
-
 	try {
+		// make sure loading is done
+		await loadPyodideAndPackages(self.packages);
+
 		// check if matplotlib is imported in the code
 		if (code.includes('matplotlib')) {
-			// Override plt.show() to return base64 image
 			await self.pyodide.runPythonAsync(`import base64
 import os
 from io import BytesIO
@@ -106,30 +105,21 @@ def show(*, block=None):
 matplotlib.pyplot.show = show`);
 		}
 
+		// Execute Python code and process result
 		self.result = await self.pyodide.runPythonAsync(code);
-
-		// Safely process and recursively serialize the result
 		self.result = processResult(self.result);
-
 		console.log('Python result:', self.result);
-
-		// Persist any changes to IndexedDB
-		// await new Promise<void>((resolve, reject) => {
-		// 	self.pyodide.FS.syncfs(false, (err) => {
-		// 		if (err) {
-		// 			console.error('Error syncing to IndexedDB:', err);
-		// 			reject(err);
-		// 		} else {
-		// 			console.log('Successfully synced to IndexedDB.');
-		// 			resolve();
-		// 		}
-		// 	});
-		// });
-	} catch (error) {
-		self.stderr = error.toString();
+	} catch (error: any) {
+		// capture any errors during load or execution
+		if (self.stderr) {
+			self.stderr += error.toString();
+		} else {
+			self.stderr = error.toString();
+		}
+	} finally {
+		// Always send a response back to the main thread
+		self.postMessage({ id, result: self.result, stdout: self.stdout, stderr: self.stderr });
 	}
-
-	self.postMessage({ id, result: self.result, stdout: self.stdout, stderr: self.stderr });
 };
 
 function processResult(result: any): any {
@@ -167,7 +157,7 @@ function processResult(result: any): any {
 		}
 		// Stringify anything that's left (e.g., Proxy objects that cannot be directly processed)
 		return JSON.stringify(result);
-	} catch (err) {
+	} catch (err: any) {
 		// In case something unexpected happens, we return a stringified fallback
 		return `[processResult error]: ${err.message || err.toString()}`;
 	}
