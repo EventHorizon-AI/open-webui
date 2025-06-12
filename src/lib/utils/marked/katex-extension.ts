@@ -31,23 +31,22 @@ function escapeRegex(string) {
 }
 
 function generateRegexRules(delimiters) {
+	let inlinePatterns = [];
+	let blockPatterns = [];
+
 	delimiters.forEach((delimiter) => {
 		const { left, right, display } = delimiter;
-		// Ensure regex-safe delimiters
 		const escapedLeft = escapeRegex(left);
 		const escapedRight = escapeRegex(right);
 
-		if (!display) {
-			// For inline delimiters, we match everything
-			inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
-		} else {
-			// Block delimiters doubles as inline delimiters when not followed by a newline
-			inlinePatterns.push(`${escapedLeft}(?!\\n)((?:\\\\[^]|[^\\\\])+?)(?!\\n)${escapedRight}`);
+		if (display) {
 			blockPatterns.push(`${escapedLeft}\\n((?:\\\\[^]|[^\\\\])+?)\\n${escapedRight}`);
+			blockPatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
+		} else {
+			inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
 		}
 	});
 
-	// Math formulas can end in special characters
 	const inlineRule = new RegExp(
 		`^(${inlinePatterns.join('|')})(?=[${ALLOWED_SURROUNDING_CHARS}]|$)`,
 		'u'

@@ -5,6 +5,11 @@
 	import { getContext } from 'svelte';
 	const i18n = getContext('i18n');
 
+	import { settings } from '$lib/stores';
+	import { get } from 'svelte/store';
+
+	let userSettings = get(settings);
+
 	import dayjs from '$lib/dayjs';
 	import duration from 'dayjs/plugin/duration';
 	import relativeTime from 'dayjs/plugin/relativeTime';
@@ -28,6 +33,20 @@
 
 	// Assuming $i18n.languages is an array of language codes
 	$: loadLocale($i18n.languages);
+
+	let previousDone = false;
+
+	$: {
+		if (attributes?.done !== previousDone && userSettings.unfoldBeforeCompletion) {
+			if (attributes?.done === 'false') {
+				open = true;
+			}
+			if (attributes?.done === 'true') {
+				open = false;
+			}
+			previousDone = attributes?.done;
+		}
+	}
 
 	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';

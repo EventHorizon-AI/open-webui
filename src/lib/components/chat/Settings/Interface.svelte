@@ -46,6 +46,7 @@
 	let chatBubble = true;
 	let chatDirection: 'LTR' | 'RTL' | 'auto' = 'auto';
 	let ctrlEnterToSend = false;
+	let unfoldBeforeCompletion = false;
 	let copyFormatted = false;
 
 	let collapseCodeBlocks = false;
@@ -280,6 +281,11 @@
 		saveSettings({ webSearch: webSearch });
 	};
 
+	const toggleUnfoldBeforeCompletion = async () => {
+		unfoldBeforeCompletion = !unfoldBeforeCompletion;
+		saveSettings({ unfoldBeforeCompletion: unfoldBeforeCompletion });
+	};
+
 	const toggleIframeSandboxAllowSameOrigin = async () => {
 		iframeSandboxAllowSameOrigin = !iframeSandboxAllowSameOrigin;
 		saveSettings({ iframeSandboxAllowSameOrigin });
@@ -333,6 +339,7 @@
 
 		hapticFeedback = $settings?.hapticFeedback ?? false;
 		ctrlEnterToSend = $settings?.ctrlEnterToSend ?? false;
+		unfoldBeforeCompletion = $settings.unfoldBeforeCompletion ?? false;
 
 		imageCompression = $settings?.imageCompression ?? false;
 		imageCompressionSize = $settings?.imageCompressionSize ?? { width: '', height: '' };
@@ -991,6 +998,28 @@
 							<span class="ml-2 self-center">{$i18n.t('Always')}</span>
 						{:else}
 							<span class="ml-2 self-center">{$i18n.t('Default')}</span>
+						{/if}
+					</button>
+				</div>
+			</div>
+
+			<div>
+				<div class=" py-0.5 flex w-full justify-between">
+					<div class=" self-center text-xs">
+						{$i18n.t(`Unfold the folding control before completion`)}
+					</div>
+
+					<button
+						class="p-1 px-3 text-xs flex rounded-sm transition"
+						on:click={() => {
+							toggleUnfoldBeforeCompletion();
+						}}
+						type="button"
+					>
+						{#if unfoldBeforeCompletion === true}
+							<span class="ml-2 self-center">{$i18n.t('On')}</span>
+						{:else}
+							<span class="ml-2 self-center">{$i18n.t('Off')}</span>
 						{/if}
 					</button>
 				</div>
