@@ -40,8 +40,8 @@ function generateRegexRules(delimiters) {
 		const escapedRight = escapeRegex(right);
 
 		if (display) {
-			blockPatterns.push(`${escapedLeft}\\n((?:\\\\[^]|[^\\\\])+?)\\n${escapedRight}`);
-			blockPatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
+			blockPatterns.push(`^\\s*${escapedLeft}\\s*\\n([\\s\\S]+?)\\n\\s*${escapedRight}\\s*`);
+			blockPatterns.push(`^\\s*${escapedLeft}\\s*([\\s\\S]+?)\\s*${escapedRight}\\s*`);
 		} else {
 			inlinePatterns.push(`${escapedLeft}((?:\\\\[^]|[^\\\\])+?)${escapedRight}`);
 		}
