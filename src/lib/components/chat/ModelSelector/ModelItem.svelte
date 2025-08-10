@@ -138,27 +138,27 @@
 				{/if}
 			{/if}
 
-				<!-- {JSON.stringify(item.info)} -->
+			<!-- {JSON.stringify(item.info)} -->
 
-				{#if (item?.model?.tags ?? []).length > 0}
-					{#key item.model.id}
-						<Tooltip elementId="tags-{item.model.id}">
-							<div slot="tooltip" id="tags-{item.model.id}">
-								{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
-									<Tooltip content={tag.name} className="flex-shrink-0">
-										<div class=" text-xs font-semibold rounded-sm uppercase text-white">
-											{tag.name}
-										</div>
-									</Tooltip>
-								{/each}
-							</div>
+			{#if (item?.model?.tags ?? []).length > 0}
+				{#key item.model.id}
+					<Tooltip elementId="tags-{item.model.id}">
+						<div slot="tooltip" id="tags-{item.model.id}">
+							{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
+								<Tooltip content={tag.name} className="flex-shrink-0">
+									<div class=" text-xs font-semibold rounded-sm uppercase text-white">
+										{tag.name}
+									</div>
+								</Tooltip>
+							{/each}
+						</div>
 
-							<div class="translate-y-[1px]">
-								<Tag />
-							</div>
-						</Tooltip>
-					{/key}
-				{/if}
+						<div class="translate-y-[1px]">
+							<Tag />
+						</div>
+					</Tooltip>
+				{/key}
+			{/if}
 
 			{#if item.model?.direct}
 				<Tooltip content={`${$i18n.t('Direct')}`}>
