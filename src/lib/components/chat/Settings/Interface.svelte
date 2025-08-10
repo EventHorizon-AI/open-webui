@@ -1029,20 +1029,35 @@
 						{$i18n.t('iframe Sandbox Allow Same Origin')}
 					</div>
 
-					<button
-						aria-labelledby="iframe-sandbox-allow-forms-label"
-						class="p-1 px-3 text-xs flex rounded-sm transition"
-						on:click={() => {
-							toggleIframeSandboxAllowForms();
-						}}
-						type="button"
-					>
-						{#if iframeSandboxAllowForms === true}
-							<span class="ml-2 self-center">{$i18n.t('On')}</span>
-						{:else}
-							<span class="ml-2 self-center">{$i18n.t('Off')}</span>
-						{/if}
-					</button>
+					<div class="flex items-center gap-2 p-1">
+						<Switch
+							ariaLabelledbyId="iframe-sandbox-allow-same-origin-label"
+							tooltip={true}
+							bind:state={iframeSandboxAllowSameOrigin}
+							on:change={() => {
+								saveSettings({ iframeSandboxAllowSameOrigin });
+							}}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div>
+				<div class=" py-0.5 flex w-full justify-between">
+					<div id="iframe-sandbox-allow-forms-label" class=" self-center text-xs">
+						{$i18n.t('iframe Sandbox Allow Forms')}
+					</div>
+
+					<div class="flex items-center gap-2 p-1">
+						<Switch
+							ariaLabelledbyId="iframe-sandbox-allow-forms-label"
+							tooltip={true}
+							bind:state={iframeSandboxAllowForms}
+							on:change={() => {
+								saveSettings({ iframeSandboxAllowForms });
+							}}
+						/>
+					</div>
 				</div>
 			</div>
 
