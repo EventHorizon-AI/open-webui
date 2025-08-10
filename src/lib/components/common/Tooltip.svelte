@@ -5,8 +5,6 @@
 
 	import tippy from 'tippy.js';
 
-	export let elementId = '';
-
 	export let placement = 'top';
 	export let content = `I'm a tooltip!`;
 	export let touch = true;
@@ -20,31 +18,20 @@
 	let tooltipElement;
 	let tooltipInstance;
 
-	$: if (tooltipElement && (content || elementId)) {
-		let tooltipContent = null;
-
-		if (elementId) {
-			tooltipContent = document.getElementById(`${elementId}`);
-		} else {
-			tooltipContent = DOMPurify.sanitize(content);
-		}
-
+	$: if (tooltipElement && content) {
 		if (tooltipInstance) {
-			tooltipInstance.setContent(tooltipContent);
+			tooltipInstance.setContent(DOMPurify.sanitize(content));
 		} else {
-			if (content) {
-				tooltipInstance = tippy(tooltipElement, {
-					content: tooltipContent,
-					placement: placement,
-					allowHTML: allowHTML,
-					touch: touch,
-					...(theme !== '' ? { theme } : { theme: 'dark' }),
-					arrow: false,
-					offset: offset,
-					interactive: interactive,
-					...tippyOptions
-				});
-			}
+			tooltipInstance = tippy(tooltipElement, {
+				content: DOMPurify.sanitize(content),
+				placement: placement,
+				allowHTML: allowHTML,
+				touch: touch,
+				...(theme !== '' ? { theme } : { theme: 'dark' }),
+				arrow: false,
+				offset: offset,
+				...tippyOptions
+			});
 		}
 	} else if (tooltipInstance && content === '') {
 		if (tooltipInstance) {
@@ -62,5 +49,3 @@
 <div bind:this={tooltipElement} class={className}>
 	<slot />
 </div>
-
-<slot name="tooltip"></slot>

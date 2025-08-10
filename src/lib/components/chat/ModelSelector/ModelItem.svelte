@@ -14,8 +14,6 @@
 	import ModelItemMenu from './ModelItemMenu.svelte';
 	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
 	import { toast } from 'svelte-sonner';
-	import Tag from '$lib/components/icons/Tag.svelte';
-	import Label from '$lib/components/icons/Label.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -56,11 +54,9 @@
 		onClick();
 	}}
 >
-	<div class="flex flex-col flex-1 gap-1.5">
-		<!-- {#if (item?.model?.tags ?? []).length > 0}
-			<div
-				class="flex gap-0.5 self-center items-start h-full w-full translate-y-[0.5px] overflow-x-auto scrollbar-none"
-			>
+	<div class="flex flex-col">
+		{#if $mobile && (item?.model?.tags ?? []).length > 0}
+			<div class="flex gap-0.5 self-start h-full mb-1.5 -translate-x-1">
 				{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
 					<div
 						class=" text-xs font-bold px-1 rounded-sm uppercase line-clamp-1 bg-gray-500/20 text-gray-700 dark:text-gray-200"
@@ -69,8 +65,7 @@
 					</div>
 				{/each}
 			</div>
-		{/if} -->
-
+		{/if}
 		<div class="flex items-center gap-2">
 			<div class="flex items-center min-w-fit">
 				<div class="line-clamp-1">
@@ -139,26 +134,6 @@
 			{/if}
 
 			<!-- {JSON.stringify(item.info)} -->
-
-			{#if (item?.model?.tags ?? []).length > 0}
-				{#key item.model.id}
-					<Tooltip elementId="tags-{item.model.id}">
-						<div slot="tooltip" id="tags-{item.model.id}">
-							{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
-								<Tooltip content={tag.name} className="flex-shrink-0">
-									<div class=" text-xs font-semibold rounded-sm uppercase text-white">
-										{tag.name}
-									</div>
-								</Tooltip>
-							{/each}
-						</div>
-
-						<div class="translate-y-[1px]">
-							<Tag />
-						</div>
-					</Tooltip>
-				{/key}
-			{/if}
 
 			{#if item.model?.direct}
 				<Tooltip content={`${$i18n.t('Direct')}`}>
@@ -272,8 +247,7 @@
 			}}
 		>
 			<button
-				aria-label={`${$i18n.t('More Options')}`}
-				class="flex"
+				class="flex items-center"
 				on:click={(e) => {
 					e.preventDefault();
 					e.stopPropagation();
