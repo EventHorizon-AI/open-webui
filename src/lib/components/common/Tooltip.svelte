@@ -22,16 +22,19 @@
 		if (tooltipInstance) {
 			tooltipInstance.setContent(DOMPurify.sanitize(content));
 		} else {
-			tooltipInstance = tippy(tooltipElement, {
-				content: DOMPurify.sanitize(content),
-				placement: placement,
-				allowHTML: allowHTML,
-				touch: touch,
-				...(theme !== '' ? { theme } : { theme: 'dark' }),
-				arrow: false,
-				offset: offset,
-				...tippyOptions
-			});
+			if (content) {
+				tooltipInstance = tippy(tooltipElement, {
+					content: tooltipContent,
+					placement: placement,
+					allowHTML: allowHTML,
+					touch: touch,
+					...(theme !== '' ? { theme } : { theme: 'dark' }),
+					arrow: false,
+					offset: offset,
+					...(interactive ? { interactive: true } : {}),
+					...tippyOptions
+				});
+			}
 		}
 	} else if (tooltipInstance && content === '') {
 		if (tooltipInstance) {
