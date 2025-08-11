@@ -5,6 +5,8 @@
 
 	import tippy from 'tippy.js';
 
+	export let elementId = '';
+
 	export let placement = 'top';
 	export let content = `I'm a tooltip!`;
 	export let touch = true;
@@ -18,9 +20,17 @@
 	let tooltipElement;
 	let tooltipInstance;
 
-	$: if (tooltipElement && content) {
+	$: if (tooltipElement && (content || elementId)) {
+		let tooltipContent = null;
+
+		if (elementId) {
+			tooltipContent = document.getElementById(`${elementId}`);
+		} else {
+			tooltipContent = DOMPurify.sanitize(content);
+		}
+
 		if (tooltipInstance) {
-			tooltipInstance.setContent(DOMPurify.sanitize(content));
+			tooltipInstance.setContent(tooltipContent);
 		} else {
 			if (content) {
 				tooltipInstance = tippy(tooltipElement, {
@@ -52,3 +62,5 @@
 <div bind:this={tooltipElement} class={className}>
 	<slot />
 </div>
+
+<slot name="tooltip"></slot>
