@@ -57,7 +57,7 @@
 									<EllipsisHorizontal />
 								{/if}
 							{:else}
-								<Spinner className="size-3" />
+								<Spinner className="size-4" />
 							{/if}
 						</div>
 						<div
@@ -109,7 +109,7 @@
 													<EllipsisHorizontal />
 												{/if}
 											{:else}
-												<Spinner className="size-3" />
+												<Spinner className="size-4" />
 											{/if}
 										</div>
 										<div class="flex-1 mx-1 truncate">
@@ -155,7 +155,7 @@
 											<EllipsisHorizontal />
 										{/if}
 									{:else}
-										<Spinner className="size-3" />
+										<Spinner className="size-4" />
 									{/if}
 								</div>
 								<div class="flex-1 mx-1 truncate">
