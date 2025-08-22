@@ -45,7 +45,9 @@
 							showCodeExecutionModal = true;
 						}}
 					>
-						<div class="bg-gray-50 dark:bg-gray-800 rounded-full size-4 flex items-center justify-center">
+						<div
+							class="bg-gray-50 dark:bg-gray-800 rounded-full size-4 flex items-center justify-center"
+						>
 							{#if execution?.result}
 								{#if execution.result?.error}
 									<XMark />
@@ -58,7 +60,11 @@
 								<Spinner className="size-3" />
 							{/if}
 						</div>
-						<div class="flex-1 mx-1 truncate text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white transition {execution?.result ? '' : 'pulse'}">
+						<div
+							class="flex-1 mx-1 truncate text-black/60 hover:text-black dark:text-white/60 dark:hover:text-white transition {execution?.result
+								? ''
+								: 'pulse'}"
+						>
 							{execution.name}
 						</div>
 					</button>
@@ -74,7 +80,9 @@
 				<div
 					class="flex w-full overflow-auto items-center gap-2 text-gray-500 hover:text-gray-600 dark:hover:text-gray-400 transition cursor-pointer"
 				>
-					<div class="flex-1 flex items-center gap-1 overflow-auto scrollbar-none w-full max-w-full">
+					<div
+						class="flex-1 flex items-center gap-1 overflow-auto scrollbar-none w-full max-w-full"
+					>
 						<span class="whitespace-nowrap hidden sm:inline shrink-0"
 							>{$i18n.t('Code Execution')}</span
 						>
@@ -89,7 +97,9 @@
 										}}
 										on:pointerup={(e) => e.stopPropagation()}
 									>
-										<div class="bg-gray-50 dark:bg-gray-800 rounded-full size-4 flex items-center justify-center">
+										<div
+											class="bg-gray-50 dark:bg-gray-800 rounded-full size-4 flex items-center justify-center"
+										>
 											{#if execution?.result}
 												{#if execution.result?.error}
 													<XMark />
@@ -133,7 +143,9 @@
 									showCodeExecutionModal = true;
 								}}
 							>
-								<div class="bg-gray-50 dark:bg-gray-800 rounded-full size-4 flex items-center justify-center">
+								<div
+									class="bg-gray-50 dark:bg-gray-800 rounded-full size-4 flex items-center justify-center"
+								>
 									{#if execution?.result}
 										{#if execution.result?.error}
 											<XMark />
