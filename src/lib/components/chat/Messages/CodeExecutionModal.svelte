@@ -77,13 +77,13 @@
 						{#if codeExecution?.result?.error}
 							<div>
 								<div class=" text-gray-500 text-xs mb-1">{$i18n.t('ERROR')}</div>
-								<div class="text-sm">{codeExecution?.result?.error}</div>
+								<pre class="text-sm font-mono whitespace-pre-wrap">{codeExecution?.result?.error}</pre>
 							</div>
 						{/if}
 						{#if codeExecution?.result?.output}
 							<div>
 								<div class=" text-gray-500 text-xs mb-1">{$i18n.t('OUTPUT')}</div>
-								<div class="text-sm">{codeExecution?.result?.output}</div>
+								<pre class="text-sm font-mono whitespace-pre-wrap">{codeExecution?.result?.output}</pre>
 							</div>
 						{/if}
 					</div>
