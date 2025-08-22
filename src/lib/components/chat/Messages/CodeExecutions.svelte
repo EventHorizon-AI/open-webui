@@ -39,7 +39,7 @@
 			<div class="flex text-xs font-medium flex-wrap">
 				{#each codeExecutions as execution, idx (execution.id)}
 					<button
-						class="no-toggle outline-hidden flex dark:text-gray-300 p-1 bg-white hover:bg-gray-100 dark:bg-gray-900 dark:hover:bg-gray-850 transition rounded-xl max-w-96"
+						class="no-toggle outline-hidden flex dark:text-gray-300 p-1 bg-white dark:bg-gray-900 rounded-xl max-w-96"
 						on:click={() => {
 							selectedCodeExecution = execution;
 							showCodeExecutionModal = true;
