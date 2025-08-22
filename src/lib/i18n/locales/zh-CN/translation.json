@@ -1371,7 +1371,7 @@
 	"Stop Generating": "停止生成",
 	"Stop Sequence": "停止序列 (Stop Sequence)",
 	"Stream Chat Response": "流式对话响应 (Stream Chat Response)",
-	"Stream Delta Chunk Size": "流式增量输出的分块大小（Stream Delta Chunk Size）",
+	"Stream Delta Chunk Size": "流式输出分块大小 (Stream Delta Chunk Size)",
 	"Strikethrough": "删除线",
 	"Strip Existing OCR": "清除现有 OCR 文本",
 	"Strip existing OCR text from the PDF and re-run OCR. Ignored if Force OCR is enabled. Defaults to False.": "清除 PDF 中现有的 OCR 文本并重新执行 OCR 识别。若启用 “强制 OCR 识别” 则此设置无效。默认为关闭",
