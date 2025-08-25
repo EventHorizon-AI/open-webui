@@ -1366,7 +1366,7 @@
 	"Speech-to-Text": "语音转文本",
 	"Speech-to-Text Engine": "语音转文本引擎",
 	"Start of the channel": "频道起点",
-	"STDOUT/STDERR": "标准输出/标准错误",
+	"STDOUT/STDERR": "STDOUT/STDERR",
 	"Stop": "停止",
 	"Stop Generating": "停止生成",
 	"Stop Sequence": "停止序列 (Stop Sequence)",
