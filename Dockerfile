@@ -3,6 +3,7 @@
 # use build args in the docker build command with --build-arg="BUILDARG=true"
 ARG USE_CUDA=false
 ARG USE_OLLAMA=false
+ARG USE_SLIM=false
 # Tested with cu117 for CUDA 11 and cu121 for CUDA 12 (default)
 ARG USE_CUDA_VER=cu128
 # any sentence transformer model; models to use can be found at https://huggingface.co/models?library=sentence-transformers
@@ -44,6 +45,7 @@ FROM python:3.11-slim-bookworm AS base
 ARG USE_CUDA
 ARG USE_OLLAMA
 ARG USE_CUDA_VER
+ARG USE_SLIM
 ARG USE_EMBEDDING_MODEL
 ARG USE_RERANKING_MODEL
 ARG UID
@@ -55,6 +57,7 @@ ENV ENV=prod \
     # pass build args to the build
     USE_OLLAMA_DOCKER=${USE_OLLAMA} \
     USE_CUDA_DOCKER=${USE_CUDA} \
+    USE_SLIM_DOCKER=${USE_SLIM} \
     USE_CUDA_DOCKER_VER=${USE_CUDA_VER} \
     USE_EMBEDDING_MODEL_DOCKER=${USE_EMBEDDING_MODEL} \
     USE_RERANKING_MODEL_DOCKER=${USE_RERANKING_MODEL}
@@ -121,6 +124,7 @@ RUN apt-get update && \
 COPY --chown=$UID:$GID ./backend/requirements.txt ./requirements.txt
 
 RUN pip3 install --no-cache-dir uv && \
+    if [ "$USE_SLIM" != "true" ]; then \
     if [ "$USE_CUDA" = "true" ]; then \
     # If you use CUDA the whisper and embedding model will be downloaded on first use
     pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/$USE_CUDA_DOCKER_VER --no-cache-dir && \
@@ -135,7 +139,10 @@ RUN pip3 install --no-cache-dir uv && \
     python -c "import os; from faster_whisper import WhisperModel; WhisperModel(os.environ['WHISPER_MODEL'], device='cpu', compute_type='int8', download_root=os.environ['WHISPER_MODEL_DIR'])"; \
     python -c "import os; import tiktoken; tiktoken.get_encoding(os.environ['TIKTOKEN_ENCODING_NAME'])"; \
     fi; \
-    chown -R $UID:$GID /app/backend/data/
+    else \
+    uv pip install --system -r requirements.txt --no-cache-dir; \
+    fi; \
+    mkdir -p /app/backend/data && chown -R $UID:$GID /app/backend/data/
     
 RUN curl -L -o /tmp/runsc "https://storage.googleapis.com/gvisor/releases/release/20250407/$(uname -m)/runsc" && \
     curl -L -o /tmp/runsc.sha512 "https://storage.googleapis.com/gvisor/releases/release/20250407/$(uname -m)/runsc.sha512" && \
@@ -143,7 +150,7 @@ RUN curl -L -o /tmp/runsc "https://storage.googleapis.com/gvisor/releases/releas
     chmod 555 /tmp/runsc && rm /tmp/runsc.sha512 && mv /tmp/runsc /usr/bin/runsc
 
 # Install Ollama if requested
-RUN if [ "$USE_OLLAMA" = "true" ]; then \
+RUN if [ "$USE_OLLAMA" = "true" ] && [ "$USE_SLIM" != "true" ]; then \
     date +%s > /tmp/ollama_build_hash && \
     echo "Cache broken at timestamp: `cat /tmp/ollama_build_hash`" && \
     curl -fsSL https://ollama.com/install.sh | sh && \
