@@ -31,7 +31,7 @@
 			</div>
 
 			{#if idx < followUps.length - 1}
-				<hr class="border-gray-100 dark:border-gray-850" />
+				<hr class="border-gray-50 dark:border-gray-850" />
 			{/if}
 		{/each}
 	</div>
