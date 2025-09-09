@@ -68,9 +68,7 @@
 									class="absolute w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-700 opacity-75 animate-ping"
 								></span>
 							{/if}
-							<span
-								class="relative w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"
-							></span>
+							<span class="relative w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></span>
 						</span>
 					</div>
 					<StatusItem {status} />
