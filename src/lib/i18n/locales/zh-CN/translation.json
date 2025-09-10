@@ -177,7 +177,7 @@
 	"Banners": "公告横幅",
 	"Base Model (From)": "基础模型（来自）",
 	"Base Model List Cache speeds up access by fetching base models only at startup or on settings save—faster, but may not show recent base model changes.": "仅在启动或保存设置时获取基础模型列表以提升访问速度，但显示的模型列表可能不是最新的。",
-	"Bearer": "密钥（Bearer）",
+	"Bearer": "Bearer",
 	"before": "之前",
 	"Being lazy": "回答不完整或敷衍了事",
 	"Beta": "Beta",
