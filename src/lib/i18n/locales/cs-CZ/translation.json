@@ -732,7 +732,6 @@
 	"Folder name cannot be empty.": "Název složky nesmí být prázdný.",
 	"Folder name updated successfully": "Název složky byl úspěšně aktualizován.",
 	"Folder updated successfully": "Složka byla úspěšně aktualizována",
-	"Folders": "",
 	"Follow up": "Následná otázka",
 	"Follow Up Generation": "Generování následných otázek",
 	"Follow Up Generation Prompt": "Pokyn pro generování následných instrukcí",
