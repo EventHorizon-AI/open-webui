@@ -382,13 +382,13 @@
 
 <div>
 	<div
-		class="relative {className} flex flex-col rounded-3xl border border-gray-100 dark:border-gray-850 my-0.5"
+		class="relative {className} flex flex-col rounded-xl border border-gray-100 dark:border-gray-850 my-0.5"
 		dir="ltr"
 	>
 		{#if lang === 'mermaid'}
 			{#if mermaidHtml}
 				<SvgPanZoom
-					className=" rounded-3xl max-h-fit overflow-hidden"
+					className=" rounded-xl max-h-fit overflow-hidden"
 					svg={mermaidHtml}
 					content={_token.text}
 				/>
@@ -470,11 +470,11 @@
 			</div>
 
 			<div
-				class="language-{lang} rounded-t-3xl -mt-9 {editorClassName
+				class="language-{lang} rounded-t-xl -mt-9 {editorClassName
 					? editorClassName
 					: executing || stdout || stderr || result
 						? ''
-						: 'rounded-b-3xl'} overflow-hidden"
+						: 'rounded-b-xl'} overflow-hidden"
 			>
 				<div class=" pt-8 bg-white dark:bg-black"></div>
 
@@ -508,7 +508,7 @@
 					{/if}
 				{:else}
 					<div
-						class="bg-white dark:bg-black dark:text-white rounded-b-3xl! pt-0.5 pb-3 px-4 flex flex-col gap-2 text-xs"
+						class="bg-white dark:bg-black dark:text-white rounded-b-xl! pt-0.5 pb-3 px-4 flex flex-col gap-2 text-xs"
 					>
 						<span class="text-gray-500 italic">
 							{$i18n.t('{{COUNT}} hidden lines', {
@@ -527,7 +527,7 @@
 
 				{#if executing || stdout || stderr || result || files}
 					<div
-						class="bg-gray-50 dark:bg-black dark:text-white rounded-b-3xl! py-4 px-4 flex flex-col gap-2"
+						class="bg-gray-50 dark:bg-black dark:text-white rounded-b-xl! py-4 px-4 flex flex-col gap-2"
 					>
 						{#if executing}
 							<div class=" ">
