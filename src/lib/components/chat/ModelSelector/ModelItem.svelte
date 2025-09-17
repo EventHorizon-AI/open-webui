@@ -44,7 +44,7 @@
 <button
 	aria-roledescription="model-item"
 	aria-label={item.label}
-	class="flex group/item w-full text-left font-medium line-clamp-1 select-none items-center rounded-button py-2 pl-3 pr-1.5 text-sm text-gray-700 dark:text-gray-100 outline-hidden transition-all duration-75 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg cursor-pointer data-highlighted:bg-muted {index ===
+	class="flex group/item w-full text-left font-medium line-clamp-1 select-none items-center rounded-button py-2 pl-3 pr-1.5 text-sm text-gray-700 dark:text-gray-100 outline-hidden transition-all duration-75 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-xl cursor-pointer data-highlighted:bg-muted {index ===
 	selectedModelIdx
 		? 'bg-gray-100 dark:bg-gray-800 group-hover:bg-transparent'
 		: ''}"
@@ -134,6 +134,24 @@
 			{/if}
 
 			<!-- {JSON.stringify(item.info)} -->
+
+			{#if (item?.model?.tags ?? []).length > 0}
+				{#key item.model.id}
+					<Tooltip elementId="tags-{item.model.id}">
+						<div slot="tooltip" id="tags-{item.model.id}">
+							{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
+								<Tooltip content={tag.name} className="flex-shrink-0">
+									<div class=" text-xs font-medium rounded-sm uppercase text-white">
+										{tag.name}
+									</div>
+								</Tooltip>
+							{/each}
+						</div>
+
+						<div class="translate-y-[1px]"></div>
+					</Tooltip>
+				{/key}
+			{/if}
 
 			{#if item.model?.direct}
 				<Tooltip content={`${$i18n.t('Direct')}`}>
