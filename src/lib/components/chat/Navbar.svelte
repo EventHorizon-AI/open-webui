@@ -211,7 +211,7 @@
 								aria-label="Controls"
 							>
 								<div class=" m-auto self-center">
-									<Knobs className=" size-5" strokeWidth="1" />
+									<AdjustmentsHorizontal className=" size-5" strokeWidth="1" />
 								</div>
 							</button>
 						</Tooltip>
