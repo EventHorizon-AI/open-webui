@@ -1547,16 +1547,10 @@
 																: 'bg-transparent text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 '} capitalize"
 														>
 															{#if filter?.icon}
-																<div class="size-4 items-center flex justify-center">
-																	<img
-																		src={filter.icon}
-																		class="size-3.5 {filter.icon.includes('svg')
-																			? 'dark:invert-[80%]'
-																			: ''}"
-																		style="fill: currentColor;"
-																		alt={filter.name}
-																	/>
-																</div>
+																<div
+																	class="size-4 flex items-center justify-center bg-current"
+																	style="mask: url('{filter.icon}') no-repeat center / contain; -webkit-mask: url('{filter.icon}') no-repeat center / contain;"
+																></div>
 															{:else}
 																<Sparkles className="size-4" strokeWidth="1.75" />
 															{/if}
