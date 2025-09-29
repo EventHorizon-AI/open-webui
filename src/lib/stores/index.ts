@@ -76,10 +76,12 @@ export const showChangelog = writable(false);
 export const unfoldBeforeCompletion = writable(false);
 
 export const showControls = writable(false);
+export const showEmbeds = writable(false);
 export const showOverview = writable(false);
 export const showArtifacts = writable(false);
 export const showCallOverlay = writable(false);
 
+export const embed = writable(null);
 export const artifactCode = writable(null);
 
 export const temporaryChatEnabled = writable(false);
@@ -185,6 +187,7 @@ type Settings = {
 	notificationEnabled?: boolean;
 	highContrastMode?: boolean;
 	title?: TitleSettings;
+	showChatTitleInTab?: boolean;
 	splitLargeDeltas?: boolean;
 	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;

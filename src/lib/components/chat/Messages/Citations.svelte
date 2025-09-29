@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
-	import CitationsModal from '$lib/components/chat/Messages/Citations/CitationsModal.svelte';
+	import CitationModal from './Citations/CitationModal.svelte';
+	import { embed, showControls, showEmbeds } from '$lib/stores';
+	import CitationsModal from './Citations/CitationsModal.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -19,8 +21,8 @@
 	export const showSourceModal = (sourceIdx) => {
 		if (citations[sourceIdx]) {
 			console.log('Showing citation modal for:', citations[sourceIdx]);
-			citationModal?.showCitation(citations[sourceIdx]);
-			// showCitationModal = true;
+			selectedCitation = citations[sourceIdx];
+			showCitationModal = true;
 		}
 	};
 
