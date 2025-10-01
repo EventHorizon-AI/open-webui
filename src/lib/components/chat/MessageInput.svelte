@@ -1706,7 +1706,7 @@
 												<!-- {$i18n.t('Call')} -->
 												<Tooltip content={$i18n.t('Voice mode')}>
 													<button
-														class=" bg-black text-white hover:bg-gray-900 dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full p-1.5 self-center"
+														class=" bg-gray-100/50 text-white hover:bg-gray-100 dark:bg-gray-800/50 dark:text-black dark:hover:bg-gray-800 transition rounded-full p-1.5 self-center"
 														type="button"
 														on:click={async () => {
 															if (selectedModels.length > 1) {
@@ -1760,7 +1760,10 @@
 														}}
 														aria-label={$i18n.t('Voice mode')}
 													>
-														<Voice className="size-5" strokeWidth="2.5" />
+														<Voice
+															className="size-5 text-black dark:text-white"
+															strokeWidth="0.5"
+														/>
 													</button>
 												</Tooltip>
 											</div>

@@ -7,17 +7,11 @@
 	aria-hidden="true"
 	xmlns="http://www.w3.org/2000/svg"
 	fill="currentColor"
-	viewBox="0 0 24 24"
+	viewBox="0 0 20 20"
 	stroke-width={strokeWidth}
 	stroke="currentColor"
 	class={className}
-	><path d="M12 4L12 20" stroke-linecap="round" stroke-linejoin="round"></path><path
-		d="M8 9L8 15"
-		stroke-linecap="round"
-		stroke-linejoin="round"
-	></path><path d="M20 10L20 14" stroke-linecap="round" stroke-linejoin="round"></path><path
-		d="M4 10L4 14"
-		stroke-linecap="round"
-		stroke-linejoin="round"
-	></path><path d="M16 7L16 17" stroke-linecap="round" stroke-linejoin="round"></path></svg
+	><path
+		d="M7.167 15.416V4.583a.75.75 0 0 1 1.5 0v10.833a.75.75 0 0 1-1.5 0Zm4.166-2.5V7.083a.75.75 0 0 1 1.5 0v5.833a.75.75 0 0 1-1.5 0ZM3 11.25V8.75a.75.75 0 0 1 1.5 0v2.5a.75.75 0 0 1-1.5 0Zm12.5 0V8.75a.75.75 0 0 1 1.5 0v2.5a.75.75 0 0 1-1.5 0Z"
+	></path></svg
 >
