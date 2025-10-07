@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Ingen grupper med tilgang. Legg til en gruppe som skal ha tilgang.",
 	"No HTML, CSS, or JavaScript content found.": "Finner ikke noe HTML, CSS- eller JavaScript-innhold.",
 	"No inference engine with management support found": "Fant ingen konklusjonsmotor med støtte for administrasjon",
+	"No knowledge bases found": "",
 	"No knowledge found": "Finner ingen kunnskaper",
 	"No memories to clear": "",
 	"No model IDs": "Ingen modell-ID-er",

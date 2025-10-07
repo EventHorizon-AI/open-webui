@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Ruxsat berilgan guruhlar yo‘q, ruxsat berish uchun guruh qo‘shing",
 	"No HTML, CSS, or JavaScript content found.": "HTML, CSS yoki JavaScript kontenti topilmadi.",
 	"No inference engine with management support found": "Boshqaruv yordami bilan xulosa chiqarish mexanizmi topilmadi",
+	"No knowledge bases found": "",
 	"No knowledge found": "Hech qanday bilim topilmadi",
 	"No memories to clear": "Tozalash uchun xotiralar yo'q",
 	"No model IDs": "Model identifikatorlari yo'q",

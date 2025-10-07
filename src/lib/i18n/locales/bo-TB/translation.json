@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "འཛུལ་སྤྱོད་ཡོད་པའི་ཚོགས་པ་མེད། འཛུལ་སྤྱོད་སྤྲོད་པར་ཚོགས་པ་ཞིག་སྣོན་པ།",
 	"No HTML, CSS, or JavaScript content found.": "HTML, CSS, ཡང་ན་ JavaScript གི་ནང་དོན་མ་རྙེད།",
 	"No inference engine with management support found": "དོ་དམ་རྒྱབ་སྐྱོར་ཡོད་པའི་དཔོག་རྩིས་འཕྲུལ་འཁོར་མ་རྙེད།",
+	"No knowledge bases found": "",
 	"No knowledge found": "ཤེས་བྱ་མ་རྙེད།",
 	"No memories to clear": "གཙང་སེལ་བྱེད་རྒྱུའི་དྲན་ཤེས་མེད།",
 	"No model IDs": "དཔེ་དབྱིབས་ཀྱི་ ID མེད།",

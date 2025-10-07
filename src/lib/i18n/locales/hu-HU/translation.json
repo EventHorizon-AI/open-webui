@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Nincs hozzáféréssel rendelkező csoport, adj hozzá egy csoportot a hozzáférés megadásához",
 	"No HTML, CSS, or JavaScript content found.": "Nem található HTML, CSS vagy JavaScript tartalom.",
 	"No inference engine with management support found": "Nem található kezelést támogató következtetési motor",
+	"No knowledge bases found": "",
 	"No knowledge found": "Nem található tudásbázis",
 	"No memories to clear": "Nincs törlendő memória",
 	"No model IDs": "Nincs modell azonosító",

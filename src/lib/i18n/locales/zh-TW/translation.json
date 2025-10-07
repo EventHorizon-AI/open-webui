@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "沒有具有存取權限的群組，新增群組以授予存取權限",
 	"No HTML, CSS, or JavaScript content found.": "未找到 HTML、CSS 或 JavaScript 內容。",
 	"No inference engine with management support found": "未找到支援管理功能的推理引擎",
+	"No knowledge bases found": "",
 	"No knowledge found": "未找到知識",
 	"No memories to clear": "沒有記憶可清除",
 	"No model IDs": "沒有模型 ID",

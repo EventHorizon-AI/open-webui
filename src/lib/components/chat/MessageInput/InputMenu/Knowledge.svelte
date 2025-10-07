@@ -107,55 +107,59 @@
 </script>
 
 {#if loaded}
-	<div class="flex flex-col gap-0.5">
-		{#each items as item, idx}
-			<button
-				class=" px-2.5 py-1 rounded-xl w-full text-left flex justify-between items-center text-sm {idx ===
-				selectedIdx
-					? ' bg-gray-50 dark:bg-gray-800/50 dark:text-gray-100 selected-command-option-button'
-					: ''}"
-				type="button"
-				on:click={() => {
-					console.log(item);
-					onSelect(item);
-				}}
-				on:mousemove={() => {
-					selectedIdx = idx;
-				}}
-				on:mouseleave={() => {
-					if (idx === 0) {
-						selectedIdx = -1;
-					}
-				}}
-				data-selected={idx === selectedIdx}
-			>
-				<div class="  text-black dark:text-gray-100 flex items-center gap-1">
-					<Tooltip
-						content={item?.legacy
-							? $i18n.t('Legacy')
-							: item?.type === 'file'
-								? $i18n.t('File')
-								: item?.type === 'collection'
-									? $i18n.t('Collection')
-									: ''}
-						placement="top"
-					>
-						{#if item?.type === 'collection'}
-							<Database className="size-4" />
-						{:else}
-							<DocumentPage className="size-4" />
-						{/if}
-					</Tooltip>
+	{#if items.length === 0}
+		<div class="text-center text-xs text-gray-500 py-3">{ $i18n.t('No knowledge bases found') }</div>
+	{:else}
+		<div class="flex flex-col gap-0.5">
+			{#each items as item, idx}
+				<button
+					class=" px-2.5 py-1 rounded-xl w-full text-left flex justify-between items-center text-sm {idx ===
+					selectedIdx
+						? ' bg-gray-50 dark:bg-gray-800/50 dark:text-gray-100 selected-command-option-button'
+						: ''}"
+					type="button"
+					on:click={() => {
+						console.log(item);
+						onSelect(item);
+					}}
+					on:mousemove={() => {
+						selectedIdx = idx;
+					}}
+					on:mouseleave={() => {
+						if (idx === 0) {
+							selectedIdx = -1;
+						}
+					}}
+					data-selected={idx === selectedIdx}
+				>
+					<div class="  text-black dark:text-gray-100 flex items-center gap-1">
+						<Tooltip
+							content={item?.legacy
+								? $i18n.t('Legacy')
+								: item?.type === 'file'
+									? $i18n.t('File')
+									: item?.type === 'collection'
+										? $i18n.t('Collection')
+										: ''}
+							placement="top"
+						>
+							{#if item?.type === 'collection'}
+								<Database className="size-4" />
+							{:else}
+								<DocumentPage className="size-4" />
+							{/if}
+						</Tooltip>
 
-					<Tooltip content={item.description || decodeString(item?.name)} placement="top-start">
-						<div class="line-clamp-1 flex-1">
-							{decodeString(item?.name)}
-						</div>
-					</Tooltip>
-				</div>
-			</button>
-		{/each}
-	</div>
+						<Tooltip content={item.description || decodeString(item?.name)} placement="top-start">
+							<div class="line-clamp-1 flex-1">
+								{decodeString(item?.name)}
+							</div>
+						</Tooltip>
+					</div>
+				</button>
+			{/each}
+		</div>
+	{/if}
 {:else}
 	<div class="py-4.5">
 		<Spinner />

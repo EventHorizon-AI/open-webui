@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "No hi ha cap grup amb accés, afegeix un grup per concedir accés",
 	"No HTML, CSS, or JavaScript content found.": "No s'ha trobat contingut HTML, CSS o JavaScript.",
 	"No inference engine with management support found": "No s'ha trobat un motor d'inferència amb suport de gestió",
+	"No knowledge bases found": "",
 	"No knowledge found": "No s'ha trobat Coneixement",
 	"No memories to clear": "No hi ha memòries per netejar",
 	"No model IDs": "No hi ha IDs de model",

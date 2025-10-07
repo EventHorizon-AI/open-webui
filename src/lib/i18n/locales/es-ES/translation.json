@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "No hay grupos con acceso, añade un grupo para otorgar acceso",
 	"No HTML, CSS, or JavaScript content found.": "No se encontró contenido HTML, CSS, o JavaScript.",
 	"No inference engine with management support found": "No se encontró un motor de inferencia que soporte gestión",
+	"No knowledge bases found": "",
 	"No knowledge found": "No se encontró ningún conocimiento",
 	"No memories to clear": "No hay memorias para borrar",
 	"No model IDs": "No hay IDs de modelo",

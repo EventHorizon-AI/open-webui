@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Puuduvad juurdepääsuõigustega grupid, lisage grupp juurdepääsu andmiseks",
 	"No HTML, CSS, or JavaScript content found.": "HTML, CSS ega JavaScript sisu ei leitud.",
 	"No inference engine with management support found": "Järeldusmootorit haldamise toega ei leitud",
+	"No knowledge bases found": "",
 	"No knowledge found": "Teadmisi ei leitud",
 	"No memories to clear": "Pole mälestusi, mida kustutada",
 	"No model IDs": "Mudeli ID-d puuduvad",

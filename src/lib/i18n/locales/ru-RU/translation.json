@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Нет групп с доступом, добавьте группу для предоставления доступа",
 	"No HTML, CSS, or JavaScript content found.": "Содержимое в формате HTML, CSS или JavaScript не найдено.",
 	"No inference engine with management support found": "Механизм логического вывода с поддержкой управления не найден",
+	"No knowledge bases found": "",
 	"No knowledge found": "Знания не найдены",
 	"No memories to clear": "Нет воспоминаний, которые нужно было бы очистить",
 	"No model IDs": "Нет ID модели",

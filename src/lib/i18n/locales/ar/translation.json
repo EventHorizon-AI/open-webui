@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "لا توجد مجموعات لها حق الوصول، أضف مجموعة لمنح الوصول",
 	"No HTML, CSS, or JavaScript content found.": "لم يتم العثور على محتوى HTML أو CSS أو JavaScript.",
 	"No inference engine with management support found": "لم يتم العثور على محرك استدلال يدعم الإدارة",
+	"No knowledge bases found": "",
 	"No knowledge found": "لم يتم العثور على معرفة",
 	"No memories to clear": "لا توجد ذاكرة لمسحها",
 	"No model IDs": "لا توجد معرّفات نماذج",

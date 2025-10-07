@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "هیچ گروهی با دسترسی وجود ندارد، یک گروه برای اعطای دسترسی اضافه کنید",
 	"No HTML, CSS, or JavaScript content found.": "محتوای HTML، CSS یا JavaScript یافت نشد.",
 	"No inference engine with management support found": "موتور استنتاج با پشتیبانی مدیریت یافت نشد",
+	"No knowledge bases found": "",
 	"No knowledge found": "دانشی یافت نشد",
 	"No memories to clear": "حافظه\u200cای برای پاک کردن وجود ندارد",
 	"No model IDs": "شناسه مدلی وجود ندارد",

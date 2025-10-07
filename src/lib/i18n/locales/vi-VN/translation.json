@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Không có nhóm nào có quyền truy cập, hãy thêm một nhóm để cấp quyền truy cập",
 	"No HTML, CSS, or JavaScript content found.": "Không tìm thấy nội dung HTML, CSS hoặc JavaScript.",
 	"No inference engine with management support found": "Không tìm thấy engine suy luận nào có hỗ trợ quản lý",
+	"No knowledge bases found": "",
 	"No knowledge found": "Không tìm thấy kiến thức",
 	"No memories to clear": "Không có bộ nhớ nào để xóa",
 	"No model IDs": "Không có ID mô hình",

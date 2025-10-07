@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Žádné skupiny s přístupem, přidejte skupinu pro udělení přístupu",
 	"No HTML, CSS, or JavaScript content found.": "Nebyl nalezen žádný obsah HTML, CSS ani JavaScriptu.",
 	"No inference engine with management support found": "Nebyl nalezeno žádné inferenční jádro s podporou správy",
+	"No knowledge bases found": "",
 	"No knowledge found": "Nebyly nalezeny žádné znalosti",
 	"No memories to clear": "Žádné vzpomínky k vymazání",
 	"No model IDs": "Žádná ID modelů",

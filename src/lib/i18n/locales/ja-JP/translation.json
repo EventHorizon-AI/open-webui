@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "アクセス権限があるグループがありません。グループを追加してアクセス権限を付与してください。",
 	"No HTML, CSS, or JavaScript content found.": "HTML、CSS、またはJavaScriptの内容が見つかりません。",
 	"No inference engine with management support found": "管理サポートのある推論エンジンが見つかりません。",
+	"No knowledge bases found": "",
 	"No knowledge found": "ナレッジベースが見つかりません",
 	"No memories to clear": "クリアするメモリがありません",
 	"No model IDs": "モデルIDがありません",

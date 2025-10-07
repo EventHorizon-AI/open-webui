@@ -1053,6 +1053,7 @@
 	"No groups with access, add a group to grant access": "Немає груп з доступом, додайте групу для надання доступу",
 	"No HTML, CSS, or JavaScript content found.": "HTML, CSS або JavaScript контент не знайдено.",
 	"No inference engine with management support found": "Не знайдено двигуна висновків з підтримкою керування",
+	"No knowledge bases found": "",
 	"No knowledge found": "Знання не знайдено.",
 	"No memories to clear": "Немає спогадів для очищення",
 	"No model IDs": "Немає ID моделей",
