@@ -69,15 +69,11 @@
 		}
 	};
 
-	const init = async () => {
+	onMount(async () => {
 		if ($knowledge === null) {
 			await knowledge.set(await getKnowledgeBases(localStorage.token));
 		}
-	};
-
-	$: if (show) {
-		init();
-	}
+	});
 
 	const onSelect = (item) => {
 		if (files.find((f) => f.id === item.id)) {
