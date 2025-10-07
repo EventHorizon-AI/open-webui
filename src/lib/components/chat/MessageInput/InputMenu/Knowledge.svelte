@@ -108,7 +108,7 @@
 
 {#if loaded}
 	{#if items.length === 0}
-		<div class="text-center text-xs text-gray-500 py-3">{ $i18n.t('No knowledge bases found') }</div>
+		<div class="text-center text-xs text-gray-500 py-3">{$i18n.t('No knowledge bases found')}</div>
 	{:else}
 		<div class="flex flex-col gap-0.5">
 			{#each items as item, idx}
