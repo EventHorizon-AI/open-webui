@@ -335,15 +335,24 @@
 				mermaidHtml = null;
 			}
 		} else if (
-			(lang === 'vega' || lang === 'vega-lite') &&
+			(lang === 'json' || lang === 'vega' || lang === 'vega-lite') &&
 			(token?.raw ?? '').slice(-4).includes('```')
 		) {
 			try {
-				vegaHtml = await renderVegaVisualization(code);
+				const parsed = JSON.parse(code);
+
+				if (parsed?.$schema?.includes('vega')) {
+					try {
+						vegaHtml = await renderVegaVisualization(parsed);
+					} catch (error) {
+						console.error('Failed to render Vega visualization:', error);
+						const errorMsg = error instanceof Error ? error.message : String(error);
+						toast.error($i18n.t('Failed to render diagram') + `: ${errorMsg}`);
+						vegaHtml = null;
+					}
+				}
 			} catch (error) {
-				console.error('Failed to render Vega visualization:', error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
-				toast.error($i18n.t('Failed to render diagram') + `: ${errorMsg}`);
+				console.error('Failed to parse JSON for Vega visualization:', error);
 				vegaHtml = null;
 			}
 		}
@@ -407,26 +416,18 @@
 		class="relative {className} flex flex-col rounded-xl border border-gray-100 dark:border-gray-850 my-0.5"
 		dir="ltr"
 	>
-		{#if lang === 'mermaid'}
-			{#if mermaidHtml}
-				<SvgPanZoom
-					className=" rounded-xl max-h-fit overflow-hidden"
-					svg={mermaidHtml}
-					content={_token.text}
-				/>
-			{:else}
-				<pre class="mermaid">{code}</pre>
-			{/if}
-		{:else if lang === 'vega' || lang === 'vega-lite'}
-			{#if vegaHtml}
-				<SvgPanZoom
-					className="rounded-3xl max-h-fit overflow-hidden"
-					svg={vegaHtml}
-					content={_token.text}
-				/>
-			{:else}
-				<pre class="vega">{code}</pre>
-			{/if}
+		{#if vegaHtml}
+			<SvgPanZoom
+				className="rounded-3xl max-h-fit overflow-hidden"
+				svg={vegaHtml}
+				content={_token.text}
+			/>
+		{:else if mermaidHtml}
+			<SvgPanZoom
+				className="rounded-xl max-h-fit overflow-hidden"
+				svg={mermaidHtml}
+				content={_token.text}
+			/>
 		{:else}
 			<div
 				class="absolute left-0 right-0 py-2.5 pr-3 text-text-300 pl-4.5 text-xs font-medium dark:text-white"
