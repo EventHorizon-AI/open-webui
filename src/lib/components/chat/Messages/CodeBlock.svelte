@@ -352,7 +352,6 @@
 					}
 				}
 			} catch (error) {
-				console.error('Failed to parse JSON for Vega visualization:', error);
 				vegaHtml = null;
 			}
 		}
