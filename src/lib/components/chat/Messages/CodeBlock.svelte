@@ -351,7 +351,7 @@
 						vegaHtml = null;
 					}
 				}
-			} catch (error) {
+			} catch {
 				vegaHtml = null;
 			}
 		}
