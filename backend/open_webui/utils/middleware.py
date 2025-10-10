@@ -2814,6 +2814,14 @@ async def process_chat_response(
                             ],
                         }
 
+                        new_form_data, flags = await process_filter_functions(
+                            request=request,
+                            filter_functions=filter_functions,
+                            filter_type="inlet",
+                            form_data=new_form_data,
+                            extra_params=extra_params,
+                        )
+
                         res = await generate_chat_completion(
                             request,
                             new_form_data,
