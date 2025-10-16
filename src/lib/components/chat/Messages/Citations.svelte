@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
 	import CitationsModal from './Citations/CitationsModal.svelte';
+	import { embed, showControls, showEmbeds } from '$lib/stores';
 
 	const i18n = getContext('i18n');
 
