@@ -37,12 +37,10 @@
 						});
 					}
 				} else {
-					selectedCitation = citations[sourceIdx];
-					showCitationModal = true;
+					citationModal?.showCitation(citations[sourceIdx]);
 				}
 			} else {
-				selectedCitation = citations[sourceIdx];
-				showCitationModal = true;
+				citationModal?.showCitation(citations[sourceIdx]);
 			}
 		}
 	};
