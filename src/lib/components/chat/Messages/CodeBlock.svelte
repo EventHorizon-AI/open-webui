@@ -6,7 +6,12 @@
 
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
 	import { executeCode } from '$lib/apis/utils';
-	import { copyToClipboard, renderMermaidDiagram, renderVegaVisualization } from '$lib/utils';
+	import {
+		copyToClipboard,
+		initMermaid,
+		renderMermaidDiagram,
+		renderVegaVisualization
+	} from '$lib/utils';
 
 	import 'highlight.js/styles/github-dark.min.css';
 
@@ -54,8 +59,8 @@
 
 	let _token = null;
 
-	let mermaidHtml = null;
-	let vegaHtml = null;
+	let renderHTML = null;
+	let renderError = null;
 
 	let highlightedCode = null;
 	let executing = false;
@@ -323,16 +328,24 @@
 		};
 	};
 
+	let mermaid = null;
+	const renderMermaid = async (code) => {
+		if (!mermaid) {
+			mermaid = await initMermaid();
+		}
+		return await renderMermaidDiagram(mermaid, code);
+	};
+
 	const render = async () => {
 		onUpdate(token);
 		if (lang === 'mermaid' && (token?.raw ?? '').slice(-4).includes('```')) {
 			try {
-				mermaidHtml = await renderMermaidDiagram(code);
+				renderHTML = await renderMermaid(code);
 			} catch (error) {
 				console.error('Failed to render mermaid diagram:', error);
 				const errorMsg = error instanceof Error ? error.message : String(error);
-				toast.error($i18n.t('Failed to render diagram') + `: ${errorMsg}`);
-				mermaidHtml = null;
+				renderError = $i18n.t('Failed to render diagram') + `: ${errorMsg}`;
+				renderHTML = null;
 			}
 		} else if (
 			(lang === 'json' || lang === 'vega' || lang === 'vega-lite') &&
@@ -343,16 +356,16 @@
 
 				if (parsed?.$schema?.includes('vega')) {
 					try {
-						vegaHtml = await renderVegaVisualization(parsed);
+						renderHTML = await renderVegaVisualization(parsed);
 					} catch (error) {
 						console.error('Failed to render Vega visualization:', error);
 						const errorMsg = error instanceof Error ? error.message : String(error);
 						toast.error($i18n.t('Failed to render diagram') + `: ${errorMsg}`);
-						vegaHtml = null;
+						renderHTML = null;
 					}
 				}
 			} catch {
-				vegaHtml = null;
+				renderHTML = null;
 			}
 		}
 	};
@@ -415,16 +428,10 @@
 		class="relative {className} flex flex-col rounded-xl border border-gray-100 dark:border-gray-850 my-0.5"
 		dir="ltr"
 	>
-		{#if vegaHtml}
+		{#if renderHTML}
 			<SvgPanZoom
-				className="rounded-3xl max-h-fit overflow-hidden"
-				svg={vegaHtml}
-				content={_token.text}
-			/>
-		{:else if mermaidHtml}
-			<SvgPanZoom
-				className="rounded-xl max-h-fit overflow-hidden"
-				svg={mermaidHtml}
+				className=" rounded-3xl max-h-fit overflow-hidden"
+				svg={renderHTML}
 				content={_token.text}
 			/>
 		{:else}
@@ -561,15 +568,15 @@
 					>
 						{#if executing}
 							<div class=" ">
-								<div class=" text-gray-500 text-xs mb-1">{$i18n.t('STDOUT/STDERR')}</div>
+								<div class=" text-gray-500 text-sm mb-1">{$i18n.t('STDOUT/STDERR')}</div>
 								<div class="text-sm">{$i18n.t('Running...')}</div>
 							</div>
 						{:else}
 							{#if stdout || stderr}
 								<div class=" ">
-									<div class=" text-gray-500 text-xs mb-1">{$i18n.t('STDOUT/STDERR')}</div>
+									<div class=" text-gray-500 text-sm mb-1">{$i18n.t('STDOUT/STDERR')}</div>
 									<div
-										class="text-sm {stdout?.split('\n')?.length > 100
+										class="text-sm font-mono whitespace-pre-wrap {stdout?.split('\n')?.length > 100
 											? `max-h-96`
 											: ''}  overflow-y-auto"
 									>
@@ -579,7 +586,7 @@
 							{/if}
 							{#if result || files}
 								<div class=" ">
-									<div class=" text-gray-500 text-xs mb-1">{$i18n.t('RESULT')}</div>
+									<div class=" text-gray-500 text-sm mb-1">{$i18n.t('RESULT')}</div>
 									{#if result}
 										<div class="text-sm">{`${JSON.stringify(result)}`}</div>
 									{/if}
