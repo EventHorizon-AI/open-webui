@@ -320,7 +320,8 @@
 			tags = items
 				.filter((item) => !(item.model?.info?.meta?.hidden ?? false))
 				.flatMap((item) => item.model?.tags ?? [])
-				.map((tag) => tag.name.toLowerCase());
+				.map((tag) => tag.name);
+
 			// Remove duplicates and sort
 			tags = Array.from(new Set(tags)).sort((a, b) => a.localeCompare(b));
 		}
