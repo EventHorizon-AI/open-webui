@@ -1158,25 +1158,6 @@
 				</div>
 			</div>
 
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="stylized-pdf-export-label" class=" self-center text-xs">
-						{$i18n.t('Stylized PDF Export')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="iframe-sandbox-allow-forms-label"
-							tooltip={true}
-							bind:state={iframeSandboxAllowForms}
-							on:change={() => {
-								saveSettings({ iframeSandboxAllowForms });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
 			<div class=" my-2 text-sm font-medium">{$i18n.t('Voice')}</div>
 
 			<div>
