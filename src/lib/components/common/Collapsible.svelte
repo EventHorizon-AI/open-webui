@@ -48,7 +48,11 @@
 	let previousDone = false;
 
 	$: {
-		if (attributes?.done !== previousDone && userSettings.unfoldBeforeCompletion) {
+		if (
+			((attributes?.type === 'reasoning' && userSettings.expandReasoningBeforeCompletion) ||
+				(attributes?.type === 'tool_calls' && userSettings.expandToolCallBeforeCompletion)) &&
+			attributes?.done !== previousDone
+		) {
 			if (attributes?.done === 'false') {
 				open = true;
 			}

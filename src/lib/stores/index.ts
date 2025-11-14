@@ -76,7 +76,8 @@ export const showSettings = writable(false);
 export const showShortcuts = writable(false);
 export const showArchivedChats = writable(false);
 export const showChangelog = writable(false);
-export const unfoldBeforeCompletion = writable(false);
+export const expandReasoningBeforeCompletion = writable(false);
+export const expandToolCallBeforeCompletion = writable(false);
 
 export const showControls = writable(false);
 export const showEmbeds = writable(false);
@@ -196,7 +197,7 @@ type Settings = {
 	splitLargeDeltas?: boolean;
 	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;
-	unfoldBeforeCompletion?: boolean;
+	expandReasoningBeforeCompletion?: boolean;
 
 	system?: string;
 	seed?: number;

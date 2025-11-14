@@ -60,7 +60,8 @@
 	let chatBubble = true;
 	let chatDirection: 'LTR' | 'RTL' | 'auto' = 'auto';
 	let ctrlEnterToSend = false;
-	let unfoldBeforeCompletion = false;
+	let expandReasoningBeforeCompletion = false;
+	let expandToolCallBeforeCompletion = false;
 	let copyFormatted = false;
 
 	let temporaryChatByDefault = false;
@@ -241,7 +242,8 @@
 
 		showFloatingActionButtons = $settings?.showFloatingActionButtons ?? true;
 		floatingActionButtons = $settings?.floatingActionButtons ?? null;
-		unfoldBeforeCompletion = $settings.unfoldBeforeCompletion ?? false;
+		expandReasoningBeforeCompletion = $settings.expandReasoningBeforeCompletion ?? false;
+		expandToolCallBeforeCompletion = $settings.expandToolCallBeforeCompletion ?? false;
 
 		imageCompression = $settings?.imageCompression ?? false;
 		imageCompressionSize = $settings?.imageCompressionSize ?? { width: '', height: '' };
@@ -848,17 +850,36 @@
 
 			<div>
 				<div class="py-0.5 flex w-full justify-between">
-					<div id="unfold-before-completion-label" class="self-center text-xs">
-						{$i18n.t(`Unfold the folding control before completion`)}
+					<div id="expand-reasoning-before-completion-label" class="self-center text-xs">
+						{$i18n.t('Expand reasoning before completion')}
 					</div>
 
 					<div class="flex items-center gap-2 p-1">
 						<Switch
-							ariaLabelledbyId="unfold-before-completion-label"
+							ariaLabelledbyId="expand-reasoning-before-completion-label"
 							tooltip={true}
-							bind:state={unfoldBeforeCompletion}
+							bind:state={expandReasoningBeforeCompletion}
 							on:change={() => {
-								saveSettings({ unfoldBeforeCompletion });
+								saveSettings({ expandReasoningBeforeCompletion });
+							}}
+						/>
+					</div>
+				</div>
+			</div>
+
+			<div>
+				<div class="py-0.5 flex w-full justify-between">
+					<div id="expand-tool-call-before-completion-label" class="self-center text-xs">
+						{$i18n.t('Expand tool call before completion')}
+					</div>
+
+					<div class="flex items-center gap-2 p-1">
+						<Switch
+							ariaLabelledbyId="expand-tool-call-before-completion-label"
+							tooltip={true}
+							bind:state={expandToolCallBeforeCompletion}
+							on:change={() => {
+								saveSettings({ expandToolCallBeforeCompletion });
 							}}
 						/>
 					</div>
