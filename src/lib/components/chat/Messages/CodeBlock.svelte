@@ -344,7 +344,7 @@
 			} catch (error) {
 				console.error('Failed to render mermaid diagram:', error);
 				const errorMsg = error instanceof Error ? error.message : String(error);
-				renderError = $i18n.t('Failed to render diagram') + `: ${errorMsg}`;
+				renderError = $i18n.t('Failed to render visualization') + `: ${errorMsg}`;
 				renderHTML = null;
 			}
 		} else if (
