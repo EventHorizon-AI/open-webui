@@ -778,6 +778,7 @@
 	"Folder name cannot be empty.": "Mappnamnet får inte vara tomt.",
 	"Folder name updated successfully": "Mappnamnet har uppdaterats",
 	"Folder updated successfully": "Mappen har uppdaterats",
+	"Folders": "",
 	"Follow up": "Uppföljningsfrågor",
 	"Follow Up Generation": "Generering av uppföljningsfrågor",
 	"Follow Up Generation Prompt": "Prompt för generering av uppföljningsfrågor",

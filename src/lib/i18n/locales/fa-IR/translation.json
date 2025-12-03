@@ -778,6 +778,7 @@
 	"Folder name cannot be empty.": "نام پوشه نمی\u200cتواند خالی باشد.",
 	"Folder name updated successfully": "نام پوشه با موفقیت به\u200cروز شد",
 	"Folder updated successfully": "پوشه با موفقیت به\u200cروز شد",
+	"Folders": "",
 	"Follow up": "پیگیری",
 	"Follow Up Generation": "تولید پیگیری",
 	"Follow Up Generation Prompt": "پرامپت تولید پیگیری",

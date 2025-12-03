@@ -778,6 +778,7 @@
 	"Folder name cannot be empty.": "ชื่อโฟลเดอร์ต้องไม่เว้นว่าง",
 	"Folder name updated successfully": "อัปเดตชื่อโฟลเดอร์สำเร็จแล้ว",
 	"Folder updated successfully": "อัปเดตโฟลเดอร์สำเร็จแล้ว",
+	"Folders": "",
 	"Follow up": "ติดตามต่อ",
 	"Follow Up Generation": "การสร้างคำถามติดตาม",
 	"Follow Up Generation Prompt": "พรอมต์สร้างคำถามติดตามผล",

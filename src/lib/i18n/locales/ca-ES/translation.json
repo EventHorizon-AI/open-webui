@@ -778,6 +778,7 @@
 	"Folder name cannot be empty.": "El nom de la carpeta no pot ser buit.",
 	"Folder name updated successfully": "Nom de la carpeta actualitzat correctament",
 	"Folder updated successfully": "Carpeta actualitazda correctament",
+	"Folders": "",
 	"Follow up": "Seguir",
 	"Follow Up Generation": "Generació de seguiment",
 	"Follow Up Generation Prompt": "Indicació per a la generació de seguiment",

@@ -778,6 +778,7 @@
 	"Folder name cannot be empty.": "Le nom du dossier ne peut pas être vide.",
 	"Folder name updated successfully": "Le nom du dossier a été mis à jour avec succès",
 	"Folder updated successfully": "",
+	"Folders": "",
 	"Follow up": "Suivi",
 	"Follow Up Generation": "Suivi de la génération",
 	"Follow Up Generation Prompt": "Suivi de la génération du protompt",

@@ -778,6 +778,7 @@
 	"Folder name cannot be empty.": "Kausta nimi ei saa olla tühi.",
 	"Folder name updated successfully": "Kausta nimi edukalt uuendatud",
 	"Folder updated successfully": "Kaust edukalt uuendatud",
+	"Folders": "",
 	"Follow up": "Järelküsimus",
 	"Follow Up Generation": "Järelküsimuste genereerimine",
 	"Follow Up Generation Prompt": "Järelküsimuse vihje",
