@@ -890,26 +890,26 @@ export const processDetailsAndExtractToolCalls = (content) => {
 
 			if (attributes.result) {
 				if (!attributes.id) {
-				continue;
+					continue;
+				}
+
+				let toolCall = {
+					id: attributes.id,
+					name: attributes.name,
+					arguments: unescapeHtml(attributes.arguments ?? ''),
+					result: unescapeHtml(attributes.result ?? '')
+				};
+
+				toolCall.arguments = parseDoubleEncodedString(toolCall.arguments);
+				toolCall.result = parseDoubleEncodedString(toolCall.result);
+
+				messages.push(toolCall);
 			}
 
-			let toolCall = {
-				id: attributes.id,
-				name: attributes.name,
-				arguments: unescapeHtml(attributes.arguments ?? ''),
-				result: unescapeHtml(attributes.result ?? '')
-			};
-
-			toolCall.arguments = parseDoubleEncodedString(toolCall.arguments);
-			toolCall.result = parseDoubleEncodedString(toolCall.result);
-
-			messages.push(toolCall);
-		}
-
-		let finalAssistantMessage = content.substr(previousDetailsEndIndex);
-		finalAssistantMessage = finalAssistantMessage.trim('\n');
-		if (finalAssistantMessage.length > 0) {
-			messages.push(finalAssistantMessage);
+			let finalAssistantMessage = content.substr(previousDetailsEndIndex);
+			finalAssistantMessage = finalAssistantMessage.trim('\n');
+			if (finalAssistantMessage.length > 0) {
+				messages.push(finalAssistantMessage);
 			}
 		}
 	} else if (content.length > 0) {

@@ -1821,7 +1821,10 @@
 														}}
 														aria-label={$i18n.t('Voice mode')}
 													>
-														<Voice className="size-5 text-black dark:text-white" strokeWidth="0.5" />
+														<Voice
+															className="size-5 text-black dark:text-white"
+															strokeWidth="0.5"
+														/>
 													</button>
 												</Tooltip>
 											</div>

@@ -25,7 +25,7 @@
 		isApp,
 		models,
 		selectedFolder,
-		WEBUI_NAME,
+		WEBUI_NAME
 	} from '$lib/stores';
 	import { onMount, getContext, tick, onDestroy } from 'svelte';
 
@@ -1011,7 +1011,7 @@
 				{/if}
 
 				<Folder
-						bind:open={showFolders}
+					bind:open={showFolders}
 					className="px-2 mt-0.5"
 					name={$i18n.t('Chats')}
 					chevron={false}
