@@ -664,7 +664,7 @@
 						{#if model?.info?.meta?.capabilities?.status_updates ?? true}
 							<StatusHistory
 								statusHistory={message?.statusHistory}
-								expand={message?.content === ''}
+								expand={removeAllDetails(message?.content).trim() === ''}
 							/>
 						{/if}
 
