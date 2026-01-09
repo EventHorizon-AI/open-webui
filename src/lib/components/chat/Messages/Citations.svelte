@@ -22,12 +22,26 @@
 	let selectedCitation: any = null;
 	let isCollapsibleOpen = false;
 
-	export const showSourceModal = (sourceIdx) => {
-		if (citations[sourceIdx]) {
-			console.log('Showing citation modal for:', citations[sourceIdx]);
+	export const showSourceModal = (sourceId) => {
+		let index;
+		let suffix = null;
 
-			if (citations[sourceIdx]?.source?.embed_url) {
-				const embedUrl = citations[sourceIdx].source.embed_url;
+		if (typeof sourceId === 'string') {
+			const output = sourceId.split('#');
+			index = parseInt(output[0]) - 1;
+
+			if (output.length > 1) {
+				suffix = output[1];
+			}
+		} else {
+			index = sourceId - 1;
+		}
+
+		if (citations[index]) {
+			console.log('Showing citation modal for:', citations[index]);
+
+			if (citations[index]?.source?.embed_url) {
+				const embedUrl = citations[index].source.embed_url;
 				if (embedUrl) {
 					if (readOnly) {
 						// Open in new tab if readOnly
@@ -38,17 +52,18 @@
 						showEmbeds.set(true);
 						embed.set({
 							url: embedUrl,
-							title: citations[sourceIdx]?.source?.name || 'Embedded Content',
-							source: citations[sourceIdx],
+							title: citations[index]?.source?.name || 'Embedded Content',
+							source: citations[index],
 							chatId: chatId,
-							messageId: id
+							messageId: id,
+							sourceId: sourceId
 						});
 					}
 				} else {
-					citationModal?.showCitation(citations[sourceIdx]);
+					citationModal?.showCitation(citations[index]);
 				}
 			} else {
-				citationModal?.showCitation(citations[sourceIdx]);
+				citationModal?.showCitation(citations[index]);
 			}
 		}
 	};
