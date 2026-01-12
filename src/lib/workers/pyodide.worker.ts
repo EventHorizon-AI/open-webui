@@ -24,17 +24,17 @@ async function loadPyodideAndPackages(packages: string[] = []) {
 			console.log('Python output:', text);
 
 			if (self.stdout) {
-				self.stdout += `${text}\n`;
+				self.stdout += `\n${text}`;
 			} else {
-				self.stdout = `${text}\n`;
+				self.stdout = `${text}`;
 			}
 		},
 		stderr: (text) => {
 			console.log('An error occurred:', text);
 			if (self.stderr) {
-				self.stderr += `${text}\n`;
+				self.stderr += `\n${text}`;
 			} else {
-				self.stderr = `${text}\n`;
+				self.stderr = `${text}`;
 			}
 		},
 		packages: ['micropip']
