@@ -219,19 +219,21 @@
 
 	const executePythonAsWorker = async (code) => {
 		let packages = [
+			/\bimport\s+packaging\b|\bfrom\s+packaging\b/.test(code) ? 'packaging' : null,
 			/\bimport\s+requests\b|\bfrom\s+requests\b/.test(code) ? 'requests' : null,
 			/\bimport\s+bs4\b|\bfrom\s+bs4\b/.test(code) ? 'beautifulsoup4' : null,
 			/\bimport\s+numpy\b|\bfrom\s+numpy\b/.test(code) ? 'numpy' : null,
 			/\bimport\s+pandas\b|\bfrom\s+pandas\b/.test(code) ? 'pandas' : null,
 			/\bimport\s+matplotlib\b|\bfrom\s+matplotlib\b/.test(code) ? 'matplotlib' : null,
-			/\bimport\s+seaborn\b|\bfrom\s+seaborn\b/.test(code) ? 'seaborn' : null,
 			/\bimport\s+sklearn\b|\bfrom\s+sklearn\b/.test(code) ? 'scikit-learn' : null,
 			/\bimport\s+scipy\b|\bfrom\s+scipy\b/.test(code) ? 'scipy' : null,
 			/\bimport\s+re\b|\bfrom\s+re\b/.test(code) ? 'regex' : null,
-			/\bimport\s+seaborn\b|\bfrom\s+seaborn\b/.test(code) ? 'seaborn' : null,
 			/\bimport\s+sympy\b|\bfrom\s+sympy\b/.test(code) ? 'sympy' : null,
 			/\bimport\s+tiktoken\b|\bfrom\s+tiktoken\b/.test(code) ? 'tiktoken' : null,
+			/\bimport\s+seaborn\b|\bfrom\s+seaborn\b/.test(code) ? 'seaborn' : null,
 			/\bimport\s+pytz\b|\bfrom\s+pytz\b/.test(code) ? 'pytz' : null,
+			/\bimport\s+black\b|\bfrom\s+black\b/.test(code) ? 'black' : null,
+			/\bimport\s+openai\b|\bfrom\s+openai\b/.test(code) ? 'openai' : null,
 			/\bimport\s+autograd\b|\bfrom\s+autograd\b/.test(code) ? 'autograd' : null
 		].filter(Boolean);
 
