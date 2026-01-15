@@ -202,7 +202,7 @@ async def fetch_url(
         if len(content) > max_length:
             content = content[:max_length] + "\n\n[Content truncated...]"
 
-        return content
+        return json.dumps({"content": content}, ensure_ascii=False)
     except Exception as e:
         log.exception(f"fetch_url error: {e}")
         return json.dumps({"error": str(e)})
