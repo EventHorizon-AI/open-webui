@@ -14,7 +14,8 @@ const packages = [
 	'seaborn',
 	'pytz',
 	'black',
-	'openai'
+	'openai',
+	'autograd'
 ];
 
 import { loadPyodide } from 'pyodide';
