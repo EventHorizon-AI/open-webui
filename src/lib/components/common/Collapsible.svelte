@@ -348,7 +348,10 @@
 
 		{#if !grow}
 			{#if open && !hide}
-				<div transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
+				<div
+					transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}
+					class:collapsible-reasoning={attributes?.type === 'reasoning'}
+				>
 					<slot name="content" />
 				</div>
 			{/if}

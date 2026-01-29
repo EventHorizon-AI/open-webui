@@ -807,3 +807,8 @@ body {
 #note-content-container .ProseMirror {
 	padding-bottom: 2rem; /* space for the bottom toolbar */
 }
+
+/* Styling for reasoning content inside Collapsible component */
+.collapsible-reasoning * {
+	@apply text-gray-500 dark:text-gray-400;
+}
