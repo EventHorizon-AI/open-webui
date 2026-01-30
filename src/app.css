@@ -810,5 +810,5 @@ body {
 
 /* Styling for reasoning content inside Collapsible component */
 .collapsible-reasoning * {
-	@apply text-gray-500 dark:text-gray-400;
+	@apply text-gray-500 dark:text-gray-500;
 }
