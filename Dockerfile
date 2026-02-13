@@ -168,8 +168,6 @@ RUN curl -L -o /tmp/runsc "https://storage.googleapis.com/gvisor/releases/releas
 RUN if [ "$USE_OLLAMA" = "true" ]; then \
     date +%s > /tmp/ollama_build_hash && \
     echo "Cache broken at timestamp: `cat /tmp/ollama_build_hash`" && \
-    apt-get update && \
-    apt-get install zstd && \
     curl -fsSL https://ollama.com/install.sh | sh && \
     rm -rf /var/lib/apt/lists/*; \
     fi
