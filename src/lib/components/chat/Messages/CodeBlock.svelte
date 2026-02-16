@@ -347,27 +347,19 @@
 			} catch (error) {
 				console.error('Failed to render mermaid diagram:', error);
 				const errorMsg = error instanceof Error ? error.message : String(error);
-				renderError = $i18n.t('Failed to render visualization') + `: ${errorMsg}`;
+				renderError = $i18n.t('Failed to render diagram') + `: ${errorMsg}`;
 				renderHTML = null;
 			}
 		} else if (
-			(lang === 'json' || lang === 'vega' || lang === 'vega-lite') &&
+			(lang === 'vega' || lang === 'vega-lite') &&
 			(token?.raw ?? '').slice(-4).includes('```')
 		) {
 			try {
-				const parsed = JSON.parse(code);
-
-				if (parsed?.$schema?.includes('vega')) {
-					try {
-						renderHTML = await renderVegaVisualization(parsed);
-					} catch (error) {
-						console.error('Failed to render Vega visualization:', error);
-						const errorMsg = error instanceof Error ? error.message : String(error);
-						toast.error($i18n.t('Failed to render diagram') + `: ${errorMsg}`);
-						renderHTML = null;
-					}
-				}
-			} catch {
+				renderHTML = await renderVegaVisualization(code);
+			} catch (error) {
+				console.error('Failed to render Vega visualization:', error);
+				const errorMsg = error instanceof Error ? error.message : String(error);
+				renderError = $i18n.t('Failed to render visualization') + `: ${errorMsg}`;
 				renderHTML = null;
 			}
 		}
@@ -428,24 +420,37 @@
 
 <div>
 	<div
-		class="relative {className} flex flex-col rounded-xl border border-gray-100/30 dark:border-gray-850/30 my-0.5"
+		class="relative {className} flex flex-col rounded-2xl border border-gray-100/30 dark:border-gray-850/30 my-0.5"
 		dir="ltr"
 	>
-		{#if renderHTML}
-			<SvgPanZoom
-				className=" rounded-3xl max-h-fit overflow-hidden"
-				svg={renderHTML}
-				content={_token.text}
-			/>
+		{#if ['mermaid', 'vega', 'vega-lite'].includes(lang)}
+			{#if renderHTML}
+				<SvgPanZoom
+					className=" rounded-2xl max-h-fit overflow-hidden"
+					svg={renderHTML}
+					content={_token.text}
+				/>
+			{:else}
+				<div class="p-3">
+					{#if renderError}
+						<div
+							class="flex gap-2.5 border px-4 py-3 border-red-600/10 bg-red-600/10 rounded-2xl mb-2"
+						>
+							{renderError}
+						</div>
+					{/if}
+					<pre>{code}</pre>
+				</div>
+			{/if}
 		{:else}
 			<div
-				class="absolute left-0 right-0 py-2.5 pr-3 text-text-300 pl-4.5 text-xs font-medium dark:text-white"
+				class="absolute left-0 right-0 py-1.5 pr-3 text-text-300 pl-4.5 text-xs font-medium dark:text-white"
 			>
 				{lang}
 			</div>
 
 			<div
-				class="sticky {stickyButtonsClassName} left-0 right-0 py-2 pr-3 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white"
+				class="sticky {stickyButtonsClassName} left-0 right-0 py-1.5 pr-3 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white"
 			>
 				<div class="flex items-center gap-0.5">
 					<button
@@ -512,13 +517,13 @@
 			</div>
 
 			<div
-				class="language-{lang} rounded-t-xl -mt-9 {editorClassName
+				class="language-{lang} rounded-t-2xl -mt-8 {editorClassName
 					? editorClassName
 					: executing || stdout || stderr || result
 						? ''
-						: 'rounded-b-xl'} overflow-hidden"
+						: 'rounded-b-2xl'} overflow-hidden"
 			>
-				<div class=" pt-8 bg-white dark:bg-black"></div>
+				<div class=" pt-6.5 bg-white dark:bg-black"></div>
 
 				{#if !collapsed}
 					{#if edit}
@@ -548,7 +553,7 @@
 					{/if}
 				{:else}
 					<div
-						class="bg-white dark:bg-black dark:text-white rounded-b-xl! pt-0.5 pb-3 px-4 flex flex-col gap-2 text-xs"
+						class="bg-white dark:bg-black dark:text-white rounded-b-2xl! pt-0.5 pb-2 px-4 flex flex-col gap-2 text-xs"
 					>
 						<span class="text-gray-500 italic">
 							{$i18n.t('{{COUNT}} hidden lines', {
@@ -567,7 +572,7 @@
 
 				{#if executing || stdout || stderr || result || files}
 					<div
-						class="bg-gray-50 dark:bg-black dark:text-white rounded-b-xl! py-4 px-4 flex flex-col gap-2"
+						class="bg-gray-50 dark:bg-black dark:text-white rounded-b-2xl! py-4 px-4 flex flex-col gap-2"
 					>
 						{#if executing}
 							<div class=" ">

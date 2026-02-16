@@ -51,7 +51,7 @@
 		getMessageContentParts,
 		createMessagesList,
 		getPromptVariables,
-		processDetailsAndExtractToolCalls,
+		processDetails,
 		removeAllDetails,
 		getCodeBlockContents,
 		isYoutubeUrl
@@ -1961,79 +1961,50 @@
 			params?.stream_response ??
 			true;
 
-		let messages = [];
-		if (params?.system || $settings.system) {
-			messages.push({
-				role: 'system',
-				content: `${params?.system ?? $settings?.system ?? ''}`
-			});
-		}
-
-		for (const message of _messages) {
-			let content = message?.merged?.content ?? message?.content;
-			content = message?.role !== 'user' ? content?.trim() : content;
-
-			const processedMessages = processDetailsAndExtractToolCalls(content ?? '');
-
-			let nonToolMessage: any = null;
-			let toolCallIndex = 0;
-
-			const imageFiles = (message?.files ?? []).filter(
-				(file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/')
-			);
-
-			for (const processedMessage of processedMessages) {
-				if (typeof processedMessage === 'string') {
-					nonToolMessage = {
-						role: message.role,
-						content: processedMessage
-					};
-
-					if (message.role === 'user' && imageFiles.length > 0) {
-						nonToolMessage.content = [
-							{
-								type: 'text',
-								text: processedMessage
-							},
-							...imageFiles.map((file) => ({
-								type: 'image_url',
-								image_url: { url: file.url }
-							}))
-						];
+		let messages = [
+			params?.system || $settings.system
+				? {
+						role: 'system',
+						content: `${params?.system ?? $settings?.system ?? ''}`
 					}
+				: undefined,
+			..._messages.map((message) => ({
+				...message,
+				content: processDetails(message.content),
+				// Include output for temp chats (backend will use it and strip before LLM)
+				...(message.output ? { output: message.output } : {})
+			}))
+		].filter((message) => message);
 
-					if (nonToolMessage.role === 'user' || nonToolMessage.content?.trim()) {
-						messages.push(nonToolMessage);
-					}
-					continue;
-				}
+		messages = messages
+			.map((message, idx, arr) => {
+				const imageFiles = (message?.files ?? []).filter(
+					(file) => file.type === 'image' || (file?.content_type ?? '').startsWith('image/')
+				);
 
-				if (!nonToolMessage) {
-					nonToolMessage = {
-						role: message.role,
-						content: ''
-					};
-					messages.push(nonToolMessage);
-				}
-
-				nonToolMessage.tool_calls ??= [];
-				nonToolMessage.tool_calls.push({
-					index: toolCallIndex++,
-					id: processedMessage.id,
-					type: 'function',
-					function: {
-						name: processedMessage.name,
-						arguments: processedMessage.arguments
-					}
-				});
-
-				messages.push({
-					role: 'tool',
-					tool_call_id: processedMessage.id,
-					content: processedMessage.result
-				});
-			}
-		}
+				return {
+					role: message.role,
+					...(message.role === 'user' && imageFiles.length > 0
+						? {
+								content: [
+									{
+										type: 'text',
+										text: message?.merged?.content ?? message.content
+									},
+									...imageFiles.map((file) => ({
+										type: 'image_url',
+										image_url: {
+											url: file.url
+										}
+									}))
+								]
+							}
+						: {
+								content: message?.merged?.content ?? message.content
+							})
+				};
+			})
+			.filter((message) => message?.role === 'user' || message?.content?.trim());
 
 		const toolIds = [];
 		const toolServerIds = [];
