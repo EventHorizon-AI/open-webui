@@ -341,13 +341,24 @@
 
 	const render = async () => {
 		onUpdate(token);
-		if (lang === 'mermaid' && (token?.raw ?? '').slice(-4).includes('```')) {
+		if (
+			(lang === 'json' || lang === 'vega' || lang === 'vega-lite') &&
+			(token?.raw ?? '').slice(-4).includes('```')
+		) {
 			try {
-				renderHTML = await renderMermaid(code);
-			} catch (error) {
-				console.error('Failed to render mermaid diagram:', error);
-				const errorMsg = error instanceof Error ? error.message : String(error);
-				renderError = $i18n.t('Failed to render diagram') + `: ${errorMsg}`;
+				const parsed = JSON.parse(code);
+
+				if (parsed?.$schema?.includes('vega')) {
+					try {
+						renderHTML = await renderVegaVisualization(code);
+					} catch (error) {
+						console.error('Failed to render Vega visualization:', error);
+						const errorMsg = error instanceof Error ? error.message : String(error);
+						toast.error($i18n.t('Failed to render diagram') + `: ${errorMsg}`);
+						renderHTML = null;
+					}
+				}
+			} catch {
 				renderHTML = null;
 			}
 		} else if (
@@ -423,25 +434,12 @@
 		class="relative {className} flex flex-col rounded-2xl border border-gray-100/30 dark:border-gray-850/30 my-0.5"
 		dir="ltr"
 	>
-		{#if ['mermaid', 'vega', 'vega-lite'].includes(lang)}
-			{#if renderHTML}
-				<SvgPanZoom
-					className=" rounded-2xl max-h-fit overflow-hidden"
-					svg={renderHTML}
-					content={_token.text}
-				/>
-			{:else}
-				<div class="p-3">
-					{#if renderError}
-						<div
-							class="flex gap-2.5 border px-4 py-3 border-red-600/10 bg-red-600/10 rounded-2xl mb-2"
-						>
-							{renderError}
-						</div>
-					{/if}
-					<pre>{code}</pre>
-				</div>
-			{/if}
+		{#if renderHTML}
+			<SvgPanZoom
+				className=" rounded-2xl max-h-fit overflow-hidden"
+				svg={renderHTML}
+				content={_token.text}
+			/>
 		{:else}
 			<div
 				class="absolute left-0 right-0 py-1.5 pr-3 text-text-300 pl-4.5 text-xs font-medium dark:text-white"
