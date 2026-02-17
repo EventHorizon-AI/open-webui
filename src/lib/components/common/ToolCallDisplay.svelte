@@ -182,7 +182,7 @@
 											<span class="font-medium text-gray-600 dark:text-gray-400 shrink-0"
 												>{key}</span
 											>
-											<span class="text-gray-800 dark:text-gray-200 break-all"
+											<span class="whitespace-pre text-gray-800 dark:text-gray-200 break-all"
 												>{typeof value === 'object' ? JSON.stringify(value) : value}</span
 											>
 										</div>
