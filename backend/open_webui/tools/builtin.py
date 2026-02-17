@@ -14,6 +14,7 @@ from typing import Optional
 
 from fastapi import Request
 
+from open_webui.config import WEBUI_URL
 from open_webui.models.users import UserModel
 from open_webui.routers.retrieval import search_web as _search_web
 from open_webui.retrieval.utils import get_content_from_url
@@ -486,7 +487,9 @@ async def execute_code(
                             user,
                         )
                         if image_url:
-                            stdout_lines[idx] = f"![Output Image]({image_url})"
+                            stdout_lines[idx] = (
+                                f"![Output Image]({WEBUI_URL}{image_url})"
+                            )
                 stdout = "\n".join(stdout_lines)
 
             # Extract and upload images from result
@@ -501,7 +504,9 @@ async def execute_code(
                             user,
                         )
                         if image_url:
-                            result_lines[idx] = f"![Output Image]({image_url})"
+                            result_lines[idx] = (
+                                f"![Output Image]({WEBUI_URL}{image_url})"
+                            )
                 result = "\n".join(result_lines)
 
         response = {
