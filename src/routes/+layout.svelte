@@ -202,7 +202,11 @@
 			/\bimport\s+pytz\b|\bfrom\s+pytz\b/.test(code) ? 'pytz' : null,
 			/\bimport\s+black\b|\bfrom\s+black\b/.test(code) ? 'black' : null,
 			/\bimport\s+openai\b|\bfrom\s+openai\b/.test(code) ? 'openai' : null,
-			/\bimport\s+autograd\b|\bfrom\s+autograd\b/.test(code) ? 'autograd' : null
+			/\bimport\s+autograd\b|\bfrom\s+autograd\b/.test(code) ? 'autograd' : null,
+			/\bimport\s+pydantic\b|\bfrom\s+pydantic\b/.test(code) ? 'pydantic' : null,
+			/\bimport\s+ssl\b|\bfrom\s+ssl\b/.test(code) ? 'ssl' : null,
+			/\bimport\s+anyio\b|\bfrom\s+anyio\b/.test(code) ? 'anyio' : null,
+			/\bimport\s+httpx\b|\bfrom\s+httpx\b/.test(code) ? 'httpx' : null
 		].filter(Boolean);
 
 		const pyodideWorker = new PyodideWorker();

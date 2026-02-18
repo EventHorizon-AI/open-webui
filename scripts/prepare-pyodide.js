@@ -15,7 +15,11 @@ const packages = [
 	'pytz',
 	'black',
 	'openai',
-	'autograd'
+	'autograd',
+	'pydantic',
+	'ssl',
+	'anyio',
+	'httpx'
 ];
 
 import { loadPyodide } from 'pyodide';
