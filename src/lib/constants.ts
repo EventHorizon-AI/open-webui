@@ -95,7 +95,20 @@ export const SUPPORTED_FILE_EXTENSIONS = [
 	'msg'
 ];
 
-export const PASTED_TEXT_CHARACTER_LIMIT = 5000;
+export const DEFAULT_CAPABILITIES = {
+	file_context: true,
+	vision: true,
+	file_upload: true,
+	web_search: true,
+	image_generation: true,
+	code_interpreter: true,
+	citations: true,
+	status_updates: true,
+	usage: undefined,
+	builtin_tools: true
+};
+
+export const PASTED_TEXT_CHARACTER_LIMIT = 1000;
 
 // Source: https://kit.svelte.dev/docs/modules#$env-static-public
 // This feature, akin to $env/static/private, exclusively incorporates environment variables
