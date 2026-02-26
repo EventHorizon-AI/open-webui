@@ -17,6 +17,7 @@
 	let showPercentage = false;
 	let showRelevance = true;
 
+	let showCitations = false;
 	let citationModal = null;
 	let showCitationModal = false;
 	let selectedCitation: any = null;
