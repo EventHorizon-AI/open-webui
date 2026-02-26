@@ -545,6 +545,10 @@
 	};
 
 	const isWindows = /Windows/i.test(navigator.userAgent);
+
+	const showCreateFolder =
+		$config?.features?.enable_folders &&
+		($user?.role === 'admin' || ($user?.permissions?.features?.folders ?? true));
 </script>
 
 <ArchivedChatsModal
@@ -1054,10 +1058,12 @@
 					className="px-2 mt-0.5"
 					name={$i18n.t('Chats')}
 					chevron={false}
-					onAdd={() => {
-						showCreateFolderModal = true;
-					}}
-					onAddLabel={$i18n.t('New Folder')}
+					onAdd={showCreateFolder
+						? () => {
+								showCreateFolderModal = true;
+							}
+						: null}
+					onAddLabel={showCreateFolder ? $i18n.t('New Folder') : ''}
 					on:change={async (e) => {
 						selectedFolder.set(null);
 					}}
