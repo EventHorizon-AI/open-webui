@@ -240,7 +240,11 @@ def get_citation_source_from_tool_result(
 
         elif tool_name == "fetch_url":
             url = tool_params.get("url", "")
-            content = tool_result if isinstance(tool_result, str) else str(tool_result)
+            content = (
+                tool_result.get("content", "")
+                if isinstance(tool_result, dict)
+                else str(tool_result)
+            )
             snippet = content[:500] + ("..." if len(content) > 500 else "")
 
             return [
