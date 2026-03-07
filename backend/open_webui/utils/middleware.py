@@ -120,7 +120,6 @@ from open_webui.config import (
     DEFAULT_TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
     DEFAULT_CODE_INTERPRETER_PROMPT,
     CODE_INTERPRETER_BLOCKED_MODULES,
-    WEBUI_URL,
 )
 from open_webui.env import (
     GLOBAL_LOG_LEVEL,
@@ -4542,7 +4541,7 @@ async def streaming_chat_response_handler(response, ctx):
                                                 )
                                                 if image_url:
                                                     stdoutLines[idx] = (
-                                                        f"![Output Image]({WEBUI_URL}{image_url})"
+                                                        f"![Output Image]({image_url})"
                                                     )
 
                                         ci_output["stdout"] = "\n".join(stdoutLines)
@@ -4560,7 +4559,7 @@ async def streaming_chat_response_handler(response, ctx):
                                                     user,
                                                 )
                                                 resultLines[idx] = (
-                                                    f"![Output Image]({WEBUI_URL}{image_url})"
+                                                    f"![Output Image]({image_url})"
                                                 )
                                         ci_output["result"] = "\n".join(resultLines)
                         except Exception as e:
