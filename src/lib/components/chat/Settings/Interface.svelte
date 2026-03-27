@@ -65,7 +65,6 @@
 	let chatDirection: 'LTR' | 'RTL' | 'auto' = 'auto';
 	let ctrlEnterToSend = false;
 	let expandReasoningBeforeCompletion = false;
-	let expandToolCallBeforeCompletion = false;
 	let copyFormatted = false;
 
 	let temporaryChatByDefault = false;
@@ -262,7 +261,6 @@
 		showFloatingActionButtons = $settings?.showFloatingActionButtons ?? true;
 		floatingActionButtons = $settings?.floatingActionButtons ?? null;
 		expandReasoningBeforeCompletion = $settings.expandReasoningBeforeCompletion ?? false;
-		expandToolCallBeforeCompletion = $settings.expandToolCallBeforeCompletion ?? false;
 
 		imageCompression = $settings?.imageCompression ?? false;
 		imageCompressionSize = $settings?.imageCompressionSize ?? { width: '', height: '' };
@@ -983,25 +981,6 @@
 							bind:state={expandReasoningBeforeCompletion}
 							on:change={() => {
 								saveSettings({ expandReasoningBeforeCompletion });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class="py-0.5 flex w-full justify-between">
-					<div id="expand-tool-call-before-completion-label" class="self-center text-xs">
-						{$i18n.t('Expand tool call before completion')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="expand-tool-call-before-completion-label"
-							tooltip={true}
-							bind:state={expandToolCallBeforeCompletion}
-							on:change={() => {
-								saveSettings({ expandToolCallBeforeCompletion });
 							}}
 						/>
 					</div>

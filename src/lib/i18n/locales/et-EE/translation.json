@@ -821,7 +821,6 @@
 	"Executing **{{NAME}}**...": "Käivitatakse **{{NAME}}**...",
 	"Expand": "Laienda",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "Katsetuslik",
 	"Explain": "Selgita",
 	"Explore the cosmos": "Avasta kosmost",

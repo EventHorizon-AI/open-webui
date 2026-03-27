@@ -821,7 +821,6 @@
 	"Executing **{{NAME}}**...": "ვასრულებ **{{NAME}}**-ს...",
 	"Expand": "გაფართოება",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "ექსპერიმენტული",
 	"Explain": "ახსნა",
 	"Explore the cosmos": "",

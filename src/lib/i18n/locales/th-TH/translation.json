@@ -820,7 +820,6 @@
 	"Executing **{{NAME}}**...": "กำลังรัน **{{NAME}}**...",
 	"Expand": "ขยาย",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "การทดลอง",
 	"Explain": "อธิบาย",
 	"Explore the cosmos": "สำรวจห้วงอวกาศ",

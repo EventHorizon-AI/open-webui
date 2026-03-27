@@ -821,7 +821,6 @@
 	"Executing **{{NAME}}**...": "Führe **{{NAME}}** aus...",
 	"Expand": "Ausklappen",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "Experimentell",
 	"Explain": "Erklären",
 	"Explore the cosmos": "Den Kosmos erkunden",

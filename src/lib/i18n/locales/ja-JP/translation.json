@@ -820,7 +820,6 @@
 	"Executing **{{NAME}}**...": "**{{NAME}}**を実行中...",
 	"Expand": "展開",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "実験的",
 	"Explain": "説明",
 	"Explore the cosmos": "宇宙を探検",

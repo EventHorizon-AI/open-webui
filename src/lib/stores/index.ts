@@ -93,7 +93,6 @@ export const showShortcuts = writable(false);
 export const showArchivedChats = writable(false);
 export const showChangelog = writable(false);
 export const expandReasoningBeforeCompletion = writable(false);
-export const expandToolCallBeforeCompletion = writable(false);
 
 export const showControls = writable(false);
 export const showEmbeds = writable(false);

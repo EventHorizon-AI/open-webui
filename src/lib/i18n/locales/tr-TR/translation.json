@@ -821,7 +821,6 @@
 	"Executing **{{NAME}}**...": "**{{NAME}}** yürütülüyor...",
 	"Expand": "Genişlet",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "Deneysel",
 	"Explain": "Açıkla",
 	"Explore the cosmos": "Evreni keşfet",

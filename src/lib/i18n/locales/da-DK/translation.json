@@ -821,7 +821,6 @@
 	"Executing **{{NAME}}**...": "Kører **{{NAME}}**...",
 	"Expand": "Udvid",
 	"Expand reasoning before completion": "",
-	"Expand tool call before completion": "",
 	"Experimental": "Eksperimentel",
 	"Explain": "Forklar",
 	"Explore the cosmos": "Udforsk kosmos",
