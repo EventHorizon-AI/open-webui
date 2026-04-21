@@ -69,7 +69,11 @@
 	$: hasMessages = history?.messages && Object.keys(history.messages).length > 0;
 
 	$: showControlsTab = $user?.role === 'admin' || ($user?.permissions?.chat?.controls ?? true);
-	$: showFilesTab = !!$selectedTerminalId || $config?.code?.interpreter_engine !== 'jupyter';
+	$: showFilesTab =
+		$selectedTerminalId &&
+		(($terminalServers ?? []).some((t) => t.id && t.id === $selectedTerminalId) ||
+			$user?.role === 'admin' ||
+			($user?.permissions?.features?.direct_tool_servers ?? true));
 	$: showOverviewTab = hasMessages;
 
 	// Tab fallback: if active tab becomes hidden, switch to next available
@@ -92,11 +96,20 @@
 	}
 
 	// Auto-open Files tab when a terminal is selected (suppress panel open when full-screen)
-	$: if ($selectedTerminalId) {
+	$: if ($selectedTerminalId && showFilesTab) {
 		activeTab = 'files';
 		if (largeScreen) {
 			showControls.set(true);
 		}
+	}
+
+	// Clear selected direct terminal if user lost permission
+	$: if (
+		$selectedTerminalId &&
+		!($terminalServers ?? []).some((t) => t.id && t.id === $selectedTerminalId) &&
+		!($user?.role === 'admin' || ($user?.permissions?.features?.direct_tool_servers ?? true))
+	) {
+		selectedTerminalId.set(null);
 	}
 
 	// Attach a terminal file to the chat input
@@ -358,8 +371,8 @@
 									onClose={() => showControls.set(false)}
 								/>
 							{:else if activeTab === 'files' && $selectedTerminalId}
-								<FileNav onAttach={handleTerminalAttach} />
-							{:else if activeTab === 'files'}
+								<FileNav onAttach={handleTerminalAttach} {chatId} />
+							{:else if activeTab === 'files' && codeInterpreterEnabled}
 								<PyodideFileNav />
 							{:else}
 								<Controls embed={true} {models} bind:chatFiles bind:params />
@@ -509,8 +522,8 @@
 										onClose={() => showControls.set(false)}
 									/>
 								{:else if activeTab === 'files' && $selectedTerminalId}
-									<FileNav onAttach={handleTerminalAttach} overlay={dragged} />
-								{:else if activeTab === 'files'}
+									<FileNav onAttach={handleTerminalAttach} overlay={dragged} {chatId} />
+								{:else if activeTab === 'files' && codeInterpreterEnabled}
 									<PyodideFileNav overlay={dragged} />
 								{:else}
 									<Controls embed={true} {models} bind:chatFiles bind:params />
