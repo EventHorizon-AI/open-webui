@@ -70,10 +70,11 @@
 
 	$: showControlsTab = $user?.role === 'admin' || ($user?.permissions?.chat?.controls ?? true);
 	$: showFilesTab =
-		$selectedTerminalId &&
-		(($terminalServers ?? []).some((t) => t.id && t.id === $selectedTerminalId) ||
-			$user?.role === 'admin' ||
-			($user?.permissions?.features?.direct_tool_servers ?? true));
+		($selectedTerminalId &&
+			(($terminalServers ?? []).some((t) => t.id && t.id === $selectedTerminalId) ||
+				$user?.role === 'admin' ||
+				($user?.permissions?.features?.direct_tool_servers ?? true))) ||
+		$config?.code?.interpreter_engine !== 'jupyter';
 	$: showOverviewTab = hasMessages;
 
 	// Tab fallback: if active tab becomes hidden, switch to next available
@@ -372,7 +373,7 @@
 								/>
 							{:else if activeTab === 'files' && $selectedTerminalId}
 								<FileNav onAttach={handleTerminalAttach} {chatId} />
-							{:else if activeTab === 'files' && codeInterpreterEnabled}
+							{:else if activeTab === 'files'}
 								<PyodideFileNav />
 							{:else}
 								<Controls embed={true} {models} bind:chatFiles bind:params />
@@ -523,7 +524,7 @@
 									/>
 								{:else if activeTab === 'files' && $selectedTerminalId}
 									<FileNav onAttach={handleTerminalAttach} overlay={dragged} {chatId} />
-								{:else if activeTab === 'files' && codeInterpreterEnabled}
+								{:else if activeTab === 'files'}
 									<PyodideFileNav overlay={dragged} />
 								{:else}
 									<Controls embed={true} {models} bind:chatFiles bind:params />
