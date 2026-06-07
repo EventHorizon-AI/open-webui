@@ -272,7 +272,7 @@ async def fetch_url(
         else:
             content = ''
 
-        return json.dumps({'content': content}, ensure_ascii=False)
+        return content
     except Exception as e:
         log.warning(f'fetch_url error: {e}')
         return json.dumps({'error': str(e)})
