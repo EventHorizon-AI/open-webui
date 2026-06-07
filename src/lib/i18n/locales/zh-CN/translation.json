@@ -1978,7 +1978,7 @@
 	"Status cleared successfully": "状态已清除",
 	"Status updated successfully": "状态已更新",
 	"Status Updates": "状态更新",
-	"STDOUT/STDERR": "标准输出/标准错误",
+	"STDOUT/STDERR": "STDOUT/STDERR",
 	"Steps": "迭代步数",
 	"Stop": "停止",
 	"Stop Download": "停止下载",
