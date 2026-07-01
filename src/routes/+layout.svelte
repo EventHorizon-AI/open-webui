@@ -63,13 +63,20 @@
 	} from '$lib/utils/connections';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL, WEBUI_HOSTNAME } from '$lib/constants';
-	import { bestMatchingLanguage, displayFileHandler, getUserTimezone } from '$lib/utils';
+	import {
+		bestMatchingLanguage,
+		cleanText,
+		displayFileHandler,
+		getUserTimezone,
+		removeAllDetails
+	} from '$lib/utils';
 	import { setTextScale } from '$lib/utils/text-scale';
 
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import AppSidebar from '$lib/components/app/AppSidebar.svelte';
 	import SyncStatsModal from '$lib/components/chat/Settings/SyncStatsModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import { getOutputText } from '$lib/components/chat/Messages/structuredOutput';
 	import { getUserSettings } from '$lib/apis/users';
 	import dayjs from 'dayjs';
 	import { getChannels } from '$lib/apis/channels';
@@ -618,8 +625,9 @@
 
 		if ((event.chat_id !== $chatId && !$temporaryChatEnabled) || isInBackground) {
 			if (type === 'chat:completion') {
-				const { done, content, title } = data;
+				const { done, content, output, title } = data;
 				const displayTitle = title || $i18n.t('New Chat');
+				const contentPreview = cleanText(removeAllDetails(getOutputText(output) || content || ''));
 
 				if (done) {
 					if (
@@ -638,7 +646,7 @@
 					if ($isLastActiveTab) {
 						if ($settings?.notificationEnabled ?? false) {
 							new Notification(`${displayTitle} • Open WebUI`, {
-								body: content,
+								body: contentPreview,
 								icon: `${WEBUI_BASE_URL}/static/favicon.png`
 							});
 						}
@@ -649,7 +657,7 @@
 							onClick: () => {
 								goto(`/c/${event.chat_id}`);
 							},
-							content: content,
+							content: contentPreview,
 							title: displayTitle
 						},
 						duration: 15000,
@@ -817,18 +825,17 @@
 		});
 	};
 
-	const isAuthFailureResponse = async (response) => {
-		try {
-			const data = await response.clone().json();
-			const detail = data?.detail;
-			return (
-				detail === '401 Unauthorized' ||
-				detail === 'Not authenticated' ||
-				detail === 'Your session has expired or the token is invalid. Please sign in again.'
-			);
-		} catch {
-			return true;
-		}
+	const isCurrentSessionUnauthorized = async (originalFetch) => {
+		return originalFetch(`${WEBUI_API_BASE_URL}/auths/`, {
+			method: 'GET',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${localStorage.token}`
+			},
+			credentials: 'include'
+		})
+			.then((res) => res.status === 401)
+			.catch(() => false);
 	};
 
 	const checkTokenExpiry = async () => {
@@ -961,7 +968,7 @@
 				response.status === 401 &&
 				localStorage.token &&
 				isAuthenticatedBackendFetch(input, init) &&
-				(await isAuthFailureResponse(response))
+				(await isCurrentSessionUnauthorized(originalFetch))
 			) {
 				redirectToAuthAfterUnauthorized();
 			}
