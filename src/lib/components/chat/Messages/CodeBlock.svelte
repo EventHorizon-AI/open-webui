@@ -32,7 +32,7 @@
 	export let edit = true;
 
 	export let onSave = (e) => {};
-	export let onUpdate = (e) => {};
+	export let onUpdate = (e, codeBlockId = '') => {};
 	export let onPreview = (e) => {};
 
 	export let save = false;
@@ -371,7 +371,7 @@
 	};
 
 	const render = async () => {
-		onUpdate(token);
+		onUpdate(token, id);
 		if (
 			(lang === 'json' || lang === 'vega' || lang === 'vega-lite') &&
 			(token?.raw ?? '').slice(-4).includes('```')
@@ -438,7 +438,7 @@
 
 	onMount(async () => {
 		if (token) {
-			onUpdate(token);
+			onUpdate(token, id);
 		}
 	});
 

@@ -12,13 +12,13 @@
 
 <svelte:head>
 	<title>
-		{$i18n.t('Home')} • {$WEBUI_NAME}
+		{$i18n.t('Home')} / {$WEBUI_NAME}
 	</title>
 </svelte:head>
 
 <div
 	class=" flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
-		? 'md:max-w-[calc(100%-260px)]'
+		? 'md:max-w-[calc(100%-245px)]'
 		: ''} max-w-full"
 >
 	<nav class="   px-2.5 pt-1.5 backdrop-blur-xl w-full drag-region">
@@ -37,7 +37,7 @@
 							}}
 						>
 							<div class=" self-center p-1.5">
-								<Sidebar />
+								<Sidebar className="size-4" />
 							</div>
 						</button>
 					</Tooltip>
@@ -46,7 +46,7 @@
 
 			<div class=" flex w-full">
 				<div
-					class="flex gap-1 scrollbar-none overflow-x-auto w-fit text-center text-sm font-medium rounded-full bg-transparent pt-1"
+					class="flex gap-0.5 md:gap-1 scrollbar-none overflow-x-auto w-fit text-center text-sm font-normal rounded-full bg-transparent pt-1"
 				>
 					<a
 						class="min-w-fit p-1.5 {$page.url.pathname.includes('/home/notes')
