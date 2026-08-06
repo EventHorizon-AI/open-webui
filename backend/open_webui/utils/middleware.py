@@ -2194,6 +2194,35 @@ def strip_skill_mentions(messages: list[dict]) -> None:
                         part['text'] = SKILL_MENTION_STRIP_RE.sub(label, text).strip()
 
 
+def build_catalog_xml(skills: list) -> str:
+    """Build the <available_skills> XML catalog for the system prompt.
+
+    Includes behavioral instructions telling the model how to use skills.
+    The <id> of each skill is what the model passes to view_skill.
+    Returns empty string if no skills.
+    """
+    if not skills:
+        return ''
+
+    lines = [
+        'The following skills provide specialized instructions for specific tasks.',
+        "When a task matches a skill's description, call the view_skill tool",
+        "with the skill's id to load its full instructions.",
+        '',
+        '<available_skills>',
+    ]
+
+    for skill in skills:
+        lines.append('<skill>')
+        lines.append(f'  <id>{skill.id}</id>')
+        lines.append(f'  <name>{skill.name}</name>')
+        lines.append(f'  <description>{skill.description or ""}</description>')
+        lines.append('</skill>')
+
+    lines.append('</available_skills>')
+    return '\n'.join(lines)
+
+
 async def connect_mcp_server(
     request,
     server_id: str,
@@ -2604,7 +2633,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Otherwise, save any tools that filter inlets added for merging later.
     inlet_filter_tools = None if payload_tools is not None else form_data.get('tools', None)
 
-    # Mentioned skills get full content; selected/default skills can be loaded through view_skill.
+    # Mentioned skills get full content; all active skills can be loaded through view_skill.
     mentioned_skill_ids = extract_skill_ids_from_messages(form_data.get('messages', []))
     skill_ids = sorted(
         set(form_data.pop('skill_ids', None) or [])
@@ -2648,35 +2677,33 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         and (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get('builtin_tools', True)
     )
 
-    if skill_ids:
-        from open_webui.models.skills import Skills as SkillsModel
+    from open_webui.models.skills import Skills as SkillsModel
 
-        # Reuse the rows from the access query instead of re-fetching each
-        # skill by id.
-        accessible_skills = {s.id: s for s in await SkillsModel.get_skills_by_user_id(user.id, 'read')}
-        for sid in skill_ids:
-            s = accessible_skills.get(sid)
-            if s and s.is_active:
-                available_skills.append(s)
+    # All active skills the user can access are listed in <available_skills>
+    # so the model can discover them and load full instructions via view_skill.
+    accessible_skills = {s.id: s for s in await SkillsModel.get_skills_by_user_id(user.id, 'read')}
+    active_skills = [s for s in accessible_skills.values() if s.is_active]
 
-        skill_manifest = ''
-        for skill in available_skills:
-            if skill.id in mentioned_skill_ids or not use_builtin_tools:
-                form_data['messages'] = add_or_update_system_message(
-                    f'<skill name="{skill.name}">\n{skill.content}\n</skill>',
-                    form_data['messages'],
-                    append=True,
-                )
-            else:
-                view_skill_ids.append(skill.id)
-                skill_manifest += (
-                    f'<skill>\n<id>{skill.id}</id>\n<name>{skill.name}</name>\n'
-                    f'<description>{skill.description or ""}</description>\n</skill>\n'
-                )
+    for sid in skill_ids:
+        s = accessible_skills.get(sid)
+        if s and s.is_active:
+            available_skills.append(s)
 
-        if skill_manifest:
+    view_skill_ids.extend(skill.id for skill in active_skills)
+
+    catalog = build_catalog_xml(active_skills)
+    if catalog:
+        form_data['messages'] = add_or_update_system_message(
+            catalog,
+            form_data['messages'],
+            append=True,
+        )
+
+    # Mentioned skills get full content injected directly.
+    for skill in available_skills:
+        if skill.id in mentioned_skill_ids or not use_builtin_tools:
             form_data['messages'] = add_or_update_system_message(
-                f'<available_skills>\n{skill_manifest}</available_skills>',
+                f'<skill name="{skill.name}">\n{skill.content}\n</skill>',
                 form_data['messages'],
                 append=True,
             )

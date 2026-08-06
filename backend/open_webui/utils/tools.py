@@ -71,6 +71,7 @@ from open_webui.tools.builtin import (
     list_knowledge_bases,
     list_memories,
     list_memory_paths,
+    manage_skill,
     notify,
     query_chat_files,
     query_knowledge_bases,
@@ -728,9 +729,18 @@ async def get_builtin_tools(
             ]
         )
 
-    # Skills tools - view_skill allows model to load full skill instructions on demand
-    if extra_params.get('__skill_ids__'):
-        builtin_functions.append(view_skill)
+    # Skills tools - manage_skill lets the model create/update/delete skills,
+    # while view_skill loads full skill instructions on demand. manage_skill is
+    # injected whenever the skills builtin is enabled so the model can create a
+    # skill even before any exist; view_skill requires at least one active skill.
+    if is_builtin_tool_enabled('skills'):
+        builtin_functions.append(manage_skill)
+
+        from open_webui.models.skills import Skills as SkillsModel
+
+        accessible_skills = await SkillsModel.get_skills_by_user_id(user.get('id', ''), 'read')
+        if any(skill.is_active for skill in accessible_skills):
+            builtin_functions.append(view_skill)
 
     # Task management - break down complex work into trackable steps
     # Task state is stored on the chats row; local/channel IDs do not have one.
@@ -927,7 +937,6 @@ def clean_properties(schema: dict):
 
 
 def clean_openai_tool_schema(spec: dict) -> dict:
-
     cleaned_spec = copy.deepcopy(spec)
 
     if 'parameters' in cleaned_spec:

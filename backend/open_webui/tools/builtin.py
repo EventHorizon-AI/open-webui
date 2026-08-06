@@ -3376,6 +3376,154 @@ async def view_skill(
         return json.dumps({'error': str(e)})
 
 
+async def manage_skill(
+    action: Literal['create', 'update', 'delete'],
+    name: str,
+    content: Optional[str] = None,
+    description: Optional[str] = None,
+    __request__: Request = None,
+    __user__: dict = None,
+) -> str:
+    """Create, update, or delete a reusable skill.
+
+    Use this only when the user asks to create, update, or delete a reusable skill.
+    New skills are owned by the current user and become active immediately, so they
+    will be listed in <available_skills> and available to the model via view_skill.
+
+    :param action: "create" to create a new skill, "update" to replace an existing skill's content and description, or "delete" to remove a skill.
+    :param name: The skill name. Used as the identifier; created skills get an id derived from the name.
+    :param content: Full skill instructions in markdown for action="create" or action="update".
+    :param description: Optional short description shown to the model in <available_skills>.
+    :return: JSON with the resulting skill details.
+    """
+    if __request__ is None:
+        return json.dumps({'error': 'Request context not available'})
+
+    if not __user__:
+        return json.dumps({'error': 'User context not available'})
+
+    if not name or not name.strip():
+        return json.dumps({'error': 'name is required'})
+
+    try:
+        import re
+        import unicodedata
+
+        from open_webui.models.access_grants import AccessGrants
+        from open_webui.models.skills import SkillForm, Skills
+
+        user_id = __user__.get('id')
+
+        def slugify(value: str) -> str:
+            normalized = unicodedata.normalize('NFD', value)
+            ascii_only = ''.join(ch for ch in normalized if unicodedata.category(ch) != 'Mn')
+            return re.sub(r'[^a-zA-Z0-9-_]', '', re.sub(r'\s+', '-', ascii_only)).lower()
+
+        async def resolve_skill(skill_name: str):
+            skill = await Skills.get_skill_by_id(slugify(skill_name))
+            if not skill:
+                skill = await Skills.get_skill_by_name(skill_name)
+            return skill
+
+        async def has_write_access(skill) -> bool:
+            if __user__.get('role') == 'admin':
+                return True
+            if skill.user_id == user_id:
+                return True
+            user_group_ids = {group.id for group in await Groups.get_groups_by_member_id(user_id)}
+            return await AccessGrants.has_access(
+                user_id=user_id,
+                resource_type='skill',
+                resource_id=skill.id,
+                permission='write',
+                user_group_ids=user_group_ids,
+            )
+
+        if action == 'create':
+            skill_id = slugify(name)
+            existing = await Skills.get_skill_by_id(skill_id)
+            if existing:
+                return json.dumps(
+                    {
+                        'status': 'error',
+                        'error': f"Skill '{skill_id}' already exists; use update instead",
+                    },
+                    ensure_ascii=False,
+                )
+
+            form = SkillForm(
+                id=skill_id,
+                name=name.strip(),
+                description=description,
+                content=content or '',
+                meta={'tags': []},
+                is_active=True,
+                access_grants=[],
+            )
+            skill = await Skills.insert_new_skill(user_id, form)
+            if not skill:
+                return json.dumps({'status': 'error', 'error': 'Failed to create skill'}, ensure_ascii=False)
+
+            return json.dumps(
+                {
+                    'status': 'success',
+                    'action': 'create',
+                    'id': skill.id,
+                    'name': skill.name,
+                    'description': skill.description,
+                    'is_active': skill.is_active,
+                },
+                ensure_ascii=False,
+            )
+
+        elif action in ('update', 'delete'):
+            skill = await resolve_skill(name)
+            if not skill:
+                return json.dumps(
+                    {'status': 'error', 'error': f"Skill '{name}' not found"},
+                    ensure_ascii=False,
+                )
+
+            if not await has_write_access(skill):
+                return json.dumps({'status': 'error', 'error': 'Access denied'}, ensure_ascii=False)
+
+            if action == 'update':
+                updated = {'name': name.strip()}
+                if description is not None:
+                    updated['description'] = description
+                if content is not None:
+                    updated['content'] = content
+                updated_skill = await Skills.update_skill_by_id(skill.id, updated)
+                if not updated_skill:
+                    return json.dumps({'status': 'error', 'error': 'Failed to update skill'}, ensure_ascii=False)
+                return json.dumps(
+                    {
+                        'status': 'success',
+                        'action': 'update',
+                        'id': updated_skill.id,
+                        'name': updated_skill.name,
+                        'description': updated_skill.description,
+                        'is_active': updated_skill.is_active,
+                    },
+                    ensure_ascii=False,
+                )
+
+            else:
+                deleted = await Skills.delete_skill_by_id(skill.id)
+                if not deleted:
+                    return json.dumps({'status': 'error', 'error': 'Failed to delete skill'}, ensure_ascii=False)
+                return json.dumps(
+                    {'status': 'success', 'action': 'delete', 'id': skill.id, 'name': skill.name},
+                    ensure_ascii=False,
+                )
+
+        else:
+            return json.dumps({'status': 'error', 'error': f"unsupported action '{action}'"}, ensure_ascii=False)
+    except Exception as e:
+        log.exception(f'manage_skill error: {e}')
+        return json.dumps({'status': 'error', 'error': str(e)}, ensure_ascii=False)
+
+
 # =============================================================================
 # TASK MANAGEMENT TOOLS
 # =============================================================================
