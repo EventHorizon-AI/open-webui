@@ -29,6 +29,7 @@ from requests.adapters import HTTPAdapter
 from fastapi.concurrency import run_in_threadpool
 from langchain_community.document_loaders import PlaywrightURLLoader, WebBaseLoader
 from langchain_community.document_loaders.base import BaseLoader
+from langchain_community.document_loaders.url_playwright import PlaywrightEvaluator
 from langchain_core.documents import Document
 from open_webui.config import (
     ENABLE_LOCAL_WEB_FETCH,
@@ -575,6 +576,57 @@ class SafeMicrosoftWebIQLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                 raise e
 
 
+class PlaywrightSoupEvaluator(PlaywrightEvaluator):
+    """Extract visible page text with BeautifulSoup.
+
+    Replaces langchain's default ``UnstructuredHtmlEvaluator``, which pulls in
+    the ``unstructured`` package and, on first use, tries to auto-download a
+    spaCy model from GitHub — a step that fails in offline/restricted networks.
+    Parsing with BeautifulSoup matches the output of the default
+    ``SafeWebBaseLoader`` engine and needs no runtime downloads.
+    """
+
+    def __init__(self, remove_selectors: Optional[List[str]] = None):
+        self.remove_selectors = remove_selectors or []
+
+    @staticmethod
+    def _text_from_html(html: str) -> str:
+        from bs4 import BeautifulSoup
+
+        soup = BeautifulSoup(html, 'lxml')
+        for tag in soup.find_all(['script', 'style', 'noscript', 'template']):
+            tag.decompose()
+        return soup.get_text('\n\n', strip=True)
+
+    def _drop_selectors_sync(self, page) -> None:
+        for selector in self.remove_selectors:
+            for element in page.locator(selector).all():
+                try:
+                    if element.is_visible():
+                        element.evaluate('(element) => element.remove()')
+                except Exception:
+                    continue
+
+    async def _drop_selectors_async(self, page) -> None:
+        for selector in self.remove_selectors:
+            for element in await page.locator(selector).all():
+                try:
+                    if await element.is_visible():
+                        await element.evaluate('(element) => element.remove()')
+                except Exception:
+                    continue
+
+    def evaluate(self, page, browser, response) -> str:
+        """Synchronously process the page and return its visible text."""
+        self._drop_selectors_sync(page)
+        return self._text_from_html(page.content())
+
+    async def evaluate_async(self, page, browser, response) -> str:
+        """Asynchronously process the page and return its visible text."""
+        await self._drop_selectors_async(page)
+        return self._text_from_html(await page.content())
+
+
 class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessingMixin):
     """Load HTML pages safely with Playwright, supporting SSL verification, rate limiting, and remote browser connection.
 
@@ -620,7 +672,7 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
             urls=web_paths,
             continue_on_failure=continue_on_failure,
             headless=headless if playwright_ws_url is None else False,
-            remove_selectors=remove_selectors,
+            evaluator=PlaywrightSoupEvaluator(remove_selectors),
             proxy=proxy,
         )
         self.verify_ssl = verify_ssl
@@ -699,7 +751,7 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
         with sync_playwright() as p:
             # Use remote browser if ws_endpoint is provided, otherwise use local browser
             if self.playwright_ws_url:
-                browser = p.chromium.connect(self.playwright_ws_url)
+                browser = p.chromium.connect_over_cdp(self.playwright_ws_url)
             else:
                 browser = p.chromium.launch(headless=self.headless, proxy=self.proxy)
 
@@ -712,7 +764,12 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                             page.route_web_socket('**/*', lambda ws_route: ws_route.close())
                             response = page.goto(url, timeout=self.playwright_timeout)
                             if response is None:
-                                raise ValueError(f'page.goto() returned None for url {url}')
+                                # page.goto() returns None when the main navigation is
+                                # fulfilled by our route handler on a CDP-connected browser
+                                # (connect_over_cdp), even though the document still loads.
+                                # The evaluator below only needs the loaded DOM, so wait for
+                                # the load event instead of failing the URL.
+                                page.wait_for_load_state('load', timeout=self.playwright_timeout)
 
                             text = self.evaluator.evaluate(page, browser, response)
                             metadata = {'source': url}
@@ -730,7 +787,7 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
         async with async_playwright() as p:
             # Use remote browser if ws_endpoint is provided, otherwise use local browser
             if self.playwright_ws_url:
-                browser = await p.chromium.connect(self.playwright_ws_url)
+                browser = await p.chromium.connect_over_cdp(self.playwright_ws_url)
             else:
                 browser = await p.chromium.launch(headless=self.headless, proxy=self.proxy)
 
@@ -743,7 +800,12 @@ class SafePlaywrightURLLoader(PlaywrightURLLoader, RateLimitMixin, URLProcessing
                             await page.route_web_socket('**/*', lambda ws_route: ws_route.close())
                             response = await page.goto(url, timeout=self.playwright_timeout)
                             if response is None:
-                                raise ValueError(f'page.goto() returned None for url {url}')
+                                # page.goto() returns None when the main navigation is
+                                # fulfilled by our route handler on a CDP-connected browser
+                                # (connect_over_cdp), even though the document still loads.
+                                # The evaluator below only needs the loaded DOM, so wait for
+                                # the load event instead of failing the URL.
+                                await page.wait_for_load_state('load', timeout=self.playwright_timeout)
 
                             text = await self.evaluator.evaluate_async(page, browser, response)
                             metadata = {'source': url}
