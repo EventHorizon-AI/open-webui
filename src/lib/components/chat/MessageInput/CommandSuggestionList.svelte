@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { chatContextUsage } from '$lib/stores';
 	import SlashCommands from './Commands/SlashCommands.svelte';
 	import AtCommands from './Commands/AtCommands.svelte';
 	import Knowledge from './Commands/Knowledge.svelte';
@@ -8,19 +9,29 @@
 
 	export let char = '';
 	export let query = '';
-	export let command: (payload: { id: string; label: string }) => void;
+	export let command: (payload: {
+		id: string;
+		label: string;
+		content?: string;
+		type?: string;
+	}) => void;
 
 	export let onSelect: (e: any) => void = () => {};
 	export let onUpload: (e: any) => void = () => {};
 	export let onCompact: () => void = () => {};
 	export let onStatus: () => void = () => {};
 	export let onFork: () => void = () => {};
+	export let onModel: () => void = () => {};
+	export let onSettings: () => void = () => {};
+	export let onTemporary: () => void = () => {};
 	export let insertTextHandler: (text: string) => void = () => {};
 	export let canCompact: boolean | (() => boolean) = false;
 	export let compactDisabled: boolean | (() => boolean) = false;
 	export let canStatus: boolean | (() => boolean) = false;
 	export let canFork: boolean | (() => boolean) = false;
 	export let forkDisabled: boolean | (() => boolean) = false;
+	export let canTemporary: boolean | (() => boolean) = false;
+	export let temporaryEnabled: boolean | (() => boolean) = false;
 	export let contextUsage = null;
 
 	$: compactAvailable = typeof canCompact === 'function' ? canCompact() : canCompact;
@@ -29,7 +40,15 @@
 	$: statusAvailable = typeof canStatus === 'function' ? canStatus() : canStatus;
 	$: forkAvailable = typeof canFork === 'function' ? canFork() : canFork;
 	$: isForkDisabled = typeof forkDisabled === 'function' ? forkDisabled() : forkDisabled;
-	$: resolvedContextUsage = typeof contextUsage === 'function' ? contextUsage() : contextUsage;
+	$: temporaryAvailable = typeof canTemporary === 'function' ? canTemporary() : canTemporary;
+	$: isTemporaryEnabled =
+		typeof temporaryEnabled === 'function' ? temporaryEnabled() : temporaryEnabled;
+
+	// The popup is mounted once with props captured at open time, so a function
+	// prop would serve stale usage data. Subscribe to the store so the icon picks
+	// up the ready value pushed by Chat.svelte (and any later updates).
+	$: resolvedContextUsage =
+		$chatContextUsage ?? (typeof contextUsage === 'function' ? contextUsage() : contextUsage);
 	$: contextHasThreshold = Number(resolvedContextUsage?.threshold) > 0;
 	$: contextPercent = contextHasThreshold
 		? Math.max(0, Math.round(resolvedContextUsage?.percent ?? 0))
@@ -75,8 +94,8 @@
 </script>
 
 <div class={(filteredItems ?? []).length > 0 ? '' : 'hidden'} id="suggestions-container">
-	<DropdownMenu className="w-72 font-sans text-xs">
-		<div class="overflow-y-auto scrollbar-thin max-h-60">
+	<DropdownMenu className="w-72 max-w-[calc(100vw-1rem)] overflow-x-hidden font-sans text-xs">
+		<div class="max-h-60 overflow-y-auto overflow-x-hidden scrollbar-thin">
 			{#if char === '/'}
 				<SlashCommands
 					bind:this={suggestionElement}
@@ -87,22 +106,38 @@
 					canStatus={statusAvailable}
 					canFork={forkAvailable}
 					forkDisabled={isForkDisabled}
+					canTemporary={temporaryAvailable}
+					temporaryEnabled={isTemporaryEnabled}
 					{contextPercent}
 					{contextHasThreshold}
 					onSelect={(e) => {
 						const { type, data } = e;
 
 						if (type === 'prompt') {
-							insertTextHandler(data.content);
+							command({
+								id: data.command,
+								label: data.command,
+								content: data.content,
+								type: 'prompt'
+							});
 						} else if (type === 'command' && data.id === 'compact') {
-							insertTextHandler('');
+							command({ id: data.id, label: data.id });
 							onCompact();
 						} else if (type === 'command' && data.id === 'status') {
-							insertTextHandler('');
+							command({ id: data.id, label: data.id });
 							onStatus();
 						} else if (type === 'command' && data.id === 'fork') {
-							insertTextHandler('');
+							command({ id: data.id, label: data.id });
 							onFork();
+						} else if (type === 'command' && data.id === 'model') {
+							command({ id: data.id, label: data.id });
+							onModel();
+						} else if (type === 'command' && data.id === 'settings') {
+							command({ id: data.id, label: data.id });
+							onSettings();
+						} else if (type === 'command' && data.id === 'temporary') {
+							command({ id: data.id, label: data.id });
+							onTemporary();
 						} else if (type === 'skill') {
 							command({
 								id: `${data.id}|${data.name}`,
@@ -161,6 +196,13 @@
 
 							onUpload({
 								type: 'file',
+								data: data
+							});
+						} else if (type === 'filesystem') {
+							insertTextHandler('');
+
+							onUpload({
+								type: 'filesystem',
 								data: data
 							});
 						} else if (type === 'web') {
