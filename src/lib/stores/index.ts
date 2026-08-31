@@ -350,8 +350,6 @@ type Config = {
 		enable_admin_chat_access: boolean;
 		enable_admin_analytics: boolean;
 		enable_context_compaction?: boolean;
-		context_compaction_token_threshold?: number;
-		context_compaction_token_cap?: number;
 		enable_tool_permissions?: boolean;
 		enable_community_sharing: boolean;
 		enable_memories: boolean;

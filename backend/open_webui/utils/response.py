@@ -184,7 +184,13 @@ def convert_ollama_usage_to_openai(data: dict) -> dict:
         ),
         'prompt_token/s': (
             round(
-                ((data.get('prompt_eval_count', 0) / (data.get('prompt_eval_duration', 0) / 10_000_000)) * 100),
+                (
+                    (
+                        (data.get('prompt_eval_count', 0) - data.get('prompt_eval_cached_count', 0))
+                        / (data.get('prompt_eval_duration', 0) / 10_000_000)
+                    )
+                    * 100
+                ),
                 2,
             )
             if data.get('prompt_eval_duration', 0) > 0
@@ -193,6 +199,7 @@ def convert_ollama_usage_to_openai(data: dict) -> dict:
         'total_duration': data.get('total_duration', 0),
         'load_duration': data.get('load_duration', 0),
         'prompt_eval_count': data.get('prompt_eval_count', 0),
+        'prompt_eval_cached_count': data.get('prompt_eval_cached_count', 0),
         'prompt_eval_duration': data.get('prompt_eval_duration', 0),
         'eval_count': data.get('eval_count', 0),
         'eval_duration': data.get('eval_duration', 0),

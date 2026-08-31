@@ -38,7 +38,8 @@
 		showFileNavDir,
 		selectedTerminalId,
 		TTSWorker,
-		temporaryChatEnabled
+		temporaryChatEnabled,
+		chatContextUsage
 	} from '$lib/stores';
 
 	import {
@@ -521,7 +522,9 @@
 		}, 1600);
 	};
 
-	$: statusContextUsage = contextUsage ?? getLocalContextUsage();
+	// The Chat.svelte store is re-pushed on every socket event, so the percent
+	// stays live during generation; the prop and local estimate are fallbacks.
+	$: statusContextUsage = $chatContextUsage ?? contextUsage ?? getLocalContextUsage();
 	$: contextHasThreshold = Number(statusContextUsage?.threshold) > 0;
 	$: contextPercent = contextHasThreshold
 		? Math.max(0, Math.round(statusContextUsage?.percent ?? 0))

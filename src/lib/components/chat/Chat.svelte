@@ -263,11 +263,11 @@
 			return threshold;
 		}
 
-		// Fall back to the global context-compaction threshold exposed by the
-		// backend. This makes the compact icon (progress ring) resolve from the
-		// app config instantly instead of waiting for chat.served context_usage.
-		const globalThreshold = Number($config?.features?.context_compaction_token_threshold);
-		return Number.isFinite(globalThreshold) && globalThreshold > 0 ? globalThreshold : null;
+		// Fall back to the server-resolved threshold carried by context_usage,
+		// which the backend computes from live config with per-chat/per-model
+		// overrides and the global cap applied.
+		const serverThreshold = Number(serverContextUsage?.threshold);
+		return Number.isFinite(serverThreshold) && serverThreshold > 0 ? serverThreshold : null;
 	};
 
 	const getContextUsage = () => {
@@ -326,13 +326,13 @@
 	// available the store never gets the ready value. Push it imperatively at the
 	// data-ready points instead.
 	const syncChatContextUsage = () => {
-		// Prefer the backend-calculated context_usage (authoritative tokens and
-		// percent) once it is loaded; fall back to the client-side estimate while
-		// it is still pending. This keeps the compact ring/percent stable across
-		// SPA navigation instead of showing 0% until a full reload.
+		// Prefer the live client-side estimate (its threshold already resolves
+		// through the server value, and its tokens track each completion); the
+		// backend context_usage is a point-in-time snapshot that only serves as
+		// a fallback when the local estimate is not ready yet.
 		const server = contextCompactionEnabled ? serverContextUsage : null;
 		const local = getContextUsage();
-		chatContextUsage.set(server?.threshold ? server : local);
+		chatContextUsage.set(local?.threshold ? local : server);
 	};
 
 	// Re-sync whenever history (chat load) or config (feature flags) change, so the
@@ -3701,11 +3701,22 @@
 						// params) that the backend doesn't receive in the
 						// chat completion request.  Files are now persisted
 						// by the backend at chat creation time.
+						let saved = null;
 						if (Object.keys(params).length > 0) {
-							await updateChatById(localStorage.token, res.chat_id, {
+							saved = await updateChatById(localStorage.token, res.chat_id, {
 								params: params
 							});
 						}
+
+						// The chat was created inside the completion request, so
+						// neither loadChat nor a create response carried
+						// context_usage; fetch it once so the context ring renders
+						// immediately without a page reload.
+						const created = saved?.context_usage
+							? saved
+							: await getChatById(localStorage.token, res.chat_id).catch(() => null);
+						serverContextUsage = created?.context_usage ?? null;
+						syncChatContextUsage();
 					}
 				}
 			}
@@ -3976,6 +3987,9 @@
 				chatVariables
 			);
 
+			serverContextUsage = chat?.context_usage ?? null;
+			syncChatContextUsage();
+
 			_chatId = chat.id;
 			await chatId.set(_chatId);
 
@@ -4013,6 +4027,14 @@
 					params: params,
 					files: chatFiles
 				});
+
+				// The main send path never calls loadChat/createNewChat, so pull the
+				// live threshold off this save response; otherwise the context ring
+				// stays hidden until a full page reload.
+				if (chat?.context_usage) {
+					serverContextUsage = chat.context_usage;
+				}
+				syncChatContextUsage();
 			}
 		}
 	};

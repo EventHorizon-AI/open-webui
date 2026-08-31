@@ -341,7 +341,10 @@ function buildDetailToken(
 	return null;
 }
 
-export function buildOutputDisplayItems(output: OutputItem[] = []): OutputDisplayItem[] {
+export function buildOutputDisplayItems(
+	output: OutputItem[] = [],
+	forceInlineFiles = false
+): OutputDisplayItem[] {
 	const displayItems: OutputDisplayItem[] = [];
 	const currentDetailTokens: OutputDetailToken[] = [];
 	const toolOutputByCallId: Record<string, OutputItem> = {};
@@ -379,7 +382,7 @@ export function buildOutputDisplayItems(output: OutputItem[] = []): OutputDispla
 
 		if (item.type === 'function_call_output') {
 			const inlineFile = getInlineFileFromToolOutput(toolCallByCallId[item.call_id ?? ''], item);
-			if (inlineFile) {
+			if (inlineFile && (inlineFile.displayed === true || forceInlineFiles)) {
 				flushDetails();
 				displayItems.push({
 					type: 'file',

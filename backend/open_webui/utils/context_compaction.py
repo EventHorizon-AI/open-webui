@@ -252,21 +252,6 @@ def _usage_token_count(usage: dict) -> int:
 
 
 async def get_chat_context_usage(chat: Any, model_id: str | None = None) -> dict | None:
-    chat_data = chat.chat or {}
-    history = chat_data.get('history') or {}
-    current_id = getattr(chat, 'current_message_id', None) or history.get('currentId')
-    if not current_id:
-        current_id = chat_data.get('currentId') or chat_data.get('branchPointMessageId')
-    if not current_id and isinstance(chat_data.get('messages'), list) and chat_data['messages']:
-        current_id = chat_data['messages'][-1].get('id')
-    if not current_id:
-        return None
-
-    messages_map = await Chats.get_messages_map_by_chat_id(chat.id)
-    messages = get_message_list(messages_map or history.get('messages') or {}, current_id)
-    if not messages:
-        return None
-
     config = await _load_config()
     if not config['enable']:
         return None
@@ -275,6 +260,24 @@ async def get_chat_context_usage(chat: Any, model_id: str | None = None) -> dict
     if model_id:
         params['model'] = model_id
     threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], {'params': params})
+
+    chat_data = chat.chat or {}
+    history = chat_data.get('history') or {}
+    current_id = getattr(chat, 'current_message_id', None) or history.get('currentId')
+    if not current_id:
+        current_id = chat_data.get('currentId') or chat_data.get('branchPointMessageId')
+    if not current_id and isinstance(chat_data.get('messages'), list) and chat_data['messages']:
+        current_id = chat_data['messages'][-1].get('id')
+    if not current_id:
+        # Fresh chat with no messages yet: still surface the live resolved
+        # threshold so clients can render the context meter immediately.
+        return _build_context_usage(0, threshold)
+
+    messages_map = await Chats.get_messages_map_by_chat_id(chat.id)
+    messages = get_message_list(messages_map or history.get('messages') or {}, current_id)
+    if not messages:
+        return _build_context_usage(0, threshold)
+
     messages, previous_summary = _apply_latest_summary_checkpoint(messages)
 
     for idx in range(len(messages) - 1, -1, -1):
