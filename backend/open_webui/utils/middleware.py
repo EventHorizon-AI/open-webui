@@ -1256,6 +1256,13 @@ async def terminal_event_handler(
                 pass
         if isinstance(parsed, dict) and parsed.get('exists') is False:
             return
+        # Prefer the server-resolved absolute path over the raw model argument.
+        # When the model passes a path relative to the terminal's current working
+        # directory (which may be a subdirectory of Home), the browser would
+        # otherwise resolve it against the Home root and try to open a
+        # non-existent Home/<filename>.
+        if isinstance(parsed, dict):
+            path = parsed.get('full_path') or parsed.get('path') or path
         page = tool_function_params.get('page')
 
         await event_emitter(

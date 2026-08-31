@@ -541,7 +541,7 @@
 			if (data?.name === 'display_file' && params?.path && !inlineDisplayFile) {
 				if (result?.exists !== false) {
 					displayFileHandler(
-						params.path,
+						result?.full_path ?? result?.path ?? params.path,
 						{ showControls, showFileNavPath },
 						{ page: params?.page }
 					);

@@ -793,7 +793,9 @@ async def create_new_chat(
             subject_id=chat.id,
             data={'title': chat.title, 'folder_id': chat.folder_id},
         )
-        return ChatResponse.model_validate(chat, from_attributes=True)
+        data = ChatResponse.model_validate(chat, from_attributes=True).model_dump()
+        data['context_usage'] = await get_chat_context_usage(chat)
+        return data
     except Exception as e:
         log.exception(e)
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=ERROR_MESSAGES.DEFAULT())
@@ -1387,7 +1389,9 @@ async def update_chat_by_id(
             subject_id=id,
             data={'title': chat.title},
         )
-        return ChatResponse.model_validate(chat, from_attributes=True)
+        data = ChatResponse.model_validate(chat, from_attributes=True).model_dump()
+        data['context_usage'] = await get_chat_context_usage(chat)
+        return data
     else:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

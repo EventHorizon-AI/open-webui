@@ -66,7 +66,10 @@
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 
-	$: displayItems = buildOutputDisplayItems(output) as OutputDisplayItem[];
+	$: displayItems = buildOutputDisplayItems(
+		output,
+		$settings?.terminalFileDisplay === 'inline'
+	) as OutputDisplayItem[];
 </script>
 
 {#each displayItems as displayItem (displayItem.id)}
