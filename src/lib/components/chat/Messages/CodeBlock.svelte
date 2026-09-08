@@ -1,7 +1,8 @@
 <script lang="ts">
-	import hljs from 'highlight.js';
 	import { toast } from 'svelte-sonner';
 	import { getContext, onMount, tick, onDestroy } from 'svelte';
+	import type { Writable } from 'svelte/store';
+	import type { i18n as i18nType } from 'i18next';
 	import { config, pyodideWorker as pyodideWorkerStore } from '$lib/stores';
 
 	import { createPyodideWorker } from '$lib/pyodide/createPyodideWorker';
@@ -14,10 +15,10 @@
 		unescapeHtml
 	} from '$lib/utils';
 
-	import 'highlight.js/styles/github-dark.min.css';
 	import equal from 'fast-deep-equal';
 
 	import CodeEditor from '$lib/components/common/CodeEditor.svelte';
+	import CodePreview from './CodePreview.svelte';
 	import SvgPanZoom from '$lib/components/common/SVGPanZoom.svelte';
 
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
@@ -26,7 +27,7 @@
 	import Cube from '$lib/components/icons/Cube.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	export let id = '';
 	export let edit = true;
@@ -50,6 +51,8 @@
 	export let stickyButtonsClassName = 'top-0';
 
 	let localPyodideWorker = null;
+
+	let editing = false;
 
 	let _code = '';
 	$: if (code) {
@@ -474,6 +477,18 @@
 				</div>
 
 				<div class="flex items-center gap-0.5 shrink-0">
+					{#if edit}
+						<button
+							class="bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
+							aria-pressed={editing}
+							on:click={() => {
+								editing = !editing;
+								collapsed = false;
+							}}
+						>
+							{editing ? $i18n.t('Done') : $i18n.t('Edit')}
+						</button>
+					{/if}
 					<button
 						class="flex gap-1 items-center bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
 						on:click={collapseCodeBlock}
@@ -547,9 +562,9 @@
 				<div class=" pt-6.5 bg-white dark:bg-black"></div>
 
 				{#if !collapsed}
-					{#if edit}
+					{#if edit && editing}
 						<CodeEditor
-							value={code}
+							value={_code}
 							{id}
 							{lang}
 							onSave={() => {
@@ -560,19 +575,7 @@
 							}}
 						/>
 					{:else}
-						<pre
-							class=" hljs p-4 px-5 overflow-x-auto"
-							style="border-top-left-radius: 0px; border-top-right-radius: 0px; {(executing ||
-								stdout ||
-								stderr ||
-								result) &&
-								'border-bottom-left-radius: 0px; border-bottom-right-radius: 0px;'}"><code
-								class="language-{lang} rounded-t-none whitespace-pre text-sm"
-								>{#if lang && hljs.getLanguage(lang)}{@html hljs.highlight(code, {
-										language: lang,
-										ignoreIllegals: true
-									}).value}{:else}{code}{/if}</code
-							></pre>
+						<CodePreview code={_code} {lang} />
 					{/if}
 				{:else}
 					<div
@@ -580,7 +583,7 @@
 					>
 						<span class="text-gray-500 italic">
 							{$i18n.t('{{COUNT}} hidden lines', {
-								COUNT: code.split('\n').length
+								COUNT: _code.split('\n').length
 							})}
 						</span>
 					</div>
