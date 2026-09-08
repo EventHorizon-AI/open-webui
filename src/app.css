@@ -1003,11 +1003,6 @@ html.high-contrast:not(.dark) .shimmer {
 }
 
 /* Styling for reasoning content inside Collapsible component */
-.collapsible-reasoning * {
-	@apply text-gray-500 dark:text-gray-500;
-}
-
-/* Styling for reasoning content inside Collapsible component */
-.collapsible-reasoning * {
-	@apply text-gray-500 dark:text-gray-500;
+.collapsible-reasoning blockquote {
+	color: color-mix(in srgb, currentColor 60%, transparent);
 }
