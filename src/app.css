@@ -1001,8 +1001,3 @@ html.high-contrast:not(.dark) .shimmer {
 	color: var(--color-gray-800);
 	-webkit-text-fill-color: var(--color-gray-800);
 }
-
-/* Styling for reasoning content inside Collapsible component */
-.collapsible-reasoning blockquote {
-	color: color-mix(in srgb, currentColor 60%, transparent);
-}
