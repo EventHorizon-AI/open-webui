@@ -59,6 +59,8 @@
 		color: inherit;
 		border-radius: 0;
 		font-size: inherit;
+		font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+		white-space: pre;
 		line-height: 1.6;
 		tab-size: 4;
 	}
