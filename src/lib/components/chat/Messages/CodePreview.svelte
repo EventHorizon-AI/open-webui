@@ -27,8 +27,8 @@
 		display: flex;
 		align-items: stretch;
 		overflow-x: auto;
-		background: #0d1117;
-		color: #c9d1d9;
+		background: #ffffff;
+		color: #1f2328;
 		width: 100%;
 		font-family: var(--font-mono, ui-monospace, monospace);
 	}
@@ -39,9 +39,9 @@
 		flex-direction: column;
 		padding: 0.5rem 0;
 		min-width: var(--gutter-width);
-		background: #0d1117;
+		background: #ffffff;
 		color: #6e7781;
-		border-inline-end: 1px solid #30363d;
+		border-inline-end: 1px solid #d0d7de;
 		user-select: none;
 	}
 
@@ -73,8 +73,13 @@
 		white-space: pre;
 	}
 
-	:global(.dark) .code-preview,
+	:global(.dark) .code-preview {
+		background: #000000;
+		color: #c9d1d9;
+	}
+
 	:global(.dark) .line-numbers {
-		background: #0d1117;
+		background: #000000;
+		border-inline-end-color: #30363d;
 	}
 </style>
