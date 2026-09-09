@@ -6,11 +6,14 @@
 	export let lang = '';
 
 	$: lines = code.length > 0 ? code.split('\n') : [''];
+
 	$: gutterWidth = `${String(lines.length).length + 1}ch`;
-	$: highlighted =
-		lang && hljs.getLanguage(lang)
-			? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
-			: code;
+
+	$: canHighlight = !!lang && hljs.getLanguage(lang);
+
+	$: highlighted = canHighlight
+		? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
+		: null;
 </script>
 
 <div class="code-preview text-sm" dir="ltr" style:--gutter-width={gutterWidth}>
@@ -19,7 +22,9 @@
 			<span>{index + 1}</span>
 		{/each}
 	</div>
-	<pre><code class="language-{lang}">{@html highlighted}</code></pre>
+	<pre><code class={lang ? `language-${lang}` : undefined}
+			>{#if highlighted !== null}{@html highlighted}{:else}{code}{/if}</code
+		></pre>
 </div>
 
 <style>
@@ -43,6 +48,9 @@
 		color: #6e7781;
 		border-inline-end: 1px solid #d0d7de;
 		user-select: none;
+		position: sticky;
+		left: 0;
+		z-index: 1;
 	}
 
 	.line-numbers span {
