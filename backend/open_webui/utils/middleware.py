@@ -2327,7 +2327,7 @@ def strip_skill_mentions(messages: list[dict]) -> None:
                         part['text'] = SKILL_MENTION_STRIP_RE.sub(label, text).strip()
 
 
-def build_catalog_xml(skills: list) -> str:
+def build_skill_catalog_xml(skills: list) -> str:
     """Build the <available_skills> XML catalog for the system prompt.
 
     Includes behavioral instructions telling the model how to use skills.
@@ -2831,7 +2831,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     view_skill_ids.extend(skill.id for skill in active_skills)
 
-    catalog = build_catalog_xml(active_skills)
+    catalog = build_skill_catalog_xml(active_skills)
     if catalog:
         form_data['messages'] = add_or_update_system_message(
             catalog,
