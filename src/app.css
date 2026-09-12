@@ -267,7 +267,13 @@ select {
 }
 
 .fade-in-token {
-	animation: fade-in-token 100ms ease-out;
+	animation: fade-in-token 200ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.fade-in-token {
+		animation: none;
+	}
 }
 
 .katex-mathml {

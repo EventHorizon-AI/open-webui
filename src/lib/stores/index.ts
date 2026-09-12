@@ -276,6 +276,7 @@ type Settings = {
 	keyboardShortcuts?: boolean;
 	expandReasoningBeforeCompletion?: boolean;
 	chatHoverPreview?: boolean;
+	chatFadeStreamingText?: boolean;
 	renderMarkdownInPreviews?: boolean;
 	renderMarkdownInUserMessages?: boolean;
 	renderMarkdownInAssistantMessages?: boolean;
