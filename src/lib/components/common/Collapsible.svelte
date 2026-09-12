@@ -63,6 +63,9 @@
 		}
 	}
 
+	$: isActiveReasoning =
+		attributes?.type === 'reasoning' && attributes?.done !== 'true' && !messageDone;
+
 	export let open = false;
 
 	export let className = '';
@@ -100,7 +103,9 @@
 	{#if title !== null}
 		<button
 			type="button"
-			class="{buttonClassName} block text-start disabled:cursor-default"
+			class="{buttonClassName} {isActiveReasoning
+				? 'w-full min-w-0'
+				: ''} block text-start disabled:cursor-default"
 			aria-expanded={open}
 			{disabled}
 			on:click={toggleOpen}
@@ -119,22 +124,26 @@
 					</div>
 				{/if}
 
-				<div class="">
+				<div class={isActiveReasoning ? 'flex-1 min-w-0 line-clamp-1' : ''}>
 					{#if attributes?.type === 'reasoning'}
-						{#if (attributes?.done === 'true' || messageDone) && attributes?.duration}
-							{#if attributes.duration < 1}
-								{$i18n.t('Thought for less than a second')}
-							{:else if attributes.duration < 60}
-								{$i18n.t('Thought for {{DURATION}} seconds', {
-									DURATION: attributes.duration
-								})}
+						{#if attributes?.done === 'true' || messageDone}
+							{#if attributes?.duration}
+								{#if attributes.duration < 1}
+									{$i18n.t('Thought for less than a second')}
+								{:else if attributes.duration < 60}
+									{$i18n.t('Thought for {{DURATION}} seconds', {
+										DURATION: attributes.duration
+									})}
+								{:else}
+									{$i18n.t('Thought for {{DURATION}}', {
+										DURATION: dayjs.duration(attributes.duration, 'seconds').humanize()
+									})}
+								{/if}
 							{:else}
-								{$i18n.t('Thought for {{DURATION}}', {
-									DURATION: dayjs.duration(attributes.duration, 'seconds').humanize()
-								})}
+								{$i18n.t('Thought')}
 							{/if}
-						{:else if attributes?.done === 'true' || messageDone}
-							{$i18n.t('Thought')}
+						{:else if title}
+							{title}
 						{:else}
 							{$i18n.t('Thinking...')}
 						{/if}

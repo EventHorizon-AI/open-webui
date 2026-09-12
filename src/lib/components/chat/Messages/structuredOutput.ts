@@ -235,16 +235,177 @@ function buildToolCallToken(item: OutputItem, toolOutputByCallId: Record<string,
 	};
 }
 
+const REASONING_PREVIEW_MAX_LENGTH = 80;
+
+function stripMarkdownInline(text: string): string {
+	return text
+		.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+		.replace(/`{1,3}([^`]*)`{1,3}/g, '$1')
+		.replace(/\*\*(.+?)\*\*/g, '$1')
+		.replace(/~~(.+?)~~/g, '$1')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
+// Reasoning is streamed as markdown. A preview is only produced once a block has
+// completed (separated from the following one by a blank line); while the current
+// block is still being written the caller keeps the original "Thinking..." label.
+// Each subsequent block replaces the preview only when it finishes - no streaming.
+// When the whole reasoning item is done the caller reverts to the duration summary.
+type ReasoningPreviewState = {
+	length: number;
+	tail: string;
+	pending: string;
+	current: string[];
+	lastCompleted: string[] | null;
+	inFence: boolean;
+	fenceMarker: string;
+};
+
+const REASONING_PREVIEW_TAIL = 32;
+const REASONING_PREVIEW_CACHE_LIMIT = 100;
+
+const reasoningPreviewStates = new Map<string, ReasoningPreviewState>();
+
+function createReasoningPreviewState(): ReasoningPreviewState {
+	return {
+		length: 0,
+		tail: '',
+		pending: '',
+		current: [],
+		lastCompleted: null,
+		inFence: false,
+		fenceMarker: ''
+	};
+}
+
+function formatReasoningPreviewBlock(block: string[] | null, maxLength: number): string {
+	if (!block?.length) {
+		return '';
+	}
+
+	let firstLine = '';
+	for (const line of block) {
+		const candidate = line.trim();
+		if (candidate && !/^(```|~~~)/.test(candidate)) {
+			firstLine = candidate;
+			break;
+		}
+	}
+	if (!firstLine) {
+		return '';
+	}
+
+	const preview = stripMarkdownInline(
+		firstLine
+			.replace(/^#{1,6}\s+/, '')
+			.replace(/^>\s?/, '')
+			.replace(/^\s*([-*+]|\d+[.)])\s+/, '')
+			.replace(/^\[[ xX]\]\s*/, '')
+	);
+
+	if (preview.length <= maxLength) {
+		return preview;
+	}
+
+	return `${preview.slice(0, maxLength).trimEnd()}…`;
+}
+
+// The model only appends tokens while reasoning, so only the new suffix has to be
+// scanned; the block state is kept per item. The overlap tail cheaply detects
+// edits/regenerations that invalidate it, without comparing the whole text.
+function processReasoningPreview(
+	state: ReasoningPreviewState,
+	markdown: string,
+	maxLength: number
+): string {
+	if (
+		markdown.length < state.length ||
+		markdown.slice(state.length - state.tail.length, state.length) !== state.tail
+	) {
+		Object.assign(state, createReasoningPreviewState());
+	}
+
+	const buffer = state.pending + markdown.slice(state.length);
+	const lines = buffer.split('\n');
+	state.pending = lines.pop() ?? '';
+
+	for (const line of lines) {
+		const trimmed = line.trim();
+		const fenceMatch = /^(```|~~~)/.exec(trimmed);
+
+		if (fenceMatch) {
+			if (!state.inFence) {
+				state.inFence = true;
+				state.fenceMarker = fenceMatch[1];
+			} else if (trimmed.startsWith(state.fenceMarker)) {
+				state.inFence = false;
+				state.fenceMarker = '';
+			}
+		}
+
+		if (!state.inFence && trimmed === '') {
+			if (state.current.some((l) => l.trim())) {
+				state.lastCompleted = state.current;
+			}
+			state.current = [];
+			continue;
+		}
+
+		state.current.push(line);
+	}
+
+	state.length = markdown.length;
+	state.tail = markdown.slice(-REASONING_PREVIEW_TAIL);
+
+	return formatReasoningPreviewBlock(state.lastCompleted, maxLength);
+}
+
+function getReasoningPreview(
+	cacheId: string,
+	markdown: string,
+	maxLength = REASONING_PREVIEW_MAX_LENGTH
+): string {
+	if (!markdown) {
+		return '';
+	}
+
+	if (!cacheId) {
+		return processReasoningPreview(createReasoningPreviewState(), markdown, maxLength);
+	}
+
+	let state = reasoningPreviewStates.get(cacheId);
+	if (!state) {
+		state = createReasoningPreviewState();
+		reasoningPreviewStates.set(cacheId, state);
+		if (reasoningPreviewStates.size > REASONING_PREVIEW_CACHE_LIMIT) {
+			const oldest = reasoningPreviewStates.keys().next().value;
+			if (oldest !== undefined) {
+				reasoningPreviewStates.delete(oldest);
+			}
+		}
+	}
+
+	return processReasoningPreview(state, markdown, maxLength);
+}
+
 function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 	const duration = item.duration ?? '';
 	const isDone = isDoneStatus(item.status) || item.duration !== undefined || !isLastItem;
-	const text = getReasoningText(item)
+	const reasoningText = getReasoningText(item);
+	const text = reasoningText
 		.split('\n')
 		.map((line) => (line.startsWith('>') ? line : `> ${line}`))
 		.join('\n');
+	const cacheId = item.id ?? item.call_id ?? '';
+	if (isDone && cacheId) {
+		reasoningPreviewStates.delete(cacheId);
+	}
+	const preview = isDone ? '' : getReasoningPreview(cacheId, reasoningText);
 
 	return {
-		summary: isDone ? `Thought for ${duration || 0} seconds` : 'Thinking...',
+		summary: isDone ? `Thought for ${duration || 0} seconds` : preview,
 		text,
 		attributes: {
 			type: 'reasoning',
