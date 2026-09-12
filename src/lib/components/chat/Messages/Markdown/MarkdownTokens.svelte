@@ -136,6 +136,24 @@
 		displayTokens.length === 1 &&
 		(displayTokens[0]?.type === 'paragraph' || displayTokens[0]?.type === 'text');
 
+	// A single very long paragraph is one block-level layout context, so any change to it
+	// forces Chromium to lay out the whole paragraph again (O(content)) every frame,
+	// which is what makes scrolling stutter. When its inline token list is large, split
+	// it into several block-level chunks so only the growing chunk has to be laid out.
+	// Measured in bench/svelte-forced-layout: ~4-9x less per-frame layout, at the cost of
+	// a forced line break per boundary (~0.6-2% taller rendering at this chunk size).
+	const INLINE_CHUNK_SIZE = 500;
+
+	const getInlineChunks = (inlineTokens: Token[] | undefined) => {
+		if (!inlineTokens || inlineTokens.length <= INLINE_CHUNK_SIZE) return null;
+
+		const chunks: Token[][] = [];
+		for (let i = 0; i < inlineTokens.length; i += INLINE_CHUNK_SIZE) {
+			chunks.push(inlineTokens.slice(i, i + INLINE_CHUNK_SIZE));
+		}
+		return chunks;
+	};
+
 	const exportTableToCSVHandler = (token, tokenIdx = 0) => {
 		console.log('Exporting table to CSV');
 
@@ -566,6 +584,7 @@
 			}}
 		></iframe>
 	{:else if token.type === 'paragraph'}
+		{@const paragraphChunks = paragraphTag == 'span' ? null : getInlineChunks(token.tokens)}
 		{#if paragraphTag == 'span'}
 			<span dir="auto">
 				<MarkdownInlineTokens
@@ -576,6 +595,20 @@
 					{onSourceClick}
 				/>
 			</span>
+		{:else if paragraphChunks}
+			<div dir="auto" class="md-block-chunks {singlePlainBlock ? '!my-0' : 'mb-2'}">
+				{#each paragraphChunks as chunk, chunkIdx (chunkIdx)}
+					<div class="md-block">
+						<MarkdownInlineTokens
+							id={`${id}-${tokenIdx}-p-${chunkIdx}`}
+							tokens={chunk}
+							{done}
+							{sourceIds}
+							{onSourceClick}
+						/>
+					</div>
+				{/each}
+			</div>
 		{:else}
 			<p dir="auto" class={singlePlainBlock ? '!my-0' : ''}>
 				<MarkdownInlineTokens
@@ -588,20 +621,37 @@
 			</p>
 		{/if}
 	{:else if token.type === 'text'}
+		{@const textChunks = top && token.tokens ? getInlineChunks(token.tokens) : null}
 		{#if top}
-			<p class={singlePlainBlock ? '!my-0' : ''}>
-				{#if token.tokens}
-					<MarkdownInlineTokens
-						id={`${id}-${tokenIdx}-t`}
-						tokens={token.tokens}
-						{done}
-						{sourceIds}
-						{onSourceClick}
-					/>
-				{:else}
-					{unescapeHtml(token.text)}
-				{/if}
-			</p>
+			{#if textChunks}
+				<div class="md-block-chunks {singlePlainBlock ? '!my-0' : 'mb-2'}">
+					{#each textChunks as chunk, chunkIdx (chunkIdx)}
+						<div class="md-block">
+							<MarkdownInlineTokens
+								id={`${id}-${tokenIdx}-t-${chunkIdx}`}
+								tokens={chunk}
+								{done}
+								{sourceIds}
+								{onSourceClick}
+							/>
+						</div>
+					{/each}
+				</div>
+			{:else}
+				<p class={singlePlainBlock ? '!my-0' : ''}>
+					{#if token.tokens}
+						<MarkdownInlineTokens
+							id={`${id}-${tokenIdx}-t`}
+							tokens={token.tokens}
+							{done}
+							{sourceIds}
+							{onSourceClick}
+						/>
+					{:else}
+						{unescapeHtml(token.text)}
+					{/if}
+				</p>
+			{/if}
 		{:else if token.tokens}
 			<MarkdownInlineTokens
 				id={`${id}-${tokenIdx}-p`}
