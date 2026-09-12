@@ -35,6 +35,7 @@
 	}> = [];
 
 	export let messageDone = true;
+	export let groupOpen = false;
 	export let allowEmbeds = true;
 	export let compactPreview = false;
 	export let resolvable = false;
@@ -174,7 +175,10 @@
 		return detail;
 	})();
 
-	$: prefixText = hasActiveToolCalls ? $i18n.t('Exploring') : $i18n.t('Explored');
+	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
+	// Once it is closed it settles to "Explored" regardless of the last tool
+	// call status, which may have completed while the group kept streaming.
+	$: prefixText = groupOpen ? $i18n.t('Exploring') : $i18n.t('Explored');
 </script>
 
 <div {id} class="w-full min-w-0">
@@ -198,8 +202,9 @@
 			}}
 		>
 			<div class="flex items-center gap-1.5 min-w-0">
-				<!-- Status icon -->
-				{#if hasActiveToolCalls}
+				<!-- Status icon: a group that can still grow is always running, so
+				     success/error icons only appear once it is closed. -->
+				{#if groupOpen || hasActiveToolCalls}
 					<div>
 						<Spinner className="size-4" />
 					</div>
@@ -223,7 +228,7 @@
 
 				<!-- Summary text -->
 				<div class="flex-1 line-clamp-1">
-					<span class="text-gray-600 dark:text-gray-300 {hasActiveToolCalls ? 'shimmer' : ''}"
+					<span class="text-gray-600 dark:text-gray-300 {groupOpen ? 'shimmer' : ''}"
 						>{prefixText}</span
 					>
 					{#if summaryText}

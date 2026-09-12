@@ -72,7 +72,7 @@
 	) as OutputDisplayItem[];
 </script>
 
-{#each displayItems as displayItem (displayItem.id)}
+{#each displayItems as displayItem, displayIndex (displayItem.id)}
 	{#if displayItem.type === 'message'}
 		{#if renderMarkdown}
 			<div class="markdown-prose">
@@ -105,6 +105,7 @@
 			id={`${id}-${displayItem.id}`}
 			tokens={displayItem.tokens}
 			messageDone={done}
+			groupOpen={!done && displayIndex === displayItems.length - 1}
 			{compactPreview}
 			resolvable={!!chatId && !!messageId && save}
 			{resolvingCallId}

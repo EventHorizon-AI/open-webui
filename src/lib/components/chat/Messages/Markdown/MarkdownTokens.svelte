@@ -446,6 +446,7 @@
 			id={`${id}-${tokenIdx}-detail-group`}
 			tokens={token.items}
 			messageDone={done}
+			groupOpen={!done && tokenIdx === displayTokens.length - 1}
 			{compactPreview}
 			{allowEmbeds}
 			resolvable={!!chatId && !!messageId && save}
