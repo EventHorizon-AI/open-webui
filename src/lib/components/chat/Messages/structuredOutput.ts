@@ -235,8 +235,6 @@ function buildToolCallToken(item: OutputItem, toolOutputByCallId: Record<string,
 	};
 }
 
-const REASONING_PREVIEW_MAX_LENGTH = 80;
-
 function stripMarkdownInline(text: string): string {
 	return text
 		.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
@@ -280,7 +278,7 @@ function createReasoningPreviewState(): ReasoningPreviewState {
 	};
 }
 
-function formatReasoningPreviewBlock(block: string[] | null, maxLength: number): string {
+function formatReasoningPreviewBlock(block: string[] | null): string {
 	if (!block?.length) {
 		return '';
 	}
@@ -297,29 +295,19 @@ function formatReasoningPreviewBlock(block: string[] | null, maxLength: number):
 		return '';
 	}
 
-	const preview = stripMarkdownInline(
+	return stripMarkdownInline(
 		firstLine
 			.replace(/^#{1,6}\s+/, '')
 			.replace(/^>\s?/, '')
 			.replace(/^\s*([-*+]|\d+[.)])\s+/, '')
 			.replace(/^\[[ xX]\]\s*/, '')
 	);
-
-	if (preview.length <= maxLength) {
-		return preview;
-	}
-
-	return `${preview.slice(0, maxLength).trimEnd()}…`;
 }
 
 // The model only appends tokens while reasoning, so only the new suffix has to be
 // scanned; the block state is kept per item. The overlap tail cheaply detects
 // edits/regenerations that invalidate it, without comparing the whole text.
-function processReasoningPreview(
-	state: ReasoningPreviewState,
-	markdown: string,
-	maxLength: number
-): string {
+function processReasoningPreview(state: ReasoningPreviewState, markdown: string): string {
 	if (
 		markdown.length < state.length ||
 		markdown.slice(state.length - state.tail.length, state.length) !== state.tail
@@ -359,20 +347,16 @@ function processReasoningPreview(
 	state.length = markdown.length;
 	state.tail = markdown.slice(-REASONING_PREVIEW_TAIL);
 
-	return formatReasoningPreviewBlock(state.lastCompleted, maxLength);
+	return formatReasoningPreviewBlock(state.lastCompleted);
 }
 
-function getReasoningPreview(
-	cacheId: string,
-	markdown: string,
-	maxLength = REASONING_PREVIEW_MAX_LENGTH
-): string {
+function getReasoningPreview(cacheId: string, markdown: string): string {
 	if (!markdown) {
 		return '';
 	}
 
 	if (!cacheId) {
-		return processReasoningPreview(createReasoningPreviewState(), markdown, maxLength);
+		return processReasoningPreview(createReasoningPreviewState(), markdown);
 	}
 
 	let state = reasoningPreviewStates.get(cacheId);
@@ -387,7 +371,7 @@ function getReasoningPreview(
 		}
 	}
 
-	return processReasoningPreview(state, markdown, maxLength);
+	return processReasoningPreview(state, markdown);
 }
 
 function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
