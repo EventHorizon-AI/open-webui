@@ -63,12 +63,6 @@
 		}
 	}
 
-	$: hasActiveReasoningPreview =
-		attributes?.type === 'reasoning' &&
-		attributes?.done !== 'true' &&
-		!messageDone &&
-		!!title;
-
 	export let open = false;
 
 	export let className = '';
@@ -106,9 +100,7 @@
 	{#if title !== null}
 		<button
 			type="button"
-			class="{buttonClassName} {hasActiveReasoningPreview
-				? 'w-full min-w-0'
-				: ''} block text-start disabled:cursor-default"
+			class="{buttonClassName} block text-start disabled:cursor-default"
 			aria-expanded={open}
 			{disabled}
 			on:click={toggleOpen}
@@ -127,7 +119,7 @@
 					</div>
 				{/if}
 
-				<div class={hasActiveReasoningPreview ? 'flex-1 min-w-0 line-clamp-1' : ''}>
+				<div class="flex-1 min-w-0 line-clamp-1">
 					{#if attributes?.type === 'reasoning'}
 						{#if attributes?.done === 'true' || messageDone}
 							{#if attributes?.duration}
