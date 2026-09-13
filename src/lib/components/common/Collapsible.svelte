@@ -63,8 +63,11 @@
 		}
 	}
 
-	$: isActiveReasoning =
-		attributes?.type === 'reasoning' && attributes?.done !== 'true' && !messageDone;
+	$: hasActiveReasoningPreview =
+		attributes?.type === 'reasoning' &&
+		attributes?.done !== 'true' &&
+		!messageDone &&
+		!!title;
 
 	export let open = false;
 
@@ -103,7 +106,7 @@
 	{#if title !== null}
 		<button
 			type="button"
-			class="{buttonClassName} {isActiveReasoning
+			class="{buttonClassName} {hasActiveReasoningPreview
 				? 'w-full min-w-0'
 				: ''} block text-start disabled:cursor-default"
 			aria-expanded={open}
@@ -124,7 +127,7 @@
 					</div>
 				{/if}
 
-				<div class={isActiveReasoning ? 'flex-1 min-w-0 line-clamp-1' : ''}>
+				<div class={hasActiveReasoningPreview ? 'flex-1 min-w-0 line-clamp-1' : ''}>
 					{#if attributes?.type === 'reasoning'}
 						{#if attributes?.done === 'true' || messageDone}
 							{#if attributes?.duration}
