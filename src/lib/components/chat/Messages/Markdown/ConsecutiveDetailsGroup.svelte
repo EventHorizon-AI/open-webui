@@ -175,6 +175,20 @@
 		return detail;
 	})();
 
+	// While the group contains reasoning that is still streaming, surface the
+	// latest reasoning preview so it can shimmer in place of the tool list.
+	$: latestReasoningPreview = (() => {
+		if (messageDone) return '';
+
+		for (let i = tokens.length - 1; i >= 0; i--) {
+			const token = tokens[i];
+			if (token?.attributes?.type !== 'reasoning') continue;
+			if (token.attributes?.done === 'true') return '';
+			return token.summary ?? '';
+		}
+		return '';
+	})();
+
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
 	// Once it is closed it settles to "Explored" regardless of the last tool
 	// call status, which may have completed while the group kept streaming.
@@ -226,13 +240,19 @@
 					</div>
 				{/if}
 
-				<!-- Summary text -->
-				<div class="flex-1 line-clamp-1">
-					<span class="text-gray-600 dark:text-gray-300 {groupOpen ? 'shimmer' : ''}"
-						>{prefixText}</span
-					>
-					{#if summaryText}
-						<span class="text-gray-400 dark:text-gray-500">{summaryText}</span>
+				<!-- Summary text: while the group is still live the whole row shares a
+				     single shimmer gradient, so the prefix and the evolving preview /
+				     tool list sweep together. -->
+				<div class="flex-1 min-w-0 flex items-center gap-1.5">
+					<span class="shrink-0 text-gray-600 dark:text-gray-300">{prefixText}</span>
+					{#if latestReasoningPreview}
+						<span class="min-w-0 flex-1 truncate font-medium {groupOpen ? 'shimmer' : ''}"
+							>{latestReasoningPreview}</span
+						>
+					{:else if summaryText}
+						<span class="min-w-0 flex-1 truncate font-medium text-gray-400 dark:text-gray-500"
+							>{summaryText}</span
+						>
 					{/if}
 				</div>
 
