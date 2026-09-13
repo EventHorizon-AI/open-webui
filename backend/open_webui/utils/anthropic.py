@@ -32,11 +32,6 @@ ANTHROPIC_CONVERTED_REQUEST_PARAMS = {
 }
 
 
-def is_anthropic_url(url: str) -> bool:
-    """Check if the URL is an Anthropic API endpoint."""
-    return 'api.anthropic.com' in url
-
-
 async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> dict:
     """
     Fetch models from Anthropic's /v1/models endpoint with pagination.
@@ -128,11 +123,15 @@ def _finalize_openai_content(blocks: list) -> str | list:
     return blocks
 
 
-def is_anthropic_messages_passthrough(url: str, api_config: dict | None = None) -> bool:
-    api_config = api_config or {}
-    provider = str(api_config.get('provider', '')).lower()
+def is_messages_api(api_config: dict | None = None) -> bool:
+    """Check if the connection explicitly opts into the Anthropic Messages API.
 
-    return is_anthropic_url(url or '') or provider == 'litellm'
+    Like the Responses API, the API format is only ever selected by the user via
+    the connection's ``api_type``; there is no implicit URL/provider switching.
+    """
+    api_config = api_config or {}
+
+    return api_config.get('api_type') == 'messages'
 
 
 def convert_anthropic_to_openai_payload(

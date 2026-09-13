@@ -40,7 +40,11 @@ from open_webui.models.groups import Groups
 from open_webui.models.models import Models
 from open_webui.models.users import UserModel
 from open_webui.utils.access_control import check_model_access, has_connection_access, has_permission
-from open_webui.utils.anthropic import ANTHROPIC_VERSION, get_anthropic_models, is_anthropic_url
+from open_webui.utils.anthropic import (
+    ANTHROPIC_VERSION,
+    get_anthropic_models,
+    is_messages_api,
+)
 from open_webui.utils.auth import get_admin_user, get_verified_user
 from open_webui.utils.headers import get_custom_headers, include_user_info_headers
 from open_webui.utils.json_codec import JSONCodec
@@ -125,7 +129,7 @@ async def get_models_request(
     user: UserModel = None,
     config=None,
 ):
-    if is_anthropic_url(url):
+    if is_messages_api(config):
         return await get_anthropic_models(url, key, user=user)
     return await send_get_request(request, f'{url}/models', key, user=user, config=config)
 
@@ -484,7 +488,7 @@ async def get_anthropic_request_target(request: Request, form_data: dict, user: 
     headers, cookies = await get_headers_and_cookies(request, url, key, api_config, user=user)
 
     # Anthropic's native endpoints reject bearer auth, the key belongs in x-api-key.
-    if is_anthropic_url(url):
+    if is_messages_api(api_config):
         headers.setdefault('anthropic-version', ANTHROPIC_VERSION)
         if api_config.get('auth_type') in (None, 'bearer'):
             headers.pop('Authorization', None)
@@ -891,7 +895,7 @@ async def get_models(request: Request, url_idx: int | None = None, user=Depends(
                         'data': api_config.get('model_ids', []) or [],
                         'object': 'list',
                     }
-                elif is_anthropic_url(url):
+                elif is_messages_api(api_config):
                     models = await get_anthropic_models(url, key, user=user)
                     if models is None:
                         raise Exception('Failed to connect to Anthropic API')
@@ -1114,7 +1118,7 @@ async def verify_connection(
                             return PlainTextResponse(status_code=r.status, content=response_data)
 
                     return response_data
-            elif is_anthropic_url(url):
+            elif is_messages_api(api_config):
                 result = await get_anthropic_models(url, key)
                 if result is None:
                     raise HTTPException(status_code=500, detail=ERROR_MESSAGES.SERVER_CONNECTION_ERROR)

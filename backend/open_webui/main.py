@@ -1898,7 +1898,7 @@ app.state.CHAT_COMPLETION_HANDLER = chat_completion
 from open_webui.utils.anthropic import (
     convert_anthropic_to_openai_payload,
     convert_openai_to_anthropic_response,
-    is_anthropic_messages_passthrough,
+    is_messages_api,
     openai_stream_to_anthropic_stream,
 )
 
@@ -2012,8 +2012,8 @@ async def generate_messages(
         models = request.app.state.OPENAI_MODELS
     model = models.get(model_id)
     if model:
-        url, _, api_config = await openai.get_openai_connection(model['urlIdx'])
-        if is_anthropic_messages_passthrough(url, api_config):
+        _, _, api_config = await openai.get_openai_connection(model['urlIdx'])
+        if is_messages_api(api_config):
             return await passthrough_anthropic_messages(request, form_data, user)
         passthrough_params = api_config.get('passthrough_params') or []
 

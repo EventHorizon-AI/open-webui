@@ -47,7 +47,7 @@
 	let prefixId = '';
 	let enable = true;
 	let apiVersion = '';
-	let apiType = ''; // '' = chat completions (default), 'responses' = Responses API
+	let apiType = ''; // '' = chat completions (default), 'responses' = Responses API, 'messages' = Messages API
 
 	let headers = '';
 	let passthroughParams = '';
@@ -117,6 +117,7 @@
 					auth_type,
 					...(provider ? { provider } : {}),
 					...(azure ? { azure: true } : {}),
+					...(apiType ? { api_type: apiType } : {}),
 					api_version: apiVersion,
 					passthrough_params: parsePassthroughParams(passthroughParams),
 					...(_headers ? { headers: _headers } : {})
@@ -461,22 +462,25 @@
 								<label
 									for="api-type-toggle"
 									class={`mb-0.5 text-xs text-gray-500
-							`}>{$i18n.t('API Type')}</label
+							`}>API Type</label
 								>
 
 								<div>
 									<button
 										on:click={() => {
-											apiType = apiType === 'responses' ? '' : 'responses';
+											apiType =
+												apiType === '' ? 'responses' : apiType === 'responses' ? 'messages' : '';
 										}}
 										type="button"
 										id="api-type-toggle"
 										class=" text-xs text-gray-700 dark:text-gray-300"
 									>
 										{#if apiType === 'responses'}
-											{$i18n.t('Responses')}
+											Responses
+										{:else if apiType === 'messages'}
+											Messages
 										{:else}
-											{$i18n.t('Chat Completions')}
+											Chat Completions
 										{/if}
 									</button>
 								</div>
