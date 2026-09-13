@@ -7,6 +7,7 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Pin from '$lib/components/icons/Pin.svelte';
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
+	import ArrowUpTray from '$lib/components/icons/ArrowUpTray.svelte';
 	import Link from '$lib/components/icons/Link.svelte';
 	import Pencil from '$lib/components/icons/Pencil.svelte';
 	import { config, pinnedModels, settings, showSettings, user } from '$lib/stores';
@@ -20,6 +21,7 @@
 	export let pinModelHandler: (modelId: string) => void = () => {};
 	export let copyLinkHandler: Function = () => {};
 	export let deleteModelHandler: Function = () => {};
+	export let unloadModelHandler: Function = () => {};
 
 	export let onClose: Function = () => {};
 
@@ -96,6 +98,24 @@
 						</svg>
 
 						<div class="flex items-center">{$i18n.t('Delete')}</div>
+					</button>
+				{/if}
+
+				{#if $user?.role === 'admin' && model?.loaded}
+					<button
+						type="button"
+						class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+						on:click={(e) => {
+							e.stopPropagation();
+							e.preventDefault();
+
+							unloadModelHandler(model?.id);
+							show = false;
+						}}
+					>
+						<ArrowUpTray className="size-3.5" />
+
+						<div class="flex items-center">{$i18n.t('Eject')}</div>
 					</button>
 				{/if}
 

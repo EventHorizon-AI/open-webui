@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { models, pinnedModels, settings, user } from '$lib/stores';
+	import { models, pinnedModels, selectedModelVariants, settings, user } from '$lib/stores';
 	import { getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import Selector from './ModelSelector/Selector.svelte';
@@ -57,6 +57,37 @@
 	$: if (selectedModels.length > 1 && !compareModels) {
 		compareModels = true;
 	}
+
+	const getModelVariants = (modelId: string) =>
+		$models.find((m) => m.id === modelId)?.info?.meta?.variants ?? [];
+
+	$: primaryModelId = selectedModels.find((modelId) => modelId) ?? '';
+	$: selectedVariantId = primaryModelId ? ($selectedModelVariants[primaryModelId] ?? '') : '';
+	$: selectedVariantLabel = selectedVariantId
+		? (getModelVariants(primaryModelId).find((variant) => variant.id === selectedVariantId)?.name ??
+			'')
+		: '';
+
+	const getVariants = (modelId: string) => [
+		{ value: '', label: $i18n.t('Default') },
+		...getModelVariants(modelId).map((variant) => ({
+			value: variant.id,
+			label: variant.name || variant.id
+		}))
+	];
+
+	const getSelectedVariant = (modelId: string) => $selectedModelVariants[modelId] ?? '';
+
+	const handleVariantSelect = (modelId: string, variantId: string) => {
+		selectedModelVariants.update((selections) => ({
+			...selections,
+			[modelId]: variantId
+		}));
+
+		if (!selectedModels.includes(modelId)) {
+			selectedModels = [modelId];
+		}
+	};
 </script>
 
 <div class="flex min-w-0 max-w-full flex-col items-start">
@@ -82,6 +113,11 @@
 					multipleEnabled={$user?.role === 'admin' ||
 						($user?.permissions?.chat?.multiple_models ?? true)}
 					{disabled}
+					variantLabel={selectedVariantLabel}
+					variantsEnabled
+					{getVariants}
+					{getSelectedVariant}
+					onVariantSelect={handleVariantSelect}
 					bind:compareEnabled={compareModels}
 					bind:values={selectedModels}
 				/>

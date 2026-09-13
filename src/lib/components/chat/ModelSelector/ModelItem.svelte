@@ -9,7 +9,7 @@
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { copyToClipboard, sanitizeResponseContent } from '$lib/utils';
-	import ArrowUpTray from '$lib/components/icons/ArrowUpTray.svelte';
+	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import Check from '$lib/components/icons/Check.svelte';
 	import ModelItemMenu from './ModelItemMenu.svelte';
 	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
@@ -30,6 +30,9 @@
 	export let pinModelHandler: (modelId: string) => void = () => {};
 	export let deleteModelHandler: (model: any) => void = () => {};
 	export let selectionOnly = false;
+
+	export let variantsEnabled = false;
+	export let onOpenVariants: () => void = () => {};
 
 	export let onClick: () => void = () => {};
 
@@ -276,21 +279,20 @@
 	</div>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-		{#if !selectionOnly && $user?.role === 'admin' && item.model.loaded}
+		{#if variantsEnabled && (item.model?.info?.meta?.variants ?? []).length > 0}
 			<Tooltip
-				content={`${$i18n.t('Eject')}`}
-				className="flex-shrink-0 group-hover/item:opacity-100 opacity-0 "
+				content={$i18n.t('Variants')}
+				className={($settings?.highContrastMode ?? false)
+					? 'flex-shrink-0'
+					: 'flex-shrink-0 group-hover/item:opacity-100 opacity-0'}
 			>
 				<button
+					type="button"
 					class="focus-ring flex"
-					aria-label={$i18n.t('Eject model')}
-					on:click={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						unloadModelHandler(item.value);
-					}}
+					aria-label={$i18n.t('Select variant')}
+					on:click|preventDefault|stopPropagation={onOpenVariants}
 				>
-					<ArrowUpTray className="size-3" />
+					<ChevronRight className="size-3" strokeWidth="2" />
 				</button>
 			</Tooltip>
 		{/if}
@@ -301,6 +303,7 @@
 				model={item.model}
 				{pinModelHandler}
 				{deleteModelHandler}
+				{unloadModelHandler}
 				copyLinkHandler={() => {
 					copyLinkHandler(item.model);
 				}}
