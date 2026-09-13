@@ -12,7 +12,6 @@
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import Check from '$lib/components/icons/Check.svelte';
 	import ModelItemMenu from './ModelItemMenu.svelte';
-	import EllipsisHorizontal from '$lib/components/icons/EllipsisHorizontal.svelte';
 	import { toast } from 'svelte-sonner';
 	import Tag from '$lib/components/icons/Tag.svelte';
 	import Label from '$lib/components/icons/Label.svelte';
@@ -50,7 +49,87 @@
 	const formatSize = (size?: number) => (size ? `(${(size / 1024 ** 3).toFixed(1)}GB)` : '');
 
 	let showMenu = false;
+	let menuPosition = { x: 0, y: 0 };
+
+	// Mobile long-press to open the context menu.
+	const LONG_PRESS_DURATION = 500;
+	const LONG_PRESS_MOVE_THRESHOLD = 10;
+	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+	let longPressTriggered = false;
+	let longPressStart = { x: 0, y: 0 };
+
+	const clearLongPress = () => {
+		if (longPressTimer) {
+			clearTimeout(longPressTimer);
+			longPressTimer = null;
+		}
+	};
+
+	const openMenuAt = (x: number, y: number) => {
+		menuPosition = { x, y };
+		showMenu = true;
+	};
+
+	// A long press still produces a synthetic click on release. Since the menu
+	// opens under the finger, that click could activate the first item, so
+	// swallow the next click (one-shot, with a safety timeout).
+	const suppressNextClick = () => {
+		const handler = (event: MouseEvent) => {
+			event.preventDefault();
+			event.stopPropagation();
+			cleanup();
+		};
+
+		// Stop suppressing as soon as a new interaction begins (pointer down),
+		// so a legitimate tap on the menu right after the long press is not lost.
+		const cleanup = () => {
+			window.removeEventListener('click', handler, true);
+			window.removeEventListener('pointerdown', cleanup, true);
+		};
+
+		window.addEventListener('click', handler, true);
+		window.addEventListener('pointerdown', cleanup, true);
+	};
+
+	const handleTouchStart = (e: TouchEvent) => {
+		if (selectionOnly || !$mobile) return;
+
+		const touch = e.touches[0];
+		if (!touch) return;
+
+		longPressStart = { x: touch.clientX, y: touch.clientY };
+		longPressTriggered = false;
+		clearLongPress();
+
+		longPressTimer = setTimeout(() => {
+			longPressTimer = null;
+			longPressTriggered = true;
+			openMenuAt(longPressStart.x, longPressStart.y);
+			suppressNextClick();
+			navigator.vibrate?.(10);
+		}, LONG_PRESS_DURATION);
+	};
+
+	const handleTouchMove = (e: TouchEvent) => {
+		if (!longPressTimer) return;
+
+		const touch = e.touches[0];
+		if (!touch) return;
+
+		const dx = touch.clientX - longPressStart.x;
+		const dy = touch.clientY - longPressStart.y;
+		if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_THRESHOLD) {
+			clearLongPress();
+		}
+	};
+
+	const handleTouchEnd = () => {
+		clearLongPress();
+	};
+
 	$: isSelected = compareEnabled ? selectedValues.includes(item.value) : value === item.value;
+	$: hasVariants = variantsEnabled && (item.model?.info?.meta?.variants ?? []).length > 0;
+	$: variantAlwaysVisible = ($settings?.highContrastMode ?? false) || ($mobile && isSelected);
 </script>
 
 <button
@@ -73,8 +152,21 @@
 	data-arrow-selected={index === selectedModelIdx}
 	data-value={item.value}
 	on:click={() => {
+		if (longPressTriggered) {
+			longPressTriggered = false;
+			return;
+		}
 		onClick();
 	}}
+	on:contextmenu={(e) => {
+		if (selectionOnly) return;
+		e.preventDefault();
+		openMenuAt(e.clientX, e.clientY);
+	}}
+	on:touchstart={handleTouchStart}
+	on:touchmove={handleTouchMove}
+	on:touchend={handleTouchEnd}
+	on:touchcancel={handleTouchEnd}
 >
 	<div class="flex flex-1 flex-col gap-1.5 overflow-hidden">
 		<!-- {#if (item?.model?.tags ?? []).length > 0}
@@ -279,52 +371,44 @@
 	</div>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-		{#if variantsEnabled && (item.model?.info?.meta?.variants ?? []).length > 0}
-			<Tooltip
-				content={$i18n.t('Variants')}
-				className={($settings?.highContrastMode ?? false)
-					? 'flex-shrink-0'
-					: 'flex-shrink-0 group-hover/item:opacity-100 opacity-0'}
-			>
-				<button
-					type="button"
-					class="focus-ring flex"
-					aria-label={$i18n.t('Select variant')}
-					on:click|preventDefault|stopPropagation={onOpenVariants}
-				>
-					<ChevronRight className="size-3" strokeWidth="2" />
-				</button>
-			</Tooltip>
-		{/if}
-
 		{#if !selectionOnly}
 			<ModelItemMenu
 				bind:show={showMenu}
 				model={item.model}
+				anchorX={menuPosition.x}
+				anchorY={menuPosition.y}
 				{pinModelHandler}
 				{deleteModelHandler}
 				{unloadModelHandler}
 				copyLinkHandler={() => {
 					copyLinkHandler(item.model);
 				}}
-			>
-				<button
-					aria-label={`${$i18n.t('More Options')}`}
-					class="focus-ring flex"
-					on:click={(e) => {
-						e.preventDefault();
-						e.stopPropagation();
-						showMenu = !showMenu;
-					}}
-				>
-					<EllipsisHorizontal />
-				</button>
-			</ModelItemMenu>
+			/>
 		{/if}
 
-		{#if isSelected}
-			<div>
-				<Check className="size-3" />
+		{#if isSelected || (hasVariants && (!$mobile || variantAlwaysVisible))}
+			<div class="relative flex size-3 shrink-0 items-center justify-center">
+				{#if isSelected && !(hasVariants && variantAlwaysVisible)}
+					<Check className="size-3 {hasVariants ? 'group-hover/item:opacity-0' : ''}" />
+				{/if}
+
+				{#if hasVariants}
+					<Tooltip
+						content={$i18n.t('Variants')}
+						className="absolute inset-0 {variantAlwaysVisible
+							? ''
+							: 'pointer-events-none opacity-0 group-hover/item:pointer-events-auto group-hover/item:opacity-100'}"
+					>
+						<button
+							type="button"
+							class="focus-ring flex size-full items-center justify-center"
+							aria-label={$i18n.t('Select variant')}
+							on:click|preventDefault|stopPropagation={onOpenVariants}
+						>
+							<ChevronRight className="size-3" strokeWidth="2" />
+						</button>
+					</Tooltip>
+				{/if}
 			</div>
 		{/if}
 	</div>

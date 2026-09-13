@@ -29,6 +29,9 @@
 	/** Position against the visual viewport, e.g. when the mobile keyboard is open */
 	export let visualViewportAware = false;
 
+	/** Animate the dropdown open/close */
+	export let animate = true;
+
 	let triggerEl: HTMLElement | null = null;
 	let contentEl: HTMLElement | null = null;
 	let previouslyFocused: HTMLElement | null = null;
@@ -350,7 +353,7 @@
 		tabindex="-1"
 		style:max-height={resolvedMaxHeight}
 		style:overflow-y="auto"
-		transition:flyAndScale
+		transition:flyAndScale={animate ? undefined : { duration: 0 }}
 		on:click={(e) => e.stopPropagation()}
 		on:pointerdown={(e) => e.stopPropagation()}
 	>

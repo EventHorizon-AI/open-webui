@@ -4,19 +4,20 @@
 
 	import Dropdown from '$lib/components/common/Dropdown.svelte';
 	import DropdownMenu from '$lib/components/common/DropdownMenu.svelte';
-	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Pin from '$lib/components/icons/Pin.svelte';
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
 	import ArrowUpTray from '$lib/components/icons/ArrowUpTray.svelte';
 	import Link from '$lib/components/icons/Link.svelte';
 	import Pencil from '$lib/components/icons/Pencil.svelte';
-	import { config, pinnedModels, settings, showSettings, user } from '$lib/stores';
+	import { config, pinnedModels, showSettings, user } from '$lib/stores';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
 
 	const i18n = getContext('i18n');
 
 	export let show = false;
 	export let model;
+	export let anchorX = 0;
+	export let anchorY = 0;
 
 	export let pinModelHandler: (modelId: string) => void = () => {};
 	export let copyLinkHandler: Function = () => {};
@@ -30,29 +31,27 @@
 
 <Dropdown
 	bind:show
-	align="end"
+	align="start"
 	sideOffset={-2}
+	animate={false}
 	onOpenChange={(state) => {
 		if (state === false) {
 			onClose();
 		}
 	}}
 >
-	<Tooltip
-		content={$i18n.t('More')}
-		className={($settings?.highContrastMode ?? false)
-			? ''
-			: 'group-hover/item:opacity-100 opacity-0'}
-	>
-		<slot />
-	</Tooltip>
+	<span
+		class="pointer-events-none fixed"
+		style="left: {anchorX}px; top: {anchorY}px;"
+		aria-hidden="true"
+	></span>
 
 	<div slot="content">
-		<DropdownMenu className="min-w-[13.125rem] z-[9999999]">
+		<DropdownMenu className="min-w-[9.375rem] z-[9999999]">
 			{#if model?.preset || model?.info?.base_model_id ? model?.info?.user_id === $user?.id : $user?.role === 'admin'}
 				<button
 					type="button"
-					class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 					on:click={(e) => {
 						e.stopPropagation();
 						e.preventDefault();
@@ -65,7 +64,7 @@
 						show = false;
 					}}
 				>
-					<Pencil className="size-3.5" />
+					<Pencil className="size-3" />
 
 					<div class="flex items-center">{$i18n.t('Edit')}</div>
 				</button>
@@ -73,7 +72,7 @@
 				{#if $user?.role === 'admin' && (model?.owned_by === 'ollama' || providerSupportsDelete(model?.provider))}
 					<button
 						type="button"
-						class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+						class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 						on:click={(e) => {
 							e.stopPropagation();
 							e.preventDefault();
@@ -88,7 +87,7 @@
 							viewBox="0 0 24 24"
 							stroke-width="1.5"
 							stroke="currentColor"
-							class="size-3.5"
+							class="size-3"
 						>
 							<path
 								stroke-linecap="round"
@@ -104,7 +103,7 @@
 				{#if $user?.role === 'admin' && model?.loaded}
 					<button
 						type="button"
-						class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+						class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 						on:click={(e) => {
 							e.stopPropagation();
 							e.preventDefault();
@@ -113,7 +112,7 @@
 							show = false;
 						}}
 					>
-						<ArrowUpTray className="size-3.5" />
+						<ArrowUpTray className="size-3" />
 
 						<div class="flex items-center">{$i18n.t('Eject')}</div>
 					</button>
@@ -125,7 +124,7 @@
 			<button
 				type="button"
 				aria-pressed={$pinnedModels.includes(model?.id)}
-				class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+				class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 				on:click={(e) => {
 					e.stopPropagation();
 					e.preventDefault();
@@ -135,9 +134,9 @@
 				}}
 			>
 				{#if $pinnedModels.includes(model?.id)}
-					<PinSlash className="size-3.5" />
+					<PinSlash className="size-3" />
 				{:else}
-					<Pin className="size-3.5" />
+					<Pin className="size-3" />
 				{/if}
 
 				<div class="flex items-center">
@@ -151,7 +150,7 @@
 
 			<button
 				type="button"
-				class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+				class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 				on:click={(e) => {
 					e.stopPropagation();
 					e.preventDefault();
@@ -160,7 +159,7 @@
 					show = false;
 				}}
 			>
-				<Link className="size-3.5" />
+				<Link className="size-3" />
 
 				<div class="flex items-center">{$i18n.t('Copy Link')}</div>
 			</button>
@@ -170,7 +169,7 @@
 
 				<button
 					type="button"
-					class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 					on:click={(e) => {
 						e.stopPropagation();
 						e.preventDefault();
@@ -182,7 +181,7 @@
 						show = false;
 					}}
 				>
-					<GlobeAlt className="size-3.5" />
+					<GlobeAlt className="size-3" />
 
 					<div class="flex items-center">{$i18n.t('Community Reviews')}</div>
 				</button>
