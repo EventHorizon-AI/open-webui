@@ -35,6 +35,7 @@
 		toolServers,
 		terminalServers,
 		selectedTerminalId,
+		selectedModelVariants,
 		showSearch,
 		showSidebar,
 		showControls,
@@ -262,6 +263,12 @@
 
 		selectedTerminalId.set(localStorage.selectedTerminalId ?? null);
 
+		try {
+			selectedModelVariants.set(JSON.parse(localStorage.selectedModelVariants ?? '{}'));
+		} catch (e) {
+			console.error('Failed to load selected model variants:', e);
+		}
+
 		const loadToolServers = setToolServers().catch((e) => {
 			console.error('Failed to load tool servers:', e);
 			terminalServers.set([]);
@@ -424,6 +431,11 @@
 			} else {
 				localStorage.selectedTerminalId = value;
 			}
+		});
+
+		// Persist selectedModelVariants across page loads
+		selectedModelVariants.subscribe((value) => {
+			localStorage.selectedModelVariants = JSON.stringify(value ?? {});
 		});
 
 		await tick();
