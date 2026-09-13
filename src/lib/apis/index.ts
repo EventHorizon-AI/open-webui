@@ -1756,12 +1756,19 @@ export interface ModelConfig {
 	params: ModelParams;
 }
 
+export interface ModelVariant {
+	id: string;
+	name: string;
+	params?: ModelParams;
+}
+
 export interface ModelMeta {
 	toolIds: never[];
 	description?: string;
 	hidden?: boolean;
 	capabilities?: object;
 	profile_image_url?: string;
+	variants?: ModelVariant[];
 }
 
 export interface ModelParams {}

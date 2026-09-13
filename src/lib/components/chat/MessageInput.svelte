@@ -76,6 +76,7 @@
 	import InputMenu from './MessageInput/InputMenu.svelte';
 	import VoiceRecording from './MessageInput/VoiceRecording.svelte';
 	import ModelSelector from './ModelSelector.svelte';
+	import VariantSelector from './ModelSelector/VariantSelector.svelte';
 
 	import ToolServersModal from './ToolServersModal.svelte';
 	import SkillsModal from './SkillsModal.svelte';
@@ -148,6 +149,15 @@
 
 	let selectedModelIds = [];
 	$: selectedModelIds = atSelectedModel !== undefined ? [atSelectedModel.id] : selectedModels;
+
+	// A variant selector is only meaningful when a single model is selected.
+	let variantModel: Model | null = null;
+	$: variantModel =
+		selectedModelIds.length === 1
+			? ($models.find((model) => model.id === selectedModelIds[0]) ?? null)
+			: null;
+	$: hasVariants = (variantModel?.info?.meta?.variants ?? []).length > 0;
+
 	$: hasChatVariables = selectedModelIds.some(
 		(modelId) =>
 			($models.find((model) => model.id === modelId)?.info?.meta?.chat_variables_schema?.fields
@@ -2521,6 +2531,12 @@
 											triggerClassName="items-center gap-1.5 rounded-lg pl-2 pr-1.5 py-1 text-[0.8125rem] font-normal text-gray-600 transition-colors duration-100 hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-300 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
 										/>
 									</div>
+
+									{#if hasVariants && variantModel}
+										<div class="flex min-w-0 max-w-[10rem] items-center sm:max-w-[13rem]">
+											<VariantSelector model={variantModel} />
+										</div>
+									{/if}
 
 									{#if hasChatVariables}
 										<Tooltip content={$i18n.t('Chat Variables')} placement="top">

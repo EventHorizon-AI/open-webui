@@ -46,6 +46,7 @@
 		showFileNavDir,
 		chatRequestQueues,
 		chatContextUsage,
+		selectedModelVariants,
 		desktopEvent
 	} from '$lib/stores';
 	import { refreshChatList, refreshFolderChatLists } from '$lib/stores/chatList';
@@ -2022,6 +2023,7 @@
 	const initNewChat = async () => {
 		console.log('initNewChat');
 		resetWebSearchConfirmation();
+		selectedModelVariants.set({});
 
 		// Mark the outgoing chat as read before resetting; in-place created chats
 		// keep chatIdProp undefined, so navigateHandler never marks them read.
@@ -3420,8 +3422,8 @@
 		return features;
 	};
 
-	const getStopTokens = () => {
-		const stop = params?.stop ?? $settings?.params?.stop;
+	const getStopTokens = (variantParams: any = {}) => {
+		const stop = params?.stop ?? variantParams?.stop ?? $settings?.params?.stop;
 		if (!stop) return undefined;
 
 		const tokens = Array.isArray(stop) ? stop : stop.split(',').map((s) => s.trim());
@@ -3449,6 +3451,13 @@
 	) => {
 		const responseMessage = _history.messages[responseMessageId];
 		const userMessage = _history.messages[responseMessage.parentId];
+
+		// Per-model variant preset params, applied on top of the model's own
+		// params but below any explicit chat-level params.
+		const variantId = $selectedModelVariants[model?.id] ?? '';
+		const variantParams =
+			(model?.info?.meta?.variants ?? []).find((variant: any) => variant.id === variantId)
+				?.params ?? {};
 
 		const chatMessageFiles = _messages
 			.filter((message) => message.files)
@@ -3491,6 +3500,7 @@
 
 		const stream =
 			model?.info?.params?.stream_response ??
+			variantParams?.stream_response ??
 			$settings?.params?.stream_response ??
 			params?.stream_response ??
 			true;
@@ -3586,8 +3596,9 @@
 				...(messages.length > 0 ? { messages } : {}),
 				params: {
 					...$settings?.params,
+					...variantParams,
 					...params,
-					stop: getStopTokens()
+					stop: getStopTokens(variantParams)
 				},
 
 				files: (files?.length ?? 0) > 0 ? files : undefined,

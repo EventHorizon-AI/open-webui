@@ -66,6 +66,10 @@ export const selectedFolder = writable(null);
 
 export const models: Writable<Model[]> = writable([]);
 
+// Active model variant selection, keyed by model id. An empty/missing value
+// means the model's base params are used.
+export const selectedModelVariants: Writable<Record<string, string>> = writable({});
+
 export const knowledge: Writable<null | Document[]> = writable(null);
 export const tools = writable(null);
 export const skills = writable(null);

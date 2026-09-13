@@ -25,6 +25,8 @@
 	import AccessControl from '../common/AccessControl.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
+	import Plus from '$lib/components/icons/Plus.svelte';
+	import XMark from '$lib/components/icons/XMark.svelte';
 	import DefaultFiltersSelector from './DefaultFiltersSelector.svelte';
 	import DefaultFeatures from './DefaultFeatures.svelte';
 	import BuiltinTools from './BuiltinTools.svelte';
@@ -111,6 +113,7 @@
 	let builtinTools = {};
 
 	let actionIds = [];
+	let variants: { id: string; name: string; params: any; showAdvanced?: boolean }[] = [];
 	let accessGrants = [];
 	let terminalId = '';
 	let tts = { voice: '' };
@@ -204,6 +207,52 @@
 	const loadVoices = async () => {
 		const res = await getVoices(localStorage.token).catch(() => null);
 		voices = res?.voices ?? [];
+	};
+
+	const addVariant = () => {
+		variants = [
+			...variants,
+			{ id: crypto.randomUUID(), name: '', params: {}, showAdvanced: false }
+		];
+	};
+
+	const toggleVariantAdvanced = (variantId: string) => {
+		variants = variants.map((variant) =>
+			variant.id === variantId ? { ...variant, showAdvanced: !variant.showAdvanced } : variant
+		);
+	};
+
+	const removeVariant = (variantId: string) => {
+		variants = variants.filter((variant) => variant.id !== variantId);
+	};
+
+	const normalizeVariantParams = (variantParams: any) => {
+		const clone = JSON.parse(JSON.stringify(variantParams ?? {}));
+
+		if (clone.stop) {
+			clone.stop = (typeof clone.stop === 'string' ? clone.stop.split(',') : clone.stop)
+				.map((token: any) => `${token}`.trim())
+				.filter(Boolean);
+			if (clone.stop.length === 0) {
+				delete clone.stop;
+			}
+		}
+
+		Object.keys(clone).forEach((key) => {
+			if (clone[key] === '' || clone[key] === null || clone[key] === undefined) {
+				delete clone[key];
+			}
+		});
+
+		if (
+			clone.custom_params &&
+			typeof clone.custom_params === 'object' &&
+			Object.keys(clone.custom_params).length === 0
+		) {
+			delete clone.custom_params;
+		}
+
+		return clone;
 	};
 
 	const toModelKnowledgeReference = (item: any) => {
@@ -356,6 +405,23 @@
 			}
 		}
 
+		const cleanedVariants = variants
+			.filter((variant) => (variant.name ?? '').trim() !== '')
+			.map((variant) => {
+				const variantParams = normalizeVariantParams(variant.params);
+				return {
+					id: variant.id,
+					name: variant.name.trim(),
+					...(Object.keys(variantParams).length > 0 ? { params: variantParams } : {})
+				};
+			});
+
+		if (cleanedVariants.length > 0) {
+			info.meta.variants = cleanedVariants;
+		} else if (info.meta.variants) {
+			delete info.meta.variants;
+		}
+
 		info.params.system = system.trim() === '' ? null : system;
 		info.params.stop = params.stop
 			? (typeof params.stop === 'string' ? params.stop.split(',') : params.stop).filter((s) =>
@@ -467,6 +533,12 @@
 			builtinTools = model?.meta?.builtinTools ?? builtinTools;
 			terminalId = model?.meta?.terminalId ?? '';
 			tts = { voice: model?.meta?.tts?.voice ?? '' };
+			variants = (model?.meta?.variants ?? []).map((variant: any) => ({
+				id: variant.id ?? crypto.randomUUID(),
+				name: variant.name ?? '',
+				params: { ...(variant.params ?? {}) },
+				showAdvanced: false
+			}));
 
 			accessGrants = model?.access_grants ?? [];
 
@@ -879,6 +951,88 @@
 									</div>
 								{/if}
 							</div>
+						</section>
+
+						<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
+
+						<section class="my-2.5">
+							<div class="mb-1 flex h-6 w-full items-center justify-between">
+								<div class="min-w-0 flex-1 self-center text-xs text-gray-400 dark:text-gray-600">
+									{$i18n.t('Variants')}
+								</div>
+
+								<div class="flex shrink-0 items-center justify-end gap-1.5">
+									<button
+										class="flex size-6 items-center justify-center text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+										type="button"
+										aria-label={$i18n.t('Add Variant')}
+										on:click={addVariant}
+									>
+										<Plus className="size-3.5" strokeWidth="2.25" />
+									</button>
+								</div>
+							</div>
+
+							{#if variants.length > 0}
+								<div class="flex flex-col gap-1.5">
+									{#each variants as variant (variant.id)}
+										<div
+											class="flex flex-col gap-1 rounded-lg border border-gray-100/40 bg-transparent px-2 py-1 dark:border-gray-850/50"
+										>
+											<div class="flex gap-1">
+												<div class="flex min-w-0 flex-1 flex-col gap-0.5">
+													<input
+														class="w-full bg-transparent text-[0.8125rem] leading-5 text-gray-700 outline-hidden placeholder:text-gray-300 dark:text-gray-200 dark:placeholder:text-gray-700"
+														placeholder={$i18n.t('Variant Name')}
+														aria-label={$i18n.t('Variant Name')}
+														bind:value={variant.name}
+													/>
+												</div>
+
+												<button
+													class="flex size-6 shrink-0 items-center justify-center text-gray-400 opacity-70 transition hover:text-gray-700 hover:opacity-100 dark:text-gray-600 dark:hover:text-gray-300"
+													type="button"
+													aria-label={$i18n.t('Remove Variant')}
+													on:click={() => removeVariant(variant.id)}
+												>
+													<XMark className="size-3.5" />
+												</button>
+											</div>
+
+											<div class="flex h-5 w-full items-center justify-between">
+												<div
+													class="min-w-0 flex-1 self-center text-xs text-gray-500 dark:text-gray-400"
+												>
+													{$i18n.t('Advanced Params')}
+												</div>
+
+												<button
+													class="shrink-0 text-xs text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+													type="button"
+													on:click={() => toggleVariantAdvanced(variant.id)}
+												>
+													{#if variant.showAdvanced}
+														{$i18n.t('Hide')}
+													{:else}
+														{$i18n.t('Show')}
+													{/if}
+												</button>
+											</div>
+
+											{#if variant.showAdvanced}
+												<div class="pb-1">
+													<AdvancedParams
+														admin={true}
+														custom={true}
+														layout="grid"
+														bind:params={variant.params}
+													/>
+												</div>
+											{/if}
+										</div>
+									{/each}
+								</div>
+							{/if}
 						</section>
 
 						<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
