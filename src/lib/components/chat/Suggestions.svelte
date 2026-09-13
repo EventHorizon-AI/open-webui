@@ -58,9 +58,24 @@
 		}
 	};
 
+	// Signature based purely on user-visible content. Model metadata timestamps
+	// (or any other volatile id) differ between refetches and must not trigger a
+	// reshuffle, otherwise the suggestions keep refreshing on every model list update.
+	const getPromptsSignature = (prompts) =>
+		(prompts ?? [])
+			.map((prompt) => JSON.stringify([prompt?.content ?? '', prompt?.title ?? '']))
+			.join('\n');
+
+	let promptsSignature = null;
+
 	$: if (suggestionPrompts) {
-		sortedPrompts = [...(suggestionPrompts ?? [])].sort(() => Math.random() - 0.5);
-		getFilteredPrompts(inputValue);
+		const signature = getPromptsSignature(suggestionPrompts);
+
+		if (signature !== promptsSignature) {
+			promptsSignature = signature;
+			sortedPrompts = [...(suggestionPrompts ?? [])].sort(() => Math.random() - 0.5);
+			getFilteredPrompts(inputValue);
+		}
 	}
 </script>
 
