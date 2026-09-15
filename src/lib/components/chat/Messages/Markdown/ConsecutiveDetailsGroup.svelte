@@ -246,11 +246,11 @@
 				<div class="flex-1 min-w-0 flex items-center gap-1.5">
 					<span class="shrink-0 text-gray-600 dark:text-gray-300">{prefixText}</span>
 					{#if latestReasoningPreview}
-						<span class="min-w-0 flex-1 truncate font-medium {groupOpen ? 'shimmer' : ''}"
+						<span class="min-w-0 flex-1 truncate {groupOpen ? 'shimmer' : ''}"
 							>{latestReasoningPreview}</span
 						>
 					{:else if summaryText}
-						<span class="min-w-0 flex-1 truncate font-medium text-gray-400 dark:text-gray-500"
+						<span class="min-w-0 flex-1 truncate text-gray-400 dark:text-gray-500"
 							>{summaryText}</span
 						>
 					{/if}
