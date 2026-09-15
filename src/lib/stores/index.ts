@@ -1,5 +1,5 @@
 import { APP_NAME } from '$lib/constants';
-import { type Writable, derived, writable } from 'svelte/store';
+import { get, type Writable, derived, writable } from 'svelte/store';
 import type { ModelConfig } from '$lib/apis';
 import type { Banner } from '$lib/types';
 import type { Socket } from 'socket.io-client';
@@ -144,6 +144,41 @@ export const showEmbeds = writable(false);
 export const showOverview = writable(false);
 export const showArtifacts = writable(false);
 export const showCallOverlay = writable(false);
+
+// Snapshot of the controls panel state taken before a chat feature (artifacts,
+// display_file, terminal selection, ...) auto-opens it. A new chat restores the
+// snapshot so the feature's side effect does not persist.
+export const controlsSnapshot: Writable<boolean | null> = writable(null);
+
+const rememberControlsState = () => {
+	controlsSnapshot.update((saved) => (saved === null ? get(showControls) : saved));
+};
+
+/** Open the controls panel for a chat feature, remembering the pre-feature state. */
+export const openControlsForFeature = () => {
+	rememberControlsState();
+	showControls.set(true);
+};
+
+/** Explicit user toggle: the pre-feature snapshot is no longer meaningful. */
+export const toggleControls = () => {
+	controlsSnapshot.set(null);
+	showControls.set(!get(showControls));
+};
+
+/** Explicit user close: the pre-feature snapshot is no longer meaningful. */
+export const closeControls = () => {
+	controlsSnapshot.set(null);
+	showControls.set(false);
+};
+
+/** Restore the remembered controls state (used when starting a new chat). */
+export const restoreControlsState = () => {
+	const saved = get(controlsSnapshot);
+	if (saved === null) return;
+	controlsSnapshot.set(null);
+	showControls.set(saved);
+};
 export const showFileNav = writable(false);
 export type FileNavOpenRequest = string | { path: string; page?: number | null };
 export const showFileNavPath: Writable<FileNavOpenRequest | null> = writable(null);

@@ -31,11 +31,11 @@
 		channels,
 		channelId,
 		terminalServers,
-		showControls,
 		showFileNavPath,
 		showFileNavDir,
 		pyodideWorker,
-		desktopEvent
+		desktopEvent,
+		openControlsForFeature
 	} from '$lib/stores';
 	import { refreshChatList } from '$lib/stores/chatList';
 	import { getFileContentById } from '$lib/apis/files';
@@ -542,7 +542,7 @@
 				if (result?.exists !== false) {
 					displayFileHandler(
 						result?.full_path ?? result?.path ?? params.path,
-						{ showControls, showFileNavPath },
+						{ openControls: openControlsForFeature, showFileNavPath },
 						{ page: params?.page }
 					);
 				}

@@ -4,11 +4,11 @@
 	import {
 		chatId as activeChatId,
 		settings,
-		showControls,
 		showSettings,
 		terminalServers,
 		selectedTerminalId,
-		user
+		user,
+		openControlsForFeature
 	} from '$lib/stores';
 	import { getToolServersData } from '$lib/apis';
 	import { isTemporaryChatId } from '$lib/utils/chatId';
@@ -65,8 +65,12 @@
 	const selectDirect = async (terminal: (typeof directTerminals)[0]) => {
 		const newId = $selectedTerminalId === terminal.url ? null : terminal.url;
 		selectedTerminalId.set(newId);
-		if (newId && window.matchMedia('(min-width: 1024px)').matches) {
-			showControls.set($settings?.showFilesOnTerminalSelect ?? true);
+		if (
+			newId &&
+			($settings?.showFilesOnTerminalSelect ?? true) &&
+			window.matchMedia('(min-width: 1024px)').matches
+		) {
+			openControlsForFeature();
 		}
 
 		// Enable the selected direct terminal, disable all others
@@ -89,8 +93,12 @@
 	const selectSystem = async (terminal: (typeof systemTerminals)[0]) => {
 		const newId = $selectedTerminalId === terminal.id ? null : terminal.id;
 		selectedTerminalId.set(newId);
-		if (newId && window.matchMedia('(min-width: 1024px)').matches) {
-			showControls.set($settings?.showFilesOnTerminalSelect ?? true);
+		if (
+			newId &&
+			($settings?.showFilesOnTerminalSelect ?? true) &&
+			window.matchMedia('(min-width: 1024px)').matches
+		) {
+			openControlsForFeature();
 		}
 
 		// Disable all direct terminals when switching to a system terminal

@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
 	import CitationsModal from './Citations/CitationsModal.svelte';
-	import { embed, showControls, showEmbeds } from '$lib/stores';
+	import { embed, showEmbeds, openControlsForFeature } from '$lib/stores';
 
 	import CitationModal from './Citations/CitationModal.svelte';
 
@@ -49,7 +49,7 @@
 						window.open(embedUrl, '_blank');
 						return;
 					} else {
-						showControls.set(true);
+						openControlsForFeature();
 						showEmbeds.set(true);
 						embed.set({
 							url: embedUrl,

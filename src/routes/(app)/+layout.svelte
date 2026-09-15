@@ -39,6 +39,8 @@
 		showSearch,
 		showSidebar,
 		showControls,
+		controlsSnapshot,
+		toggleControls,
 		mobile,
 		chatId,
 		chats
@@ -322,7 +324,7 @@
 				} else if (shortcut === Shortcut.TOGGLE_CONTROLS) {
 					console.log('Shortcut triggered: TOGGLE_CONTROLS');
 					event.preventDefault();
-					showControls.set(!$showControls);
+					toggleControls();
 				} else if (shortcut === Shortcut.DELETE_CHAT) {
 					console.log('Shortcut triggered: DELETE_CHAT');
 					event.preventDefault();
@@ -422,6 +424,22 @@
 		await showControls.set(!$mobile ? localStorage.showControls === 'true' : false);
 		showControls.subscribe((value) => {
 			localStorage.showControls = value ? 'true' : 'false';
+		});
+
+		// Restore and persist the controls snapshot across reloads
+		controlsSnapshot.set(
+			localStorage.controlsSnapshot === 'true'
+				? true
+				: localStorage.controlsSnapshot === 'false'
+					? false
+					: null
+		);
+		controlsSnapshot.subscribe((value) => {
+			if (value === null) {
+				delete localStorage.controlsSnapshot;
+			} else {
+				localStorage.controlsSnapshot = value ? 'true' : 'false';
+			}
 		});
 
 		// Persist selectedTerminalId across page loads

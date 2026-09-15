@@ -14,7 +14,9 @@
 		settings,
 		showFileNavPath,
 		selectedTerminalId,
-		user
+		user,
+		openControlsForFeature,
+		closeControls
 	} from '$lib/stores';
 
 	import Controls from './Controls/Controls.svelte';
@@ -101,11 +103,17 @@
 	// Auto-switch to Files tab when display_file is triggered
 	$: if ($showFileNavPath && terminalFilesAvailable) {
 		activeTab = 'files';
-		showControls.set(true);
+		openControlsForFeature();
 	}
 
-	// Keep Files selected when a terminal is active; opening the panel is handled by selection UI.
-	$: if ($selectedTerminalId && terminalFilesAvailable) {
+	// Keep Files selected when a terminal is active and the user opted into
+	// opening the file browser on terminal select; opening the panel itself is
+	// handled by the selection UI.
+	$: if (
+		$selectedTerminalId &&
+		terminalFilesAvailable &&
+		($settings?.showFilesOnTerminalSelect ?? true)
+	) {
 		activeTab = 'files';
 	}
 
@@ -196,7 +204,7 @@
 	{#if $showControls}
 		<Drawer
 			show={$showControls}
-			onClose={() => showControls.set(false)}
+			onClose={closeControls}
 			className="min-h-[100dvh] !bg-white dark:!bg-gray-850"
 		>
 			<div class="h-[100dvh] flex flex-col">
@@ -211,7 +219,7 @@
 							{modelId}
 							{chatId}
 							{eventTarget}
-							on:close={() => showControls.set(false)}
+							on:close={closeControls}
 						/>
 					</div>
 				{:else if $showEmbeds}
@@ -260,7 +268,7 @@
 							</div>
 							<button
 								class="p-1 rounded-lg text-gray-500 dark:text-gray-400"
-								on:click={() => showControls.set(false)}
+								on:click={closeControls}
 								aria-label={$i18n.t('Close')}
 							>
 								<svg
@@ -312,7 +320,7 @@
 		minWidth={350}
 		minSiblingWidth={360}
 		closeOnDragBelowMinWidth
-		onClose={() => showControls.set(false)}
+		onClose={closeControls}
 		storageKey="chatControlsSize"
 		className="h-full z-10 bg-white dark:bg-gray-900"
 	>
@@ -334,7 +342,7 @@
 							{modelId}
 							{chatId}
 							{eventTarget}
-							on:close={() => showControls.set(false)}
+							on:close={closeControls}
 						/>
 					</div>
 				{:else if $showEmbeds}
@@ -383,7 +391,7 @@
 							</div>
 							<button
 								class="p-1 rounded-lg text-gray-500 dark:text-gray-400"
-								on:click={() => showControls.set(false)}
+								on:click={closeControls}
 								aria-label={$i18n.t('Close')}
 							>
 								<svg

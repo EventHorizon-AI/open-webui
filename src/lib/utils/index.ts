@@ -2323,11 +2323,14 @@ export const formatSkillName = (name) => {
  */
 export const displayFileHandler = (
 	path: string,
-	stores: { showControls: Writable<boolean>; showFileNavPath: Writable<FileNavOpenRequest | null> },
+	stores: {
+		openControls: () => void;
+		showFileNavPath: Writable<FileNavOpenRequest | null>;
+	},
 	options: { page?: unknown } = {}
 ) => {
 	if (path) {
-		stores.showControls.set(true);
+		stores.openControls();
 		const page = normalizeDocumentTargetPage(options.page);
 		stores.showFileNavPath.set(page ? { path, page } : path);
 	}

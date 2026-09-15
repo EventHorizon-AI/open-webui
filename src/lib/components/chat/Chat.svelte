@@ -47,7 +47,9 @@
 		chatRequestQueues,
 		chatContextUsage,
 		selectedModelVariants,
-		desktopEvent
+		desktopEvent,
+		openControlsForFeature,
+		restoreControlsState
 	} from '$lib/stores';
 	import { refreshChatList, refreshFolderChatLists } from '$lib/stores/chatList';
 
@@ -1175,7 +1177,11 @@
 		if (type === 'terminal:display_file') {
 			if (!data?.path) return;
 			if ($settings?.terminalFileDisplay === 'inline') return;
-			displayFileHandler(data.path, { showControls, showFileNavPath }, { page: data?.page });
+			displayFileHandler(
+				data.path,
+				{ openControls: openControlsForFeature, showFileNavPath },
+				{ page: data?.page }
+			);
 		} else if (type === 'terminal:write_file' || type === 'terminal:replace_file_content') {
 			if (!data?.path) return;
 			showFileNavDir.set(data.path);
@@ -2015,8 +2021,8 @@
 
 	const openCallOverlay = () => {
 		setTimeout(() => {
+			openControlsForFeature();
 			showCallOverlay.set(true);
-			showControls.set(true);
 		}, 0);
 	};
 
@@ -2136,6 +2142,10 @@
 			}
 		}
 
+		// Restore the sidebar state recorded before artifacts / display_file /
+		// terminal selection auto-opened (or closed) it. On mobile the sidebar
+		// always closes for a new chat.
+		restoreControlsState();
 		if ($mobile) {
 			await showControls.set(false);
 		}

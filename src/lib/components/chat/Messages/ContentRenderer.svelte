@@ -10,8 +10,8 @@
 		mobile,
 		settings,
 		showArtifacts,
-		showControls,
-		showEmbeds
+		showEmbeds,
+		openControlsForFeature
 	} from '$lib/stores';
 	import FloatingButtons from '../ContentRenderer/FloatingButtons.svelte';
 	import { createMessagesList, replaceOutsideCode } from '$lib/utils';
@@ -159,8 +159,8 @@
 			) {
 				autoOpenedArtifactIds.add(artifactId);
 				await tick();
+				openControlsForFeature();
 				showArtifacts.set(true);
-				showControls.set(true);
 			}
 		}
 	);
@@ -169,7 +169,7 @@
 		async (/** @type {string} */ value) => {
 			console.log('Preview', value);
 			await artifactCode.set(/** @type {any} */ (value));
-			await showControls.set(true);
+			openControlsForFeature();
 			await showArtifacts.set(true);
 			await showEmbeds.set(false);
 		}

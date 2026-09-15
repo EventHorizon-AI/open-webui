@@ -9,10 +9,10 @@
 		config,
 		mobile,
 		settings,
-		showControls,
 		showSidebar,
 		temporaryChatEnabled,
-		user
+		user,
+		toggleControls
 	} from '$lib/stores';
 
 	import { slide } from 'svelte/transition';
@@ -234,9 +234,7 @@
 						<Tooltip content={$i18n.t('Controls')}>
 							<button
 								class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
-								on:click={async () => {
-									await showControls.set(!$showControls);
-								}}
+								on:click={toggleControls}
 								aria-label="Controls"
 							>
 								<AdjustmentsHorizontal className="size-5" strokeWidth="0.5" />

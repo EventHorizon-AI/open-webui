@@ -6,9 +6,9 @@
 	import {
 		settings,
 		selectedTerminalId,
-		showControls,
 		showFileNavPath,
-		terminalServers
+		terminalServers,
+		openControlsForFeature
 	} from '$lib/stores';
 	import { downloadFileBlob, downloadFilePreview, readFile } from '$lib/apis/terminal';
 	import FilePreview from '$lib/components/chat/FileNav/FilePreview.svelte';
@@ -209,7 +209,7 @@
 
 	function openInFiles() {
 		if (unavailable || !path) return;
-		showControls.set(true);
+		openControlsForFeature();
 		showFileNavPath.set(targetPage ? { path, page: targetPage } : path);
 	}
 
