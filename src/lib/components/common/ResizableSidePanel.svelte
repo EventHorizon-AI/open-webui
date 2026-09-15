@@ -82,7 +82,7 @@
 	const resizeHandler = (endClientX: number) => {
 		const dx = endClientX - startClientX;
 		const nextWidth = side === 'right' ? startWidth - dx : startWidth + dx;
-		if (closeOnDragBelowMinWidth && nextWidth < minWidth) {
+		if (closeOnDragBelowMinWidth && nextWidth < minWidth - 200) {
 			close();
 			resizeEndHandler();
 			return;
