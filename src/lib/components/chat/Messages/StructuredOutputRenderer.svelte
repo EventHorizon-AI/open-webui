@@ -1,6 +1,7 @@
 <script lang="ts">
 	import Collapsible from '$lib/components/common/Collapsible.svelte';
 	import ToolCallDisplay from '$lib/components/common/ToolCallDisplay.svelte';
+	import ReasoningDisplay from '$lib/components/common/ReasoningDisplay.svelte';
 	import TerminalOutputFile from './TerminalOutputFile.svelte';
 	import { resolveChatMessageToolCall } from '$lib/apis/chats';
 	import { settings } from '$lib/stores';
@@ -126,6 +127,24 @@
 							className="w-full"
 							buttonClassName={detailButtonClassName}
 						/>
+					{:else if detailToken.attributes?.type === 'reasoning'}
+						<ReasoningDisplay
+							id={`${id}-${displayItem.id}-${detailIndex}-detail`}
+							title={getDetailTitle(detailToken)}
+							attributes={getDetailAttributes(detailToken)}
+							content={detailToken.text}
+							{chatId}
+							{messageId}
+							messageDone={done}
+							{done}
+							{save}
+							{preview}
+							{compactPreview}
+							{editCodeBlock}
+							{onToolCallResolved}
+							className="w-full"
+							buttonClassName={detailButtonClassName}
+						/>
 					{:else if detailToken.text?.length > 0}
 						<Collapsible
 							title={getDetailTitle(detailToken)}
@@ -181,6 +200,24 @@
 				resolving={resolvingCallId === detailToken.attributes?.id}
 				onResolve={(approved) => resolveToolCall(detailToken.attributes?.id ?? '', approved)}
 				open={$settings?.expandDetails ?? false}
+				className="w-full space-y-2"
+				buttonClassName={detailButtonClassName}
+			/>
+		{:else if detailToken.attributes?.type === 'reasoning'}
+			<ReasoningDisplay
+				id={`${id}-${displayItem.id}-detail`}
+				title={getDetailTitle(detailToken)}
+				attributes={getDetailAttributes(detailToken)}
+				content={detailToken.text}
+				{chatId}
+				{messageId}
+				messageDone={done}
+				{done}
+				{save}
+				{preview}
+				{compactPreview}
+				{editCodeBlock}
+				{onToolCallResolved}
 				className="w-full space-y-2"
 				buttonClassName={detailButtonClassName}
 			/>

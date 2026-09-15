@@ -378,10 +378,6 @@ function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 	const duration = item.duration ?? '';
 	const isDone = isDoneStatus(item.status) || item.duration !== undefined || !isLastItem;
 	const reasoningText = getReasoningText(item);
-	const text = reasoningText
-		.split('\n')
-		.map((line) => (line.startsWith('>') ? line : `> ${line}`))
-		.join('\n');
 	const cacheId = item.id ?? item.call_id ?? '';
 	if (isDone && cacheId) {
 		reasoningPreviewStates.delete(cacheId);
@@ -390,7 +386,7 @@ function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 
 	return {
 		summary: isDone ? `Thought for ${duration || 0} seconds` : preview,
-		text,
+		text: reasoningText,
 		attributes: {
 			type: 'reasoning',
 			done: isDone ? 'true' : 'false',

@@ -20,6 +20,7 @@
 	import AlertRenderer, { alertComponent } from './AlertRenderer.svelte';
 	import Collapsible from '$lib/components/common/Collapsible.svelte';
 	import ToolCallDisplay from '$lib/components/common/ToolCallDisplay.svelte';
+	import ReasoningDisplay from '$lib/components/common/ReasoningDisplay.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Download from '$lib/components/icons/Download.svelte';
 	import ConsecutiveDetailsGroup from './ConsecutiveDetailsGroup.svelte';
@@ -470,6 +471,26 @@
 							className="w-full"
 							buttonClassName={detailButtonClassName}
 						/>
+					{:else if detailToken?.attributes?.type === 'reasoning' && textContent.length > 0}
+						<ReasoningDisplay
+							id={`${id}-${tokenIdx}-${detailIdx}-d`}
+							title={detailToken.summary}
+							attributes={detailToken?.attributes}
+							content={decode(detailToken.text)}
+							{chatId}
+							{messageId}
+							messageDone={done}
+							{done}
+							{save}
+							{preview}
+							{compactPreview}
+							{editCodeBlock}
+							{onTaskClick}
+							{sourceIds}
+							{onSourceClick}
+							className="w-full"
+							buttonClassName={detailButtonClassName}
+						/>
 					{:else if textContent.length > 0}
 						<Collapsible
 							title={detailToken.summary}
@@ -526,6 +547,26 @@
 				resolving={resolvingCallId === token.attributes?.id}
 				onResolve={(approved) => resolveToolCall(token.attributes?.id ?? '', approved)}
 				open={$settings?.expandDetails ?? false}
+				className="w-full space-y-2"
+				buttonClassName={detailButtonClassName}
+			/>
+		{:else if token?.attributes?.type === 'reasoning' && textContent.length > 0}
+			<ReasoningDisplay
+				id={`${id}-${tokenIdx}-d`}
+				title={token.summary}
+				attributes={token?.attributes}
+				content={decode(token.text)}
+				{chatId}
+				{messageId}
+				messageDone={done}
+				{done}
+				{save}
+				{preview}
+				{compactPreview}
+				{editCodeBlock}
+				{onTaskClick}
+				{sourceIds}
+				{onSourceClick}
 				className="w-full space-y-2"
 				buttonClassName={detailButtonClassName}
 			/>
