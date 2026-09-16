@@ -1082,7 +1082,7 @@
 							{#each variantOptions as option (option.value)}
 								<button
 									type="button"
-									class="focus-ring flex h-8 w-full cursor-pointer select-none items-center gap-2 rounded-xl px-2 text-left text-[0.8125rem] font-normal text-gray-700 outline-hidden transition-colors duration-75 hover:bg-gray-50/40 dark:text-gray-100 dark:hover:bg-gray-800/40 {($settings?.highContrastMode ??
+									class="focus-ring flex h-8 w-full cursor-pointer select-none items-center gap-2 rounded-xl pl-2.5 pr-2 text-left text-[0.8125rem] font-normal text-gray-700 outline-hidden transition-colors duration-75 hover:bg-gray-50/40 dark:text-gray-100 dark:hover:bg-gray-800/40 {($settings?.highContrastMode ??
 									false)
 										? 'hover:bg-gray-200 dark:hover:bg-gray-800'
 										: ''}"
