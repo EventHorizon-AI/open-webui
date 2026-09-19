@@ -567,7 +567,7 @@
 				{onTaskClick}
 				{sourceIds}
 				{onSourceClick}
-				className="w-full space-y-2"
+				className="w-full"
 				buttonClassName={detailButtonClassName}
 			/>
 		{:else if textContent.length > 0}

@@ -218,7 +218,7 @@
 				{compactPreview}
 				{editCodeBlock}
 				{onToolCallResolved}
-				className="w-full space-y-2"
+				className="w-full"
 				buttonClassName={detailButtonClassName}
 			/>
 		{:else if detailToken.text?.length > 0}
