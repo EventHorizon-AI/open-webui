@@ -111,12 +111,17 @@
 	$: hasRejected = tokens.some(
 		(t) => t?.attributes?.type === 'tool_calls' && t?.attributes?.status === 'rejected'
 	);
-	$: hasError = tokens.some(
-		(t) =>
-			t?.attributes?.type === 'tool_calls' &&
-			(t?.attributes?.status === 'failed' ||
-				(t?.attributes?.done === 'true' && isToolResultError(decode(t?.text ?? ''))))
-	);
+	// Only the last tool call determines the group's error state: earlier
+	// failures that were retried successfully should not show as errors.
+	$: lastToolCallFailed = (() => {
+		const lastToolCall = tokens.filter((t) => t?.attributes?.type === 'tool_calls').pop();
+		if (!lastToolCall) return false;
+		return (
+			lastToolCall.attributes?.status === 'failed' ||
+			(lastToolCall.attributes?.done === 'true' &&
+				isToolResultError(decode(lastToolCall.text ?? '')))
+		);
+	})();
 
 	$: codeInterpreterCount = tokens.filter((t) => t?.attributes?.type === 'code_interpreter').length;
 
@@ -226,7 +231,7 @@
 					<div class="text-red-400 dark:text-red-500">
 						<XMark className="size-4" strokeWidth="2.5" />
 					</div>
-				{:else if toolCallCount > 0 && hasError}
+				{:else if toolCallCount > 0 && lastToolCallFailed}
 					<div class="text-red-500 dark:text-red-400">
 						<XMark className="size-4" strokeWidth="2.5" />
 					</div>
