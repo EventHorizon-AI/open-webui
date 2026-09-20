@@ -62,6 +62,7 @@
 
 	let regenerateMenu = true;
 	let enableMessageQueue = true;
+	let combineQueuedMessages = false;
 
 	let landingPageMode = '';
 	let chatBubble = true;
@@ -344,6 +345,7 @@
 
 		regenerateMenu = currentSettings?.regenerateMenu ?? true;
 		enableMessageQueue = currentSettings?.enableMessageQueue ?? true;
+		combineQueuedMessages = currentSettings?.combineQueuedMessages ?? false;
 
 		largeTextAsFile = currentSettings?.largeTextAsFile ?? false;
 		copyFormatted = currentSettings?.copyFormatted ?? false;
@@ -775,6 +777,31 @@
 			{$i18n.t('Queue outgoing messages instead of interrupting active responses.')}
 		</p>
 	</div>
+
+	{#if enableMessageQueue}
+		<div>
+			<div class={settingRowClass}>
+				<div id="combine-queued-messages-label" class={settingLabelClass}>
+					{$i18n.t('Combine Queued Messages')}
+				</div>
+
+				<div class={settingControlClass}>
+					<Switch
+						ariaLabelledbyId="combine-queued-messages-label"
+						tooltip={true}
+						bind:state={combineQueuedMessages}
+						inherited={isDefaultSetting('combineQueuedMessages')}
+						on:change={() => {
+							saveSettings({ combineQueuedMessages });
+						}}
+					/>
+				</div>
+			</div>
+			<p class={settingDescriptionClass}>
+				{$i18n.t('Send all queued messages as a single combined message instead of one at a time.')}
+			</p>
+		</div>
+	{/if}
 
 	<div>
 		<div class={settingRowClass}>

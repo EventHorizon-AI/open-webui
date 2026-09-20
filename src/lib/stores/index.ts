@@ -312,6 +312,7 @@ type Settings = {
 	splitLargeDeltas?: boolean;
 	chatDirection?: 'LTR' | 'RTL' | 'auto';
 	ctrlEnterToSend?: boolean;
+	combineQueuedMessages?: boolean;
 	keyboardShortcuts?: boolean;
 	expandReasoningBeforeCompletion?: boolean;
 	chatHoverPreview?: boolean;

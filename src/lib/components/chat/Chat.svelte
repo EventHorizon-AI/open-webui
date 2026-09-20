@@ -2501,9 +2501,16 @@
 		const queue = $chatRequestQueues[targetChatId];
 		if (!queue || queue.length === 0) return;
 		const lastMessage = history.currentId ? history.messages[history.currentId] : null;
+		if (lastMessage && lastMessage.role === 'assistant' && !lastMessage.done) {
+			return;
+		}
+
+		// By default the queue drains one message at a time so each queued prompt
+		// keeps its own turn and is sent after the previous response completes.
+		// Combining the whole queue into a single message is opt-in.
+		const queuedMessages = $settings?.combineQueuedMessages ? [...queue] : [queue[0]];
 		if (
-			(lastMessage && lastMessage.role === 'assistant' && !lastMessage.done) ||
-			queue.some((m) =>
+			queuedMessages.some((m) =>
 				(m.files ?? []).some((file) => ['uploading', 'error'].includes(file.status))
 			)
 		) {
@@ -2511,7 +2518,6 @@
 		}
 
 		processingQueueChats.add(targetChatId);
-		const queuedMessages = [...queue];
 		const queuedMessageIds = new Set(queuedMessages.map((m) => m.id));
 		try {
 			const combinedPrompt = queuedMessages.map((m) => m.prompt).join('\n\n');
@@ -3740,6 +3746,14 @@
 					}
 				}
 			}
+		}
+
+		// A failed request still ends the turn. Drain the queue here so queued
+		// messages aren't stranded when the error short-circuits before any
+		// chat:completion event can retrigger processing.
+		if ((!res || res.error) && _chatId === $chatId) {
+			await processNextInQueue(_chatId);
+			await tick();
 		}
 
 		await tick();
