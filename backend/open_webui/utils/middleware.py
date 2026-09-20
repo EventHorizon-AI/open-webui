@@ -3745,9 +3745,12 @@ async def background_tasks_handler(ctx):
                 }
             )
     else:
-        # Local temp chat, get the model and message from the form_data
-        message = get_last_user_message_item(form_data.get('messages', []))
-        messages = form_data.get('messages', [])
+        # Local temp chat, get the model and message from the form_data.
+        # Exclude system prompts so they are not injected into task prompts
+        # (e.g. follow-up generation). Saved chats are unaffected since system
+        # prompts are never persisted in the messages_map.
+        messages = [m for m in form_data.get('messages', []) if m.get('role') != 'system']
+        message = get_last_user_message_item(messages)
         if message:
             message['model'] = form_data.get('model')
 
