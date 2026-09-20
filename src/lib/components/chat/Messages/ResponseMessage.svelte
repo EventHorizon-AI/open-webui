@@ -897,7 +897,7 @@
 								<Error content={message?.error?.content ?? message.content} />
 							{/if}
 
-							{#if (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? true)}
+							{#if (message?.sources || message?.citations) && (model?.info?.meta?.capabilities?.citations ?? false)}
 								<Citations
 									bind:this={citationsElement}
 									id={message?.id}

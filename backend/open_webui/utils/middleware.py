@@ -5629,7 +5629,7 @@ async def streaming_chat_response_handler(response, ctx):
 
                 # Check if citations are enabled for this model
                 citations_enabled = (model.get('info', {}).get('meta', {}).get('capabilities') or {}).get(
-                    'citations', True
+                    'citations', False
                 )
 
                 # Use the pre-RAG system content captured before the

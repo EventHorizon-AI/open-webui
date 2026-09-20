@@ -106,7 +106,7 @@
 		const result = [];
 		for (const source of sources ?? []) {
 			for (let index = 0; index < (source.document ?? []).length; index++) {
-				if (model?.info?.meta?.capabilities?.citations == false) {
+				if (model?.info?.meta?.capabilities?.citations !== true) {
 					result.push('N/A');
 					continue;
 				}
@@ -126,7 +126,7 @@
 
 	/** @param {string} messageContent */
 	const formatMessageContent = (messageContent) =>
-		model?.info?.meta?.capabilities?.citations == false
+		model?.info?.meta?.capabilities?.citations !== true
 			? replaceOutsideCode(messageContent, (segment) =>
 					segment.replace(/\s*(\[(?:\d+(?:#[^,\]\s]+)?(?:,\s*\d+(?:#[^,\]\s]+)?)*)\])+/g, '')
 				)
