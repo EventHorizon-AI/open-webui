@@ -589,12 +589,6 @@
 		}
 	};
 
-	const createSkillHandler = async () => {
-		prompt = '/skills:create';
-		await tick();
-		dispatch('submit', prompt);
-	};
-
 	const insertTextAtCursor = async (text: string) => {
 		const chatInput = document.getElementById('chat-input');
 		if (!chatInput) return;
@@ -1429,17 +1423,18 @@
 						return;
 					}
 
-					if (
-						[
-							'compact',
-							'fork',
-							'status',
-							'model',
-							'settings',
-							'temporary',
-							'skills:create'
-						].includes(props?.id)
-					) {
+					if (props?.id === 'skills:create') {
+						// Complete the command into the input with a trailing space
+						// instead of sending it, so extra instructions can be added.
+						editor
+							.chain()
+							.focus()
+							.insertContentAt(range, [{ type: 'text', text: '/skills:create ' }])
+							.run();
+						return;
+					}
+
+					if (['compact', 'fork', 'status', 'model', 'settings', 'temporary'].includes(props?.id)) {
 						editor.chain().focus().deleteRange(range).run();
 						return;
 					}
@@ -1475,7 +1470,6 @@
 					onModel: () => modelSelector?.open(),
 					onSettings: () => showSettings.set(true),
 					onTemporary: temporaryHandler,
-					onCreateSkill: createSkillHandler,
 					onSelect: (e) => {
 						const { type, data } = e;
 

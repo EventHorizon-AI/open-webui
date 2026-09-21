@@ -24,7 +24,6 @@
 	export let onModel: () => void = () => {};
 	export let onSettings: () => void = () => {};
 	export let onTemporary: () => void = () => {};
-	export let onCreateSkill: () => void = () => {};
 	export let insertTextHandler: (text: string) => void = () => {};
 	export let canCompact: boolean | (() => boolean) = false;
 	export let compactDisabled: boolean | (() => boolean) = false;
@@ -142,8 +141,9 @@
 							command({ id: data.id, label: data.id });
 							onTemporary();
 						} else if (type === 'command' && data.id === 'skills:create') {
+							// Insert the command into the input (with a trailing space)
+							// instead of sending it, so extra instructions can be added.
 							command({ id: data.id, label: data.id });
-							onCreateSkill();
 						} else if (type === 'skill') {
 							command({
 								id: `${data.id}|${data.name}`,
