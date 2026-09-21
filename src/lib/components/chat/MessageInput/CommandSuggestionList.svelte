@@ -24,6 +24,7 @@
 	export let onModel: () => void = () => {};
 	export let onSettings: () => void = () => {};
 	export let onTemporary: () => void = () => {};
+	export let onCreateSkill: () => void = () => {};
 	export let insertTextHandler: (text: string) => void = () => {};
 	export let canCompact: boolean | (() => boolean) = false;
 	export let compactDisabled: boolean | (() => boolean) = false;
@@ -32,6 +33,7 @@
 	export let forkDisabled: boolean | (() => boolean) = false;
 	export let canTemporary: boolean | (() => boolean) = false;
 	export let temporaryEnabled: boolean | (() => boolean) = false;
+	export let hasChatContent = false;
 	export let contextUsage = null;
 
 	$: compactAvailable = typeof canCompact === 'function' ? canCompact() : canCompact;
@@ -110,6 +112,7 @@
 					temporaryEnabled={isTemporaryEnabled}
 					{contextPercent}
 					{contextHasThreshold}
+					{hasChatContent}
 					onSelect={(e) => {
 						const { type, data } = e;
 
@@ -138,6 +141,9 @@
 						} else if (type === 'command' && data.id === 'temporary') {
 							command({ id: data.id, label: data.id });
 							onTemporary();
+						} else if (type === 'command' && data.id === 'skills:create') {
+							command({ id: data.id, label: data.id });
+							onCreateSkill();
 						} else if (type === 'skill') {
 							command({
 								id: `${data.id}|${data.name}`,

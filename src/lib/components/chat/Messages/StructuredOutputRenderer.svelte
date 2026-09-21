@@ -28,6 +28,7 @@
 	export let renderMarkdown = true;
 	export let editCodeBlock = true;
 	export let topPadding = false;
+	export let allowEmbeds = false;
 	export let sourceIds: string[] = [];
 	export let formatMessageContent: (content: string) => string = (content) => content;
 	export let onSave: any = () => {};
@@ -87,6 +88,7 @@
 					{preview}
 					{compactPreview}
 					{done}
+					{allowEmbeds}
 					{editCodeBlock}
 					{topPadding}
 					{sourceIds}
@@ -108,6 +110,7 @@
 			messageDone={done}
 			groupOpen={!done && displayIndex === displayItems.length - 1}
 			{compactPreview}
+			{allowEmbeds}
 			resolvable={!!chatId && !!messageId && save}
 			{resolvingCallId}
 			onResolve={resolveToolCall}
@@ -162,6 +165,7 @@
 										{messageId}
 										content={detailToken.text}
 										{done}
+										{allowEmbeds}
 										{save}
 										{preview}
 										{compactPreview}
@@ -196,6 +200,7 @@
 				id={`${id}-${displayItem.id}-tool-call`}
 				attributes={detailToken.attributes}
 				resultContent={detailToken.text}
+				{allowEmbeds}
 				resolvable={!!chatId && !!messageId && save}
 				resolving={resolvingCallId === detailToken.attributes?.id}
 				onResolve={(approved) => resolveToolCall(detailToken.attributes?.id ?? '', approved)}
@@ -238,6 +243,7 @@
 							{messageId}
 							content={detailToken.text}
 							{done}
+							{allowEmbeds}
 							{save}
 							{preview}
 							{compactPreview}

@@ -69,7 +69,6 @@ from open_webui.tools.builtin import (
     list_knowledge_bases,
     list_memories,
     list_memory_paths,
-    manage_skill,
     notify,
     query_chat_files,
     query_knowledge_bases,
@@ -146,15 +145,13 @@ async def build_tool_server_headers(
 
     auth_type = connection.get('auth_type', 'bearer')
     headers = {}
-    cookies = {}
+    cookies = getattr(request, 'cookies', {}) if connection.get('forward_cookies', False) else {}
 
     if auth_type == 'bearer':
         headers.update(bearer_auth_header(connection.get('key', '')))
     elif auth_type == 'session':
-        cookies = request.cookies if hasattr(request, 'cookies') else {}
         headers.update(bearer_auth_header(request.state.token.credentials))
     elif auth_type == 'system_oauth':
-        cookies = request.cookies if hasattr(request, 'cookies') else {}
         oauth_token = extra_params.get('__oauth_token__', None)
         if oauth_token:
             headers.update(bearer_auth_header(oauth_token.get('access_token', '')))
@@ -545,6 +542,7 @@ async def get_builtin_tools(
     # Helper to check user-level feature permission (admins always pass)
     user = extra_params.get('__user__', {})
     config = await Config.get_many(
+        'memories.enable',
         'web.search.enable',
         'image_generation.enable',
         'images.edit.enable',
@@ -658,6 +656,7 @@ async def get_builtin_tools(
     # Add memory tools when memory is enabled and the model allows this builtin category.
     if (
         is_builtin_tool_enabled('memory')
+        and config.get('memories.enable')
         and features.get('memory')
         and get_model_capability('memory')
         and await has_user_permission('memories')
@@ -729,21 +728,9 @@ async def get_builtin_tools(
             ]
         )
 
-    # Skills tools - manage_skill lets the model create/update/delete skills,
-    # while view_skill loads full skill instructions on demand. manage_skill is
-    # injected whenever the skills builtin is enabled so the model can create a
-    # skill even before any exist; view_skill requires at least one active skill.
-    if is_builtin_tool_enabled('skills'):
-        if user.get('role') == 'admin' or await has_permission(
-            user.get('id', ''), 'workspace.skills', await Config.get('user.permissions')
-        ):
-            builtin_functions.append(manage_skill)
-
-        from open_webui.models.skills import Skills as SkillsModel
-
-        accessible_skills = await SkillsModel.get_skills(user_id=user.get('id', ''))
-        if any(skill.is_active for skill in accessible_skills):
-            builtin_functions.append(view_skill)
+    # Skills tools - view_skill allows model to load full skill instructions on demand
+    if extra_params.get('__skill_ids__'):
+        builtin_functions.append(view_skill)
 
     # Task management - break down complex work into trackable steps
     # Task state is stored on the chats row; local/channel IDs do not have one.
@@ -1402,16 +1389,14 @@ async def get_terminal_tools(
 
     # Build auth headers
     auth_type = connection.get('auth_type', 'bearer')
-    cookies = {}
+    cookies = getattr(request, 'cookies', {}) if connection.get('forward_cookies', False) else {}
     headers = {'Content-Type': 'application/json', 'X-User-Id': user.id}
 
     if auth_type == 'bearer':
         headers.update(bearer_auth_header(connection.get('key', '')))
     elif auth_type == 'session':
-        cookies = request.cookies
         headers.update(bearer_auth_header(request.state.token.credentials))
     elif auth_type == 'system_oauth':
-        cookies = request.cookies
         oauth_token = extra_params.get('__oauth_token__', None)
         if oauth_token:
             headers.update(bearer_auth_header(oauth_token.get('access_token', '')))
@@ -1677,6 +1662,7 @@ async def execute_tool_server(
         path_params = {}
         query_params = {}
         body_params = {}
+        declared_param_names = set()
 
         # Merge path-level and operation-level parameters for execution.
         path_level_params = methods.get('parameters', [])
@@ -1697,6 +1683,7 @@ async def execute_tool_server(
             param_name = param.get('name')
             if not param_name:
                 continue
+            declared_param_names.add(param_name)
             param_in = param.get('in')
             if param_name in params:
                 if param_in == 'path':
@@ -1716,8 +1703,16 @@ async def execute_tool_server(
         if query_params:
             final_url = f'{final_url}?{urlencode(query_params)}'
 
-        if operation.get('requestBody', {}).get('content'):
-            if params:
+        request_body_content = operation.get('requestBody', {}).get('content')
+        if request_body_content and params:
+            json_schema = request_body_content.get('application/json', {}).get('schema')
+            resolved_body_schema = resolve_schema(json_schema, openapi.get('components', {}))
+            is_composed_schema = any(keyword in resolved_body_schema for keyword in ('allOf', 'anyOf', 'oneOf'))
+            body_properties = {} if is_composed_schema else (resolved_body_schema.get('properties') or {})
+            # Strict servers reject declared parameters in the body, unless the body schema declares them too.
+            if body_properties:
+                body_params = {k: v for k, v in params.items() if k in body_properties or k not in declared_param_names}
+            else:
                 body_params = params
 
         async with aiohttp.ClientSession(

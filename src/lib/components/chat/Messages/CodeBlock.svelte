@@ -19,6 +19,7 @@
 
 	import CodeEditor from '$lib/components/common/CodeEditor.svelte';
 	import CodePreview from './CodePreview.svelte';
+	import DiffBlock from './DiffBlock.svelte';
 	import SvgPanZoom from '$lib/components/common/SVGPanZoom.svelte';
 
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
@@ -55,13 +56,9 @@
 	let editing = false;
 
 	let _code = '';
-	$: if (code) {
-		updateCode();
-	}
-
-	const updateCode = () => {
-		_code = code;
-	};
+	$: _code = code;
+	$: isDiff = ['diff', 'patch'].includes(lang.trim().toLowerCase());
+	let editingDiff = false;
 
 	let _token = null;
 
@@ -244,7 +241,9 @@
 			/\bimport\s+pydantic\b|\bfrom\s+pydantic\b/.test(code) ? 'pydantic' : null,
 			/\bimport\s+ssl\b|\bfrom\s+ssl\b/.test(code) ? 'ssl' : null,
 			/\bimport\s+anyio\b|\bfrom\s+anyio\b/.test(code) ? 'anyio' : null,
-			/\bimport\s+httpx\b|\bfrom\s+httpx\b/.test(code) ? 'httpx' : null
+			/\bimport\s+httpx\b|\bfrom\s+httpx\b/.test(code) ? 'httpx' : null,
+			/\bimport\s+openpyxl\b|\bfrom\s+openpyxl\b/.test(code) ? 'openpyxl' : null,
+			/\.(read|to)_excel\(|\.Excel(Writer|File)\(/.test(code) ? 'openpyxl' : null
 		].filter(Boolean);
 
 		console.log(packages);
@@ -455,7 +454,7 @@
 
 <div>
 	<div
-		class="relative {className} flex flex-col rounded-2xl border border-gray-100/30 dark:border-gray-850/30 my-0.5"
+		class="relative {className} flex flex-col rounded-2xl border border-gray-100/30 dark:border-gray-850/30 my-0.5 overflow-clip"
 		dir="ltr"
 	>
 		{#if renderHTML}
@@ -466,7 +465,7 @@
 			/>
 		{:else}
 			<div
-				class="sticky {stickyButtonsClassName} left-0 right-0 py-1.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black rounded-t-2xl"
+				class="sticky {stickyButtonsClassName} left-0 right-0 py-1.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black"
 			>
 				<div class="flex-1 truncate">
 					<Tooltip content={lang} placement="top-start">
@@ -480,13 +479,17 @@
 					{#if edit}
 						<button
 							class="bg-none border-none transition rounded-md px-1.5 py-0.5 bg-white dark:bg-black"
-							aria-pressed={editing}
+							aria-pressed={isDiff ? editingDiff : editing}
 							on:click={() => {
-								editing = !editing;
+								if (isDiff) {
+									editingDiff = !editingDiff;
+								} else {
+									editing = !editing;
+								}
 								collapsed = false;
 							}}
 						>
-							{editing ? $i18n.t('Done') : $i18n.t('Edit')}
+							{(isDiff ? editingDiff : editing) ? $i18n.t('Done') : $i18n.t('Edit')}
 						</button>
 					{/if}
 					<button
@@ -562,7 +565,9 @@
 				<div class=" pt-6.5 bg-white dark:bg-black"></div>
 
 				{#if !collapsed}
-					{#if edit && editing}
+					{#if isDiff && !(edit && editingDiff)}
+						<DiffBlock code={_code} />
+					{:else if edit && (isDiff ? editingDiff : editing)}
 						<CodeEditor
 							value={_code}
 							{id}
@@ -583,7 +588,7 @@
 					>
 						<span class="text-gray-500 italic">
 							{$i18n.t('{{COUNT}} hidden lines', {
-								COUNT: _code.split('\n').length
+								COUNT: (isDiff ? _code : code).split('\n').length
 							})}
 						</span>
 					</div>
@@ -614,7 +619,7 @@
 											? `max-h-96`
 											: ''}  overflow-y-auto"
 									>
-										{stdout || stderr}
+										{`${stdout ?? ''}${stderr ?? ''}`}
 									</div>
 								</div>
 							{/if}

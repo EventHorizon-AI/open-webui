@@ -37,7 +37,7 @@
 	import Knobs from '../icons/Knobs.svelte';
 	import { isTemporaryChatId } from '$lib/utils/chatId';
 
-	const i18n = getContext('i18n');
+	const i18n: any = getContext('i18n');
 
 	export let initNewChat: Function;
 	export let readOnly: boolean = false;
@@ -75,7 +75,7 @@
 	on:click={() => {
 		initNewChat();
 	}}
-	aria-label="New Chat"
+	aria-label={$i18n.t('New Chat')}
 />
 
 <nav
@@ -149,6 +149,19 @@
 									</button>
 								</Menu>
 							{/if}
+
+							{#if !$temporaryChatEnabled && ($user?.role === 'admin' || ($user?.permissions?.chat?.delete ?? true))}
+								<button
+									id="delete-chat-button"
+									aria-label={$i18n.t('Delete')}
+									class="hidden"
+									on:click={() => {
+										deleteChatHandler(chat.id);
+									}}
+								>
+									<EllipsisHorizontal className="size-4.5" strokeWidth="1.5" />
+								</button>
+							{/if}
 						</div>
 					{:else}
 						<div class="pointer-events-none invisible flex max-w-full min-w-0 items-center gap-2">
@@ -184,9 +197,9 @@
 
 										// add 'temporary-chat=true' to the URL
 										if ($temporaryChatEnabled) {
-											window.history.replaceState(null, '', '?temporary-chat=true');
+											window.history.replaceState(window.history.state, '', '?temporary-chat=true');
 										} else {
-											window.history.replaceState(null, '', location.pathname);
+											window.history.replaceState(window.history.state, '', location.pathname);
 										}
 									}}
 									aria-label={$i18n.t(`Temporary Chat`)}
@@ -223,7 +236,7 @@
 								on:click={() => {
 									initNewChat();
 								}}
-								aria-label="New Chat"
+								aria-label={$i18n.t('New Chat')}
 							>
 								<ChatPlus className="size-4.5" strokeWidth="1.5" />
 							</button>
@@ -235,7 +248,7 @@
 							<button
 								class="flex size-6 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
 								on:click={toggleControls}
-								aria-label="Controls"
+								aria-label={$i18n.t('Controls')}
 							>
 								<AdjustmentsHorizontal className="size-5" strokeWidth="0.5" />
 							</button>
@@ -262,7 +275,7 @@
 						<Banner
 							banner={{
 								type: 'info',
-								title: 'Trial License',
+								title: $i18n.t('Trial License'),
 								content: $i18n.t(
 									'You are currently using a trial license. Please contact support to upgrade your license.'
 								)
@@ -274,7 +287,7 @@
 						<Banner
 							banner={{
 								type: 'error',
-								title: 'License Error',
+								title: $i18n.t('License Error'),
 								content: $i18n.t(
 									'Exceeded the number of seats in your license. Please contact support to increase the number of seats.'
 								)

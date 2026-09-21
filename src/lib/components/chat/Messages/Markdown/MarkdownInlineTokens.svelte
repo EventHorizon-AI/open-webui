@@ -9,7 +9,8 @@
 	const i18n = getContext('i18n');
 
 	import { WEBUI_BASE_URL } from '$lib/constants';
-	import { copyToClipboard, unescapeHtml } from '$lib/utils';
+	import { skills, terminalSkills } from '$lib/stores';
+	import { copyToClipboard, safeLinkUrl, unescapeHtml } from '$lib/utils';
 
 	import Image from '$lib/components/common/Image.svelte';
 	import KatexRenderer from './KatexRenderer.svelte';
@@ -74,21 +75,22 @@
 		<HtmlToken {id} {token} {onSourceClick} />
 	{:else if token.type === 'link'}
 		{@const noteId = getNoteIdFromHref(token.href)}
+		{@const safeHref = safeLinkUrl(token.href)}
 		{#if noteId}
 			<NoteLinkToken {noteId} href={token.href} />
 		{:else if token.tokens}
 			<a
-				href={token.href}
+				href={safeHref}
 				target="_blank"
 				rel="nofollow"
 				title={token.title}
 				on:click={(e) => handleLinkClick(e, token.href)}
 			>
-				<svelte:self id={`${id}-a`} tokens={token.tokens} {onSourceClick} {done} />
+				<svelte:self id={`${id}-a`} tokens={token.tokens} {sourceIds} {onSourceClick} {done} />
 			</a>
 		{:else}
 			<a
-				href={token.href}
+				href={safeHref}
 				target="_blank"
 				rel="nofollow"
 				title={token.title}
@@ -98,18 +100,42 @@
 	{:else if token.type === 'image'}
 		<Image src={token.href} alt={token.text} allowExternal={true} />
 	{:else if token.type === 'strong'}
-		<strong><svelte:self id={`${id}-strong`} tokens={token.tokens} {onSourceClick} {done} /></strong
+		<strong
+			><svelte:self
+				id={`${id}-strong`}
+				tokens={token.tokens}
+				{sourceIds}
+				{onSourceClick}
+				{done}
+			/></strong
 		>
 	{:else if token.type === 'em'}
-		<em><svelte:self id={`${id}-em`} tokens={token.tokens} {onSourceClick} {done} /></em>
+		<em><svelte:self id={`${id}-em`} tokens={token.tokens} {sourceIds} {onSourceClick} {done} /></em
+		>
 	{:else if token.type === 'codespan'}
 		<CodespanToken {token} {done} />
 	{:else if token.type === 'br'}
 		<br />
 	{:else if token.type === 'del'}
-		<del><svelte:self id={`${id}-del`} tokens={token.tokens} {onSourceClick} {done} /></del>
+		<del
+			><svelte:self
+				id={`${id}-del`}
+				tokens={token.tokens}
+				{sourceIds}
+				{onSourceClick}
+				{done}
+			/></del
+		>
 	{:else if token.type === 'underline'}
-		<u><svelte:self id={`${id}-underline`} tokens={token.tokens} {onSourceClick} {done} /></u>
+		<u
+			><svelte:self
+				id={`${id}-underline`}
+				tokens={token.tokens}
+				{sourceIds}
+				{onSourceClick}
+				{done}
+			/></u
+		>
 	{:else if token.type === 'inlineKatex'}
 		{#if token.text}
 			<KatexRenderer content={token.text} displayMode={token?.displayMode ?? false} />
@@ -128,7 +154,11 @@
 			}}
 		></iframe>
 	{:else if token.type === 'mention'}
-		<MentionToken {token} />
+		{#if token.triggerChar === '$' && ![...($skills ?? []), ...($terminalSkills ?? [])].some((skill) => skill.id === token.id && skill.is_active)}
+			{token.raw}
+		{:else}
+			<MentionToken {token} />
+		{/if}
 	{:else if token.type === 'footnote'}
 		{@html DOMPurify.sanitize(
 			`<sup class="footnote-ref footnote-ref-text">${token.escapedText}</sup>`

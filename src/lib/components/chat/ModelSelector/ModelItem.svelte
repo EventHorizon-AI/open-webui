@@ -10,6 +10,7 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { copyToClipboard, sanitizeResponseContent } from '$lib/utils';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
+	import { resolveLocalizedModelDescription } from '$lib/utils/localizedContent';
 	import Check from '$lib/components/icons/Check.svelte';
 	import ModelItemMenu from './ModelItemMenu.svelte';
 	import { toast } from 'svelte-sonner';
@@ -34,6 +35,8 @@
 	export let onOpenVariants: () => void = () => {};
 
 	export let onClick: () => void = () => {};
+
+	$: localizedDescription = resolveLocalizedModelDescription(item.model, $i18n.language);
 
 	const copyLinkHandler = async (model) => {
 		const baseUrl = window.location.origin;
@@ -342,10 +345,10 @@
 					</Tooltip>
 				{/if}
 
-				{#if item.model?.info?.meta?.description}
+				{#if localizedDescription}
 					<Tooltip
 						content={`${marked.parse(
-							sanitizeResponseContent(item.model?.info?.meta?.description).replaceAll('\n', '<br>')
+							sanitizeResponseContent(localizedDescription).replaceAll('\n', '<br>')
 						)}`}
 					>
 						<div class=" translate-y-[1px]">
