@@ -2616,7 +2616,7 @@
 	"Storage": "存储",
 	"Stream Chat Response": "流式对话响应 (Stream Chat Response)",
 	"Stream Delta Chunk Size": "流式增量输出的分块大小（Stream Delta Chunk Size）",
-	"Streamable HTTP": "流式 HTTP",
+	"Streamable HTTP": "Streamable HTTP",
 	"Strikethrough": "删除线",
 	"Strip Existing OCR": "清除现有文字识别内容",
 	"STT Model": "语音转文本模型",
