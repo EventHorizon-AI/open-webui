@@ -246,10 +246,11 @@ function stripMarkdownInline(text: string): string {
 		.trim();
 }
 
-// Reasoning is streamed as markdown. A preview is only produced once a block has
-// completed (separated from the following one by a blank line); while the current
-// block is still being written the caller keeps the original "Thinking..." label.
-// Each subsequent block replaces the preview only when it finishes - no streaming.
+// Reasoning is streamed as markdown and split into blocks by blank lines. The
+// preview always follows the newest block: as soon as the current block's first
+// line is complete (terminated by a newline) it replaces the previous block's
+// preview, but it does not update character by character within a line. Until the
+// current block has a usable line the last completed block is shown instead.
 // When the whole reasoning item is done the caller reverts to the duration summary.
 type ReasoningPreviewState = {
 	length: number;
@@ -347,7 +348,12 @@ function processReasoningPreview(state: ReasoningPreviewState, markdown: string)
 	state.length = markdown.length;
 	state.tail = markdown.slice(-REASONING_PREVIEW_TAIL);
 
-	return formatReasoningPreviewBlock(state.lastCompleted);
+	// Prefer the block currently being streamed so the preview tracks the newest
+	// reasoning. `current` only holds complete lines (a trailing partial line
+	// stays in `pending`), so this updates once per line rather than per token.
+	return (
+		formatReasoningPreviewBlock(state.current) || formatReasoningPreviewBlock(state.lastCompleted)
+	);
 }
 
 function getReasoningPreview(cacheId: string, markdown: string): string {
