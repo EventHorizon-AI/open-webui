@@ -1654,6 +1654,18 @@ async def chat_completion(
             if await drain_approved_tool_calls(request, form_data, user, model, metadata):
                 return {'status': True, 'chat_id': metadata.get('chat_id'), 'paused': True}
 
+            # drain_approved_tool_calls persists executed tool results onto the
+            # assistant message, so the copy captured in ctx above is now stale.
+            # Without refreshing it, process_chat_response rebuilds the output from
+            # that stale copy and drops the tool result, leaving the approved call
+            # stuck as "Preparing..." in the UI.
+            if ctx is not None and is_saved_chat_id(metadata.get('chat_id')):
+                refreshed_assistant_message = await Chats.get_message_by_id_and_message_id(
+                    metadata['chat_id'], metadata['assistant_message_id']
+                )
+                if refreshed_assistant_message:
+                    ctx['assistant_message'] = copy.deepcopy(refreshed_assistant_message)
+
             response = await chat_completion_handler(request, form_data, user)
 
             # When the upstream provider returns an error (e.g. HTTP 400
