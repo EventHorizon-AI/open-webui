@@ -192,6 +192,7 @@
 				{#if grow}
 					{#if open && !hide}
 						<div
+							class="flow-root [&_*:last-child]:mb-0"
 							transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}
 							on:click={(e) => {
 								e.stopPropagation();
@@ -207,7 +208,10 @@
 
 	{#if !grow}
 		{#if open && !hide}
-			<div transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
+			<div
+				class="flow-root [&_*:last-child]:mb-0"
+				transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}
+			>
 				<slot name="content" />
 			</div>
 		{/if}
