@@ -163,7 +163,7 @@
 				});
 
 			const toolParts = Object.entries(nameCounts).map(([name, count]) =>
-				count > 1 ? `${count} ${name}` : name
+				count > 1 ? `${name} ×${count}` : name
 			);
 			parts.push(...toolParts);
 		}
@@ -176,7 +176,7 @@
 			}
 		}
 
-		const detail = parts.join(', ');
+		const detail = parts.join(' · ');
 		return detail;
 	})();
 
