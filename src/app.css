@@ -128,6 +128,49 @@ textarea::-webkit-scrollbar-corner {
 	@apply text-xs prose dark:prose-invert prose-blockquote:border-s-gray-100 prose-blockquote:dark:border-gray-800 prose-blockquote:border-s-2 prose-blockquote:not-italic prose-blockquote:font-normal  prose-headings:font-medium prose-hr:my-0.5  prose-hr:border-gray-50 prose-hr:dark:border-gray-850 prose-p:my-0 prose-img:my-1 prose-headings:my-1 prose-pre:my-0 prose-table:my-0 prose-blockquote:my-0 prose-ul:-my-0 prose-ol:-my-0 prose-li:-my-0 whitespace-pre-line;
 }
 
+/* Reasoning is supplementary content: mute its markdown colors so the block
+   recedes next to the main answer. Applied on top of .markdown-prose. */
+.reasoning-prose {
+	--tw-prose-body: var(--color-gray-600);
+	--tw-prose-headings: var(--color-gray-700);
+	--tw-prose-lead: var(--color-gray-600);
+	--tw-prose-links: var(--color-gray-700);
+	--tw-prose-bold: var(--color-gray-700);
+	--tw-prose-counters: var(--color-gray-600);
+	--tw-prose-quotes: var(--color-gray-600);
+	--tw-prose-quote-captions: var(--color-gray-500);
+	--tw-prose-captions: var(--color-gray-500);
+	--tw-prose-code: var(--color-gray-700);
+}
+
+.dark .reasoning-prose {
+	--tw-prose-body: var(--color-gray-400);
+	--tw-prose-headings: var(--color-gray-300);
+	--tw-prose-lead: var(--color-gray-400);
+	--tw-prose-links: var(--color-gray-300);
+	--tw-prose-bold: var(--color-gray-300);
+	--tw-prose-counters: var(--color-gray-400);
+	--tw-prose-quotes: var(--color-gray-400);
+	--tw-prose-quote-captions: var(--color-gray-500);
+	--tw-prose-captions: var(--color-gray-500);
+	--tw-prose-code: var(--color-gray-300);
+}
+
+/* Inline code spans carry their own color utilities, so mute them explicitly */
+.reasoning-prose .codespan {
+	@apply text-gray-700 dark:text-gray-300;
+}
+
+/* Table header/cells hardcode text-gray-700/900 and white utilities; mute them
+   to the same body/emphasis scale used by the prose variables above */
+.reasoning-prose thead {
+	@apply text-gray-700 dark:text-gray-300;
+}
+
+.reasoning-prose td {
+	@apply text-gray-600 dark:text-gray-400;
+}
+
 .markdown a {
 	@apply underline;
 }

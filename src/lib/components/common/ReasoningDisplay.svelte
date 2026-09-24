@@ -44,7 +44,7 @@
 
 <Collapsible {title} open={resolvedOpen} {attributes} {messageDone} {className} {buttonClassName}>
 	<div class="mb-1.5" slot="content">
-		<div class="markdown-prose">
+		<div class="markdown-prose reasoning-prose">
 			<blockquote dir="auto">
 				<Markdown
 					{id}
