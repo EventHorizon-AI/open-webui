@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Değişken anahtarları küçük harfli snake_case formatında olmalıdır.",
 	"Variable value": "Değişken değeri",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektör Alanı",
 	"Verify Connection": "Bağlantıyı Doğrula",

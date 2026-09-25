@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "A változókulcsoknak kisbetűs snake_case formátumot kell használniuk.",
 	"Variable value": "Változóérték",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektormező",
 	"Verify Connection": "Kapcsolat ellenőrzése",

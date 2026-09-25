@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "ভেরিয়েবলের কী ছোট হাতের snake case-এ হতে হবে।",
 	"Variable value": "ভেরিয়েবলের মান",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "ভেক্টর ফিল্ড",
 	"Verify Connection": "কানেকশন যাচাই করুন",

@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Kinahanglang gamayng letra ug snake case ang mga yawe sa baryabol.",
 	"Variable value": "Bili sa baryabol",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Field sa vector",
 	"Verify Connection": "Susiha ang koneksyon",

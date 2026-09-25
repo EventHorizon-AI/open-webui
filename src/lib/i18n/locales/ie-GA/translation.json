@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Ní mór d’eochracha athraithe cás nathair bheag a úsáid.",
 	"Variable value": "Luach athraitheach",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Réimse Veicteoir",
 	"Verify Connection": "Fíoraigh Ceangal",

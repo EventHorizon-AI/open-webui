@@ -3430,6 +3430,7 @@
 	"Variable keys must use lowercase snake case.": "Les claus variables han d'utilitzar snakecase en mínuscula.",
 	"Variable value": "Valor variable",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Camp vectorial",
 	"Verify Connection": "Verificar la connexió",

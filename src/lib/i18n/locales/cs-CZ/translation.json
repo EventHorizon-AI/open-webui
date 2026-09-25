@@ -3447,6 +3447,7 @@
 	"Variable keys must use lowercase snake case.": "Klíče proměnných musí používat malá písmena oddělená podtržítky (snake case).",
 	"Variable value": "Hodnota proměnné",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektorové pole",
 	"Verify Connection": "Ověřit připojení",

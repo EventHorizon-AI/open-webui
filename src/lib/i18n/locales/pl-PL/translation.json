@@ -3447,6 +3447,7 @@
 	"Variable keys must use lowercase snake case.": "Klucze zmiennych muszą być pisane małymi literami z podkreślnikami (snake case).",
 	"Variable value": "Wartość zmiennej",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Pole wektorowe",
 	"Verify Connection": "Sprawdź połączenie",

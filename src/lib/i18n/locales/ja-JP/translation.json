@@ -3396,6 +3396,7 @@
 	"Variable keys must use lowercase snake case.": "変数キーには小文字のスネークケースを使用してください。",
 	"Variable value": "変数の値",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "ベクトルフィールド",
 	"Verify Connection": "接続を確認",

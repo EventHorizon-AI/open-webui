@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Variabelnøgler skal bruge små bogstaver adskilt af understregninger (snake case).",
 	"Variable value": "Variabelværdi",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektorfelt",
 	"Verify Connection": "Verificer forbindelse",

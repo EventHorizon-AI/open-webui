@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Ключовете на променливите трябва да използват малки букви в snake case.",
 	"Variable value": "Стойност на променливата",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Векторно поле",
 	"Verify Connection": "Проверка на връзката",

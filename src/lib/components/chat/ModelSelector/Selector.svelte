@@ -76,7 +76,7 @@
 	export let variantLabel = '';
 	export let getVariants: (modelId: string) => { value: string; label: string }[] = () => [];
 	export let getSelectedVariant: (modelId: string) => string = () => '';
-	export let onVariantSelect: (modelId: string, variantId: string) => void = () => {};
+	export let onVariantSelect: (modelId: string, variantValue: string) => void = () => {};
 
 	export let items: {
 		label: string;

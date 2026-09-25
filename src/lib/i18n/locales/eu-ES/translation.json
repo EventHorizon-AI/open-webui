@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Aldagaien gakoek minuskulazko snake case erabili behar dute.",
 	"Variable value": "Aldagaiaren balioa",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Bektore-eremua",
 	"Verify Connection": "Egiaztatu konexioa",

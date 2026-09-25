@@ -3430,6 +3430,7 @@
 	"Variable keys must use lowercase snake case.": "Ključevi varijabli moraju koristiti mala slova i donje crte (snake case).",
 	"Variable value": "Vrijednost varijable",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektorsko polje",
 	"Verify Connection": "Provjeri vezu",

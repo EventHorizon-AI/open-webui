@@ -3481,6 +3481,7 @@
 	"Variable keys must use lowercase snake case.": "يجب أن تستخدم مفاتيح المتغيرات أحرفًا لاتينية صغيرة مع فصل الكلمات بشرطات سفلية.",
 	"Variable value": "قيمة المتغير",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "حقل المتجه",
 	"Verify Connection": "التحقق من الاتصال",

@@ -63,26 +63,26 @@
 		$models.find((m) => m.id === modelId)?.info?.meta?.variants ?? [];
 
 	$: primaryModelId = selectedModels.find((modelId) => modelId) ?? '';
-	$: selectedVariantId = primaryModelId ? ($selectedModelVariants[primaryModelId] ?? '') : '';
-	$: selectedVariantLabel = selectedVariantId
-		? (getModelVariants(primaryModelId).find((variant) => variant.id === selectedVariantId)?.name ??
-			'')
+	$: selectedVariantName = primaryModelId ? ($selectedModelVariants[primaryModelId] ?? '') : '';
+	$: selectedVariantLabel = selectedVariantName
+		? (getModelVariants(primaryModelId).find((variant) => variant.name === selectedVariantName)
+				?.name ?? '')
 		: '';
 
 	const getVariants = (modelId: string) => [
 		{ value: '', label: $i18n.t('Default') },
 		...getModelVariants(modelId).map((variant) => ({
-			value: variant.id,
-			label: variant.name || variant.id
+			value: variant.name,
+			label: variant.name
 		}))
 	];
 
 	const getSelectedVariant = (modelId: string) => $selectedModelVariants[modelId] ?? '';
 
-	const handleVariantSelect = (modelId: string, variantId: string) => {
+	const handleVariantSelect = (modelId: string, variantName: string) => {
 		selectedModelVariants.update((selections) => ({
 			...selections,
-			[modelId]: variantId
+			[modelId]: variantName
 		}));
 
 		if (!selectedModels.includes(modelId)) {

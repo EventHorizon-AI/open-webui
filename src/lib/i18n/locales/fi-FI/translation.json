@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Muuttuja-avaimissa on käytettävä pieniä kirjaimia ja alaviivoja (snake_case).",
 	"Variable value": "Muuttuja arvo",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektorikenttä",
 	"Verify Connection": "Tarkista yhteys",

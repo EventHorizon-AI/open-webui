@@ -3396,6 +3396,7 @@
 	"Variable keys must use lowercase snake case.": "འགྱུར་ཚད་ཀྱི་ལྡེ་མིག་ལ་ཡིག་ཆུང་གི་ snake case སྤྱོད་དགོས།",
 	"Variable value": "འགྱུར་ཚད་ཀྱི་རིན་ཐང་།",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "ཕྱོགས་ཚད་ཞིང་།",
 	"Verify Connection": "སྦྲེལ་མཐུད་ར་སྤྲོད།",

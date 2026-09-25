@@ -3416,6 +3416,7 @@
 	"Variable keys must use lowercase snake case.": "",
 	"Variable value": "",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "",
 	"Verify Connection": "",

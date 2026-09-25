@@ -3491,9 +3491,9 @@
 
 		// Per-model variant preset params, applied on top of the model's own
 		// params but below any explicit chat-level params.
-		const variantId = $selectedModelVariants[model?.id] ?? '';
+		const variantName = $selectedModelVariants[model?.id] ?? '';
 		const variantParams =
-			(model?.info?.meta?.variants ?? []).find((variant: any) => variant.id === variantId)
+			(model?.info?.meta?.variants ?? []).find((variant: any) => variant.name === variantName)
 				?.params ?? {};
 
 		const chatMessageFiles = _messages

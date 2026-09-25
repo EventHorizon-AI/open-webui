@@ -3447,6 +3447,7 @@
 	"Variable keys must use lowercase snake case.": "Ключи переменных должны использовать нижний регистр в стиле snake_case.",
 	"Variable value": "Значение переменной",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Поле вектора",
 	"Verify Connection": "Проверить подключение",

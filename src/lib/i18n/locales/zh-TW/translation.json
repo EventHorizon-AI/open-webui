@@ -3396,6 +3396,7 @@
 	"Variable keys must use lowercase snake case.": "變數索引鍵必須使用小寫蛇形命名法（snake_case）。",
 	"Variable value": "變數值",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "向量欄位",
 	"Verify Connection": "驗證連線",

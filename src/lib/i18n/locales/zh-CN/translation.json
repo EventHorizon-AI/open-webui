@@ -3410,6 +3410,7 @@
 	"Variable keys must use lowercase snake case.": "变量键名必须使用小写蛇形命名法。",
 	"Variable value": "变量值",
 	"Variant Name": "变体名称",
+	"Variant names must be unique.": "变体名称必须唯一。",
 	"Variants": "变体",
 	"Vector Field": "向量字段",
 	"Verify Connection": "验证连接",

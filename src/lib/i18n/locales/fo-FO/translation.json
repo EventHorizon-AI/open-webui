@@ -3413,6 +3413,7 @@
 	"Variable keys must use lowercase snake case.": "Variabullyklar skulu nýta lítlar bókstavir í snake_case.",
 	"Variable value": "Variabulvirði",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vektorøki",
 	"Verify Connection": "Vátta sambinding",

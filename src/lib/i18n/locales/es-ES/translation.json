@@ -3430,6 +3430,7 @@
 	"Variable keys must use lowercase snake case.": "Las claves de las variables deben usar snake case en minúsculas.",
 	"Variable value": "Valor de la variable",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Campo Vectorial",
 	"Verify Connection": "Verificar Conexión",

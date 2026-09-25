@@ -1776,7 +1776,6 @@ export interface ModelConfig {
 }
 
 export interface ModelVariant {
-	id: string;
 	name: string;
 	params?: ModelParams;
 }

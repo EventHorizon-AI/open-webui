@@ -3447,6 +3447,7 @@
 	"Variable keys must use lowercase snake case.": "Ključi spremenljivk morajo uporabljati male črke v snake case.",
 	"Variable value": "Vrednost spremenljivke",
 	"Variant Name": "",
+	"Variant names must be unique.": "",
 	"Variants": "",
 	"Vector Field": "Vector Field",
 	"Verify Connection": "Verify Connection",

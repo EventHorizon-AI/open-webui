@@ -131,7 +131,7 @@
 	let builtinTools = {};
 
 	let actionIds = [];
-	let variants: { id: string; name: string; params: any; showAdvanced?: boolean }[] = [];
+	let variants: { key: string; name: string; params: any; showAdvanced?: boolean }[] = [];
 	let accessGrants = [];
 	let terminalId = '';
 	let tts = { voice: '' };
@@ -264,17 +264,17 @@
 	};
 
 	const addVariant = () => {
-		variants = [...variants, { id: uuidv4(), name: '', params: {}, showAdvanced: false }];
+		variants = [...variants, { key: uuidv4(), name: '', params: {}, showAdvanced: false }];
 	};
 
-	const toggleVariantAdvanced = (variantId: string) => {
+	const toggleVariantAdvanced = (variantKey: string) => {
 		variants = variants.map((variant) =>
-			variant.id === variantId ? { ...variant, showAdvanced: !variant.showAdvanced } : variant
+			variant.key === variantKey ? { ...variant, showAdvanced: !variant.showAdvanced } : variant
 		);
 	};
 
-	const removeVariant = (variantId: string) => {
-		variants = variants.filter((variant) => variant.id !== variantId);
+	const removeVariant = (variantKey: string) => {
+		variants = variants.filter((variant) => variant.key !== variantKey);
 	};
 
 	const normalizeVariantParams = (variantParams: any) => {
@@ -475,11 +475,18 @@
 			.map((variant) => {
 				const variantParams = normalizeVariantParams(variant.params);
 				return {
-					id: variant.id,
 					name: variant.name.trim(),
 					...(Object.keys(variantParams).length > 0 ? { params: variantParams } : {})
 				};
 			});
+
+		const variantNames = cleanedVariants.map((variant) => variant.name.toLowerCase());
+		if (new Set(variantNames).size !== variantNames.length) {
+			toast.error($i18n.t('Variant names must be unique.'));
+			loading = false;
+
+			return;
+		}
 
 		if (cleanedVariants.length > 0) {
 			info.meta.variants = cleanedVariants;
@@ -636,7 +643,7 @@
 			terminalId = model?.meta?.terminalId ?? '';
 			tts = { voice: model?.meta?.tts?.voice ?? '' };
 			variants = (model?.meta?.variants ?? []).map((variant: any) => ({
-				id: variant.id ?? uuidv4(),
+				key: uuidv4(),
 				name: variant.name ?? '',
 				params: { ...(variant.params ?? {}) },
 				showAdvanced: false
@@ -1242,7 +1249,7 @@
 
 							{#if variants.length > 0}
 								<div class="flex flex-col gap-1.5">
-									{#each variants as variant (variant.id)}
+									{#each variants as variant (variant.key)}
 										<div
 											class="flex flex-col gap-1 rounded-lg border border-gray-100/40 bg-transparent px-2 py-1 dark:border-gray-850/50"
 										>
@@ -1260,7 +1267,7 @@
 													class="flex size-6 shrink-0 items-center justify-center text-gray-400 opacity-70 transition hover:text-gray-700 hover:opacity-100 dark:text-gray-600 dark:hover:text-gray-300"
 													type="button"
 													aria-label={$i18n.t('Remove Variant')}
-													on:click={() => removeVariant(variant.id)}
+													on:click={() => removeVariant(variant.key)}
 												>
 													<XMark className="size-3.5" />
 												</button>
@@ -1276,7 +1283,7 @@
 												<button
 													class="shrink-0 text-xs text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
 													type="button"
-													on:click={() => toggleVariantAdvanced(variant.id)}
+													on:click={() => toggleVariantAdvanced(variant.key)}
 												>
 													{#if variant.showAdvanced}
 														{$i18n.t('Hide')}
