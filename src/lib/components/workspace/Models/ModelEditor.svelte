@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
+	import { v4 as uuidv4 } from 'uuid';
 
 	import { onMount, onDestroy, getContext, tick } from 'svelte';
 	import { models, tools, functions, user } from '$lib/stores';
@@ -263,10 +264,7 @@
 	};
 
 	const addVariant = () => {
-		variants = [
-			...variants,
-			{ id: crypto.randomUUID(), name: '', params: {}, showAdvanced: false }
-		];
+		variants = [...variants, { id: uuidv4(), name: '', params: {}, showAdvanced: false }];
 	};
 
 	const toggleVariantAdvanced = (variantId: string) => {
@@ -638,7 +636,7 @@
 			terminalId = model?.meta?.terminalId ?? '';
 			tts = { voice: model?.meta?.tts?.voice ?? '' };
 			variants = (model?.meta?.variants ?? []).map((variant: any) => ({
-				id: variant.id ?? crypto.randomUUID(),
+				id: variant.id ?? uuidv4(),
 				name: variant.name ?? '',
 				params: { ...(variant.params ?? {}) },
 				showAdvanced: false
