@@ -553,7 +553,7 @@
 				resolving={resolvingCallId === token.attributes?.id}
 				onResolve={(approved) => resolveToolCall(token.attributes?.id ?? '', approved)}
 				open={$settings?.expandDetails ?? false}
-				className="w-full space-y-2"
+				className="w-full"
 				buttonClassName={detailButtonClassName}
 			/>
 		{:else if token?.attributes?.type === 'reasoning' && textContent.length > 0}
@@ -582,11 +582,11 @@
 				open={$settings?.expandDetails ?? false}
 				attributes={token?.attributes}
 				messageDone={done}
-				className="w-full space-y-2"
+				className="w-full"
 				buttonClassName={detailButtonClassName}
 				dir="auto"
 			>
-				<div class=" mb-1.5" slot="content">
+				<div class="mt-2 mb-1.5" slot="content">
 					<svelte:self
 						id={`${id}-${tokenIdx}-d`}
 						{chatId}

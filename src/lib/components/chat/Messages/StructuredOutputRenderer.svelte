@@ -205,7 +205,7 @@
 				resolving={resolvingCallId === detailToken.attributes?.id}
 				onResolve={(approved) => resolveToolCall(detailToken.attributes?.id ?? '', approved)}
 				open={$settings?.expandDetails ?? false}
-				className="w-full space-y-2"
+				className="w-full"
 				buttonClassName={detailButtonClassName}
 			/>
 		{:else if detailToken.attributes?.type === 'reasoning'}
