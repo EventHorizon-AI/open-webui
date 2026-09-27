@@ -347,14 +347,16 @@ async def fetch_url(
     try:
         content, _ = await get_content_from_url(__request__, url)
 
+        # Guard: a blank result means the page yielded no extractable text.
+        # Surface this explicitly instead of silently returning empty content.
+        if not content.strip():
+            log.warning(f'fetch_url error: no content could be extracted from {url}')
+            return JSONCodec.dumps({'error': f'No content could be extracted from the URL: {url}'})
+
         # Truncate if configured (WEB_FETCH_MAX_CONTENT_LENGTH)
-        # Guard: content may be None if the web loader silently failed
-        if content is not None:
-            max_length = await Config.get('web.fetch.max_content_length')
-            if max_length and max_length > 0 and len(content) > max_length:
-                content = content[:max_length] + '\n\n[Content truncated...]'
-        else:
-            content = ''
+        max_length = await Config.get('web.fetch.max_content_length')
+        if max_length and max_length > 0 and len(content) > max_length:
+            content = content[:max_length] + '\n\n[Content truncated...]'
 
         return content
     except Exception as e:
