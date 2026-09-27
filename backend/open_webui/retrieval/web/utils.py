@@ -41,6 +41,10 @@ from open_webui.config import (
     FIRECRAWL_API_BASE_URL,
     FIRECRAWL_API_KEY,
     FIRECRAWL_TIMEOUT,
+    JINA_READER_API_KEY,
+    JINA_READER_BASE_URL,
+    JINA_READER_RESPOND_WITH,
+    JINA_READER_TIMEOUT,
     MICROSOFT_WEB_IQ_API_BASE_URL,
     MICROSOFT_WEB_IQ_API_KEY,
     MICROSOFT_WEB_IQ_LANGUAGE,
@@ -62,6 +66,7 @@ from open_webui.env import (
     USE_SLIM,
 )
 from open_webui.retrieval.loaders.external_web import ExternalWebLoader
+from open_webui.retrieval.loaders.jina_reader import JinaReaderLoader
 from open_webui.retrieval.loaders.microsoft_web_iq import MicrosoftWebIQLoader
 from open_webui.retrieval.loaders.tavily import TavilyLoader
 from open_webui.retrieval.web.firecrawl import scrape_firecrawl_url
@@ -583,6 +588,92 @@ class SafeTavilyLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
                 log.exception(f'Error loading URLs: {e}')
             else:
                 raise e
+
+
+class SafeJinaReaderLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
+    def __init__(
+        self,
+        web_paths: Union[str, List[str]],
+        base_url: Optional[str] = None,
+        api_key: Optional[str] = None,
+        respond_with: Optional[str] = None,
+        timeout: Optional[int] = None,
+        verify_ssl: bool = True,
+        trust_env: bool = False,
+        requests_per_second: Optional[float] = None,
+        continue_on_failure: bool = True,
+        proxy: Optional[Dict[str, str]] = None,
+    ):
+        """Initialize SafeJinaReaderLoader with rate limiting and SSL verification support.
+
+        Args:
+            web_paths: List of URLs/paths to process.
+            base_url: Base URL of the Jina Reader instance.
+            api_key: Optional Jina Reader API key (hosted reader only).
+            respond_with: Optional x-respond-with value (markdown, frontmatter, html, ...).
+            timeout: Optional request timeout in seconds.
+            verify_ssl: If True, verify SSL certificates when calling the reader.
+            trust_env: If True, use proxy settings from environment variables.
+            requests_per_second: Number of requests per second to limit to.
+            continue_on_failure: Whether to continue if reading a URL fails.
+            proxy: Optional proxy configuration.
+        """
+        proxy_server = proxy.get('server') if proxy else None
+        if trust_env and not proxy_server:
+            env_proxies = urllib.request.getproxies()
+            env_proxy_server = env_proxies.get('https') or env_proxies.get('http')
+            if env_proxy_server:
+                if proxy:
+                    proxy['server'] = env_proxy_server
+                else:
+                    proxy = {'server': env_proxy_server}
+
+        self.web_paths = web_paths if isinstance(web_paths, list) else [web_paths]
+        self.base_url = base_url or JINA_READER_BASE_URL
+        self.api_key = api_key
+        self.respond_with = respond_with
+        self.timeout = timeout
+        self.verify_ssl = verify_ssl
+        self.trust_env = trust_env
+        self.proxy = proxy
+        self.requests_per_second = requests_per_second
+        self.last_request_time = None
+        self.continue_on_failure = continue_on_failure
+
+    def _loader_for(self, url: str) -> JinaReaderLoader:
+        return JinaReaderLoader(
+            urls=[url],
+            base_url=self.base_url,
+            api_key=self.api_key,
+            respond_with=self.respond_with,
+            timeout=self.timeout,
+            verify_ssl=self.verify_ssl,
+            continue_on_failure=self.continue_on_failure,
+        )
+
+    def lazy_load(self) -> Iterator[Document]:
+        for url in self.web_paths:
+            try:
+                self._sync_wait_for_rate_limit()
+                yield from self._loader_for(url).lazy_load()
+            except Exception as e:
+                if self.continue_on_failure:
+                    log.warning(f'Error reading content from {url} with Jina Reader: {e}')
+                    continue
+                raise
+
+    async def alazy_load(self) -> AsyncIterator[Document]:
+        for url in self.web_paths:
+            try:
+                await self._wait_for_rate_limit()
+                docs = await run_in_threadpool(lambda: list(self._loader_for(url).lazy_load()))
+                for document in docs:
+                    yield document
+            except Exception as e:
+                if self.continue_on_failure:
+                    log.warning(f'Error reading content from {url} with Jina Reader: {e}')
+                    continue
+                raise
 
 
 class SafeMicrosoftWebIQLoader(BaseLoader, RateLimitMixin, URLProcessingMixin):
@@ -1119,6 +1210,18 @@ def get_web_loader(
         web_loader_args['api_key'] = cfg('tavily_api_key', TAVILY_API_KEY)
         web_loader_args['extract_depth'] = cfg('tavily_extract_depth', TAVILY_EXTRACT_DEPTH)
 
+    if engine == 'jina_reader':
+        WebLoaderClass = SafeJinaReaderLoader
+        web_loader_args['base_url'] = cfg('jina_reader_base_url', JINA_READER_BASE_URL)
+        web_loader_args['api_key'] = cfg('jina_reader_api_key', JINA_READER_API_KEY)
+        web_loader_args['respond_with'] = cfg('jina_reader_respond_with', JINA_READER_RESPOND_WITH)
+        jina_reader_timeout = cfg('jina_reader_timeout', JINA_READER_TIMEOUT)
+        if jina_reader_timeout:
+            try:
+                web_loader_args['timeout'] = int(jina_reader_timeout)
+            except ValueError:
+                pass
+
     if engine == 'microsoft_web_iq':
         WebLoaderClass = SafeMicrosoftWebIQLoader
         web_loader_args['api_base_url'] = cfg('microsoft_web_iq_api_base_url', MICROSOFT_WEB_IQ_API_BASE_URL)
@@ -1148,5 +1251,5 @@ def get_web_loader(
     else:
         raise ValueError(
             f'Invalid WEB_LOADER_ENGINE: {engine}. '
-            "Please set it to 'safe_web', 'playwright', 'firecrawl', 'tavily', 'external', or 'microsoft_web_iq'."
+            "Please set it to 'safe_web', 'playwright', 'firecrawl', 'tavily', 'jina_reader', 'external', or 'microsoft_web_iq'."
         )

@@ -1257,6 +1257,16 @@ JINA_API_KEY = os.getenv('JINA_API_KEY', '')
 
 JINA_API_BASE_URL = os.getenv('JINA_API_BASE_URL', '')
 
+# Jina Reader (r.jina.ai-compatible) web loader. Works with the hosted reader or a
+# self-hosted ghcr.io/jina-ai/reader:oss instance (which needs no API key).
+JINA_READER_BASE_URL = os.getenv('JINA_READER_BASE_URL', 'https://r.jina.ai')
+
+JINA_READER_API_KEY = os.getenv('JINA_READER_API_KEY', '')
+
+JINA_READER_RESPOND_WITH = os.getenv('JINA_READER_RESPOND_WITH', 'markdown')
+
+JINA_READER_TIMEOUT = os.getenv('JINA_READER_TIMEOUT', '')
+
 SEARCHAPI_API_KEY = os.getenv('SEARCHAPI_API_KEY', '')
 
 SEARCHAPI_ENGINE = os.getenv('SEARCHAPI_ENGINE', '')
@@ -3006,6 +3016,10 @@ DEFAULT_CONFIG = {
     'web.loader.firecrawl_api_key': FIRECRAWL_API_KEY,
     'web.loader.firecrawl_api_url': FIRECRAWL_API_BASE_URL,
     'web.loader.firecrawl_timeout': FIRECRAWL_TIMEOUT,
+    'web.loader.jina_reader_base_url': JINA_READER_BASE_URL,
+    'web.loader.jina_reader_api_key': JINA_READER_API_KEY,
+    'web.loader.jina_reader_respond_with': JINA_READER_RESPOND_WITH,
+    'web.loader.jina_reader_timeout': JINA_READER_TIMEOUT,
     'web.search.external_web_search_url': EXTERNAL_WEB_SEARCH_URL,
     'web.search.external_web_search_api_key': EXTERNAL_WEB_SEARCH_API_KEY,
     'web.loader.external_web_loader_url': EXTERNAL_WEB_LOADER_URL,

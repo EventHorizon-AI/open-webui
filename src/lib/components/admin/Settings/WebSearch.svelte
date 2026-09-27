@@ -50,7 +50,14 @@
 		'linkup',
 		'openserp'
 	];
-	let webLoaderEngines = ['playwright', 'firecrawl', 'tavily', 'microsoft_web_iq', 'external'];
+	let webLoaderEngines = [
+		'playwright',
+		'firecrawl',
+		'tavily',
+		'jina_reader',
+		'microsoft_web_iq',
+		'external'
+	];
 
 	let webConfig: any = null;
 	const inputClass =
@@ -1333,6 +1340,75 @@
 								placeholder={$i18n.t('Enter Firecrawl API Key')}
 								bind:value={webConfig.FIRECRAWL_API_KEY}
 							/>
+						</div>
+					</div>
+				{:else if webConfig.WEB_LOADER_ENGINE === 'jina_reader'}
+					<div class="mb-2.5 flex w-full flex-col">
+						<div>
+							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								{$i18n.t('settings.admin.web.jinaReaderBaseUrl.label')}
+							</div>
+
+							<div class="flex w-full">
+								<div class="flex-1">
+									<input
+										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										type="text"
+										placeholder={$i18n.t('Enter Jina Reader Base URL')}
+										bind:value={webConfig.JINA_READER_BASE_URL}
+										autocomplete="off"
+									/>
+								</div>
+							</div>
+						</div>
+
+						<div class="mt-2">
+							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								{$i18n.t('settings.admin.web.jinaReaderApiKey.label')}
+							</div>
+
+							<SensitiveInput
+								variant="settings"
+								required={false}
+								placeholder={$i18n.t('Enter Jina Reader API Key')}
+								bind:value={webConfig.JINA_READER_API_KEY}
+							/>
+						</div>
+
+						<div class="mt-2">
+							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								{$i18n.t('settings.admin.web.jinaReaderRespondWith.label')}
+							</div>
+
+							<div class="flex w-full">
+								<div class="flex-1">
+									<input
+										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										type="text"
+										placeholder={$i18n.t('markdown, frontmatter, html, ...')}
+										bind:value={webConfig.JINA_READER_RESPOND_WITH}
+										autocomplete="off"
+									/>
+								</div>
+							</div>
+						</div>
+
+						<div class="mt-2">
+							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								{$i18n.t('settings.admin.web.jinaReaderTimeout.label')}
+							</div>
+
+							<div class="flex w-full">
+								<div class="flex-1">
+									<input
+										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										type="text"
+										placeholder={$i18n.t('Enter Jina Reader Timeout (s)')}
+										bind:value={webConfig.JINA_READER_TIMEOUT}
+										autocomplete="off"
+									/>
+								</div>
+							</div>
 						</div>
 					</div>
 				{:else if webConfig.WEB_LOADER_ENGINE === 'tavily'}

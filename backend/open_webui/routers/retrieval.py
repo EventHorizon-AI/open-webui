@@ -318,6 +318,10 @@ RETRIEVAL_CONFIG_KEYS = {
     'HYBRID_BM25_WEIGHT': 'rag.hybrid_bm25_weight',
     'JINA_API_BASE_URL': 'web.search.jina_api_base_url',
     'JINA_API_KEY': 'web.search.jina_api_key',
+    'JINA_READER_API_KEY': 'web.loader.jina_reader_api_key',
+    'JINA_READER_BASE_URL': 'web.loader.jina_reader_base_url',
+    'JINA_READER_RESPOND_WITH': 'web.loader.jina_reader_respond_with',
+    'JINA_READER_TIMEOUT': 'web.loader.jina_reader_timeout',
     'KAGI_SEARCH_API_KEY': 'web.search.kagi_search_api_key',
     'LINKUP_API_KEY': 'web.search.linkup_api_key',
     'LINKUP_SEARCH_PARAMS': 'web.search.linkup_search_params',
@@ -750,6 +754,10 @@ async def get_rag_config(request: Request, user=Depends(get_admin_user)):
             'SERPAPI_ENGINE': config.SERPAPI_ENGINE,
             'JINA_API_KEY': config.JINA_API_KEY,
             'JINA_API_BASE_URL': config.JINA_API_BASE_URL,
+            'JINA_READER_BASE_URL': config.JINA_READER_BASE_URL,
+            'JINA_READER_API_KEY': config.JINA_READER_API_KEY,
+            'JINA_READER_RESPOND_WITH': config.JINA_READER_RESPOND_WITH,
+            'JINA_READER_TIMEOUT': config.JINA_READER_TIMEOUT,
             'BING_SEARCH_V7_ENDPOINT': config.BING_SEARCH_V7_ENDPOINT,
             'BING_SEARCH_V7_SUBSCRIPTION_KEY': config.BING_SEARCH_V7_SUBSCRIPTION_KEY,
             'EXA_API_KEY': config.EXA_API_KEY,
@@ -833,6 +841,10 @@ class WebConfig(BaseModel):
     SERPAPI_ENGINE: str | None = None
     JINA_API_KEY: str | None = None
     JINA_API_BASE_URL: str | None = None
+    JINA_READER_BASE_URL: str | None = None
+    JINA_READER_API_KEY: str | None = None
+    JINA_READER_RESPOND_WITH: str | None = None
+    JINA_READER_TIMEOUT: str | None = None
     BING_SEARCH_V7_ENDPOINT: str | None = None
     BING_SEARCH_V7_SUBSCRIPTION_KEY: str | None = None
     EXA_API_KEY: str | None = None
@@ -1356,6 +1368,10 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
         config.SERPAPI_ENGINE = form_data.web.SERPAPI_ENGINE
         config.JINA_API_KEY = form_data.web.JINA_API_KEY
         config.JINA_API_BASE_URL = form_data.web.JINA_API_BASE_URL
+        config.JINA_READER_BASE_URL = form_data.web.JINA_READER_BASE_URL
+        config.JINA_READER_API_KEY = form_data.web.JINA_READER_API_KEY
+        config.JINA_READER_RESPOND_WITH = form_data.web.JINA_READER_RESPOND_WITH
+        config.JINA_READER_TIMEOUT = form_data.web.JINA_READER_TIMEOUT
         config.BING_SEARCH_V7_ENDPOINT = form_data.web.BING_SEARCH_V7_ENDPOINT
         config.BING_SEARCH_V7_SUBSCRIPTION_KEY = form_data.web.BING_SEARCH_V7_SUBSCRIPTION_KEY
         config.EXA_API_KEY = form_data.web.EXA_API_KEY
@@ -1512,6 +1528,10 @@ async def update_rag_config(request: Request, form_data: ConfigForm, user=Depend
             'SERPAPI_ENGINE': config.SERPAPI_ENGINE,
             'JINA_API_KEY': config.JINA_API_KEY,
             'JINA_API_BASE_URL': config.JINA_API_BASE_URL,
+            'JINA_READER_BASE_URL': config.JINA_READER_BASE_URL,
+            'JINA_READER_API_KEY': config.JINA_READER_API_KEY,
+            'JINA_READER_RESPOND_WITH': config.JINA_READER_RESPOND_WITH,
+            'JINA_READER_TIMEOUT': config.JINA_READER_TIMEOUT,
             'BING_SEARCH_V7_ENDPOINT': config.BING_SEARCH_V7_ENDPOINT,
             'BING_SEARCH_V7_SUBSCRIPTION_KEY': config.BING_SEARCH_V7_SUBSCRIPTION_KEY,
             'EXA_API_KEY': config.EXA_API_KEY,
