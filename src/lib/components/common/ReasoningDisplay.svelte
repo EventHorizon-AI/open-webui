@@ -42,7 +42,14 @@
 	$: markdownContent = (content ?? '').split('\n').map(stripQuoteMarker).join('\n');
 </script>
 
-<Collapsible {title} open={resolvedOpen} {attributes} {messageDone} {className} {buttonClassName}>
+<Collapsible
+	{title}
+	open={resolvedOpen}
+	{attributes}
+	{messageDone}
+	{className}
+	buttonClassName={`${buttonClassName} reasoning-detail-toggle`}
+>
 	<div class="mb-1.5" slot="content">
 		<div class="markdown-prose reasoning-prose">
 			<blockquote dir="auto">
