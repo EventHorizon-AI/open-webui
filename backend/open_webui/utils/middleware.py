@@ -2553,16 +2553,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     # Identity / model information — always appended to the system prompt.
     model_id = str(model.get('id') or 'unknown')
     model_name = str(model.get('name') or model_id)
-    # The provider configured on the connection; 'unknown' when unset.
-    provider_id = str(model.get('provider') or 'unknown')
 
     identity_prompt = (
-        'You are an AI assistant running in Open WebUI.\n'
-        '\n'
-        '## Your Model\n'
-        f'- Name: {model_name}\n'
-        f'- Provider: {provider_id}\n'
-        f'- Model ID: {model_id}'
+        f'You are an AI assistant running in Open WebUI.\n\n## Your Model\n- Name: {model_name}\n- Model ID: {model_id}'
     )
     form_data['messages'] = add_or_update_system_message(
         identity_prompt,
