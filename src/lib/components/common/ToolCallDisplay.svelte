@@ -18,6 +18,8 @@
 	import XMark from '../icons/XMark.svelte';
 	import Image from './Image.svelte';
 	import FullHeightIframe from './FullHeightIframe.svelte';
+	import DiffBlock from '$lib/components/chat/Messages/DiffBlock.svelte';
+	import { buildReplacementDiff } from '$lib/components/chat/Messages/diff';
 	import { settings } from '$lib/stores';
 
 	export let id: string = '';
@@ -159,6 +161,20 @@
 	$: parsedArgs = parseArguments(args);
 	$: parsedResult = parseJSONString(result);
 
+	// Open Terminal's replace_file_content exposes only the find/replace pairs,
+	// so render them as a diff instead of raw JSON. Skip it on errors, where the
+	// file was left untouched.
+	$: replacementDiff =
+		attributes?.name === 'replace_file_content' && !isError
+			? buildReplacementDiff(
+					typeof parsedArgs?.path === 'string' ? parsedArgs.path : '',
+					parsedArgs?.replacements
+				)
+			: '';
+	$: visibleArgEntries = parsedArgs
+		? Object.entries(parsedArgs).filter(([key]) => !(replacementDiff && key === 'replacements'))
+		: [];
+
 	const toggleOpen = () => {
 		open = !open;
 	};
@@ -299,9 +315,9 @@
 								{$i18n.t('Input')}
 							</div>
 
-							{#if parsedArgs}
+							{#if parsedArgs && visibleArgEntries.length > 0}
 								<div class="px-1 space-y-0.5">
-									{#each Object.entries(parsedArgs) as [key, value]}
+									{#each visibleArgEntries as [key, value]}
 										<div class="flex gap-2 text-xs py-0.5">
 											<span class="font-normal text-gray-600 dark:text-gray-400 shrink-0"
 												>{key}</span
@@ -320,6 +336,22 @@
 										)}</pre>
 								</div>
 							{/if}
+						</div>
+					{/if}
+
+					<!-- Changes (find-and-replace tools rendered as a diff) -->
+					{#if replacementDiff}
+						<div>
+							<div
+								class="text-[0.625rem] uppercase tracking-wider font-normal text-gray-400 dark:text-gray-500 mb-1.5 px-1"
+							>
+								{$i18n.t('Changes')}
+							</div>
+							<div
+								class="max-w-none! rounded-xl overflow-hidden border border-gray-100 dark:border-gray-850/60"
+							>
+								<DiffBlock code={replacementDiff} />
+							</div>
 						</div>
 					{/if}
 
