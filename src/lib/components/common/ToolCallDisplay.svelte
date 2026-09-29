@@ -301,10 +301,7 @@
 		</div>
 
 		{#if open}
-			<div
-				class="flow-root [&_*:last-child]:mb-0"
-				transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}
-			>
+			<div class="flow-root" transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
 				<div class="border border-gray-50 dark:border-gray-850/30 rounded-2xl mt-2 p-2.5 space-y-2">
 					{#if args}
 						<!-- Input -->

@@ -50,29 +50,31 @@
 	{className}
 	buttonClassName={`${buttonClassName} reasoning-detail-toggle`}
 >
-	<div class="mb-1.5" slot="content">
-		<div class="markdown-prose reasoning-prose">
-			<blockquote dir="auto">
-				<Markdown
-					{id}
-					{chatId}
-					{messageId}
-					content={markdownContent}
-					{done}
-					{save}
-					{preview}
-					{compactPreview}
-					{editCodeBlock}
-					{topPadding}
-					{sourceIds}
-					{onSourceClick}
-					{onTaskClick}
-					{onToolCallResolved}
-					{onSave}
-					{onUpdate}
-					{onPreview}
-				/>
-			</blockquote>
+	<div slot="content">
+		<!-- Same thin rule as a markdown-prose blockquote, without the semantic <blockquote> element -->
+		<div
+			class="markdown-prose reasoning-prose border-s-2 border-s-gray-100 ps-[1em] dark:border-gray-800"
+			dir="auto"
+		>
+			<Markdown
+				{id}
+				{chatId}
+				{messageId}
+				content={markdownContent}
+				{done}
+				{save}
+				{preview}
+				{compactPreview}
+				{editCodeBlock}
+				{topPadding}
+				{sourceIds}
+				{onSourceClick}
+				{onTaskClick}
+				{onToolCallResolved}
+				{onSave}
+				{onUpdate}
+				{onPreview}
+			/>
 		</div>
 	</div>
 </Collapsible>

@@ -329,13 +329,8 @@
 	{/if}
 
 	{#if open}
-		<div
-			class="flow-root [&_*:last-child]:mb-0"
-			transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}
-		>
-			<div class="mb-1">
-				<slot name="content" />
-			</div>
+		<div class="flow-root" transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
+			<slot name="content" />
 		</div>
 	{/if}
 
