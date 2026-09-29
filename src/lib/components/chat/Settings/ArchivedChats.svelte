@@ -19,7 +19,8 @@
 		getArchivedChatList,
 		unarchiveAllChats
 	} from '$lib/apis/chats';
-	import { chatId, showSettings, user } from '$lib/stores';
+	import { chatId, requestChatReset, showSettings, user } from '$lib/stores';
+	import { getChatIdFromLocation } from '$lib/utils/chatId';
 	import { refreshChatList, refreshSidebar } from '$lib/stores/chatList';
 	import { formatNumber } from '$lib/utils';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
@@ -139,8 +140,8 @@
 		if (chatCount !== null) chatCount -= 1;
 		selectedChatId = null;
 
-		if ($chatId === id) {
-			await goto('/');
+		if (id === $chatId || id === getChatIdFromLocation()) {
+			requestChatReset();
 			chatId.set('');
 		}
 

@@ -50,7 +50,8 @@
 		selectedModelVariants,
 		desktopEvent,
 		openControlsForFeature,
-		restoreControlsState
+		restoreControlsState,
+		chatResetRequest
 	} from '$lib/stores';
 	import { refreshChatList, refreshFolderChatLists } from '$lib/stores/chatList';
 
@@ -72,7 +73,11 @@
 		isRasterImageContentType
 	} from '$lib/utils';
 	import { AudioQueue } from '$lib/utils/audio';
-	import { createTemporaryChatId, isTemporaryChatId } from '$lib/utils/chatId';
+	import {
+		createTemporaryChatId,
+		getChatIdFromLocation,
+		isTemporaryChatId
+	} from '$lib/utils/chatId';
 	import { applyResponseStreamEvent, getOutputText } from './Messages/structuredOutput';
 
 	import {
@@ -1636,6 +1641,18 @@
 			}
 		});
 
+		// Deleting/archiving the active chat requests an in-place reset instead of a
+		// route change, so the chat surface does not remount and flash its loader.
+		let lastChatResetRequest = get(chatResetRequest);
+		const chatResetSubscribe = chatResetRequest.subscribe(async (request) => {
+			if (request === lastChatResetRequest) return;
+			lastChatResetRequest = request;
+
+			if (!embedded) {
+				await initNewChat();
+			}
+		});
+
 		const storageChatInput = sessionStorage.getItem(
 			`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`
 		);
@@ -1675,6 +1692,7 @@
 				pageSubscribe();
 				showControlsSubscribe();
 				selectedFolderSubscribe();
+				chatResetSubscribe();
 
 				// Clear the selected chat when leaving the chat surface (e.g. navigating
 				// to the admin panel), otherwise the previously-viewed chat stays selected
@@ -2178,7 +2196,9 @@
 		await showCallOverlay.set(false);
 		await showArtifacts.set(false);
 
-		if (!embedded && $page.url.pathname.includes('/c/')) {
+		// Use the real location, not `$page.url`: the URL is rewritten outside
+		// SvelteKit's router, so the store can still point at the previous chat.
+		if (!embedded && getChatIdFromLocation()) {
 			window.history.replaceState(window.history.state, '', `/`);
 		}
 
@@ -4196,8 +4216,9 @@
 	const archiveChatHandler = async (id: string) => {
 		try {
 			await archiveChatById(localStorage.token, id);
-			initNewChat();
-			await goto('/');
+			// Reset in place; `initNewChat` rewrites the URL to `/`, so navigating
+			// would needlessly remount <Chat> and flash its loading state.
+			await initNewChat();
 			await refreshChatList(localStorage.token, { refreshPinned: true });
 			await refreshFolderChatLists();
 			toast.success($i18n.t('Chat archived.'));
@@ -4232,8 +4253,10 @@
 		try {
 			const res = await deleteChatById(localStorage.token, id);
 			if (res) {
-				initNewChat();
-				await goto('/');
+				// Reset the active chat in place. `initNewChat` already rewrites the
+				// URL back to `/`, so navigating with `goto('/')` would needlessly
+				// remount <Chat> and flash its loading state.
+				await initNewChat();
 				await refreshChatList(localStorage.token, { refreshPinned: true });
 				allTags.set(await getAllTags(localStorage.token));
 				toast.success($i18n.t('Chat deleted.'));

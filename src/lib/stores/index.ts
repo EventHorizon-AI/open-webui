@@ -55,6 +55,13 @@ export const TTSWorker = writable(null);
 export const chatId = writable('');
 export const chatTitle = writable('');
 
+// One-shot signal asking the chat surface to reset to a fresh chat in place.
+// Deleting (or archiving) the active chat used to `goto('/')`, which remounted
+// <Chat> and flashed its loading state; resetting in place keeps the UI stable
+// and avoids a route-triggered reload.
+export const chatResetRequest = writable(0);
+export const requestChatReset = () => chatResetRequest.update((count) => count + 1);
+
 export const channels = writable([]);
 export const channelId = writable(null);
 

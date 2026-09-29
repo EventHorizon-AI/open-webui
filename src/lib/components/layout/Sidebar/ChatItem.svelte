@@ -39,7 +39,8 @@
 		tags,
 		selectedFolder,
 		settings,
-		user
+		user,
+		requestChatReset
 	} from '$lib/stores';
 	import { refreshChatList, refreshSidebar } from '$lib/stores/chatList';
 
@@ -57,9 +58,16 @@
 	import GarbageBinIcon from '$lib/components/icons/GarbageBin.svelte';
 	import { generateTitle } from '$lib/apis';
 	import { createMessagesList } from '$lib/utils';
+	import { getChatIdFromLocation } from '$lib/utils/chatId';
 	import { getOutputText } from '$lib/components/chat/Messages/structuredOutput';
 
 	const i18n = getContext('i18n');
+
+	// Whether this row is the chat the user is actually looking at. Checking the
+	// `$chatId` store alone is unreliable: the URL is rewritten with
+	// `history.replaceState` in several flows without updating the store, so the
+	// two drift and the check would sometimes miss the open chat.
+	const isCurrentChat = (id: string) => id === $chatId || id === getChatIdFromLocation();
 
 	const dispatch = createEventDispatcher();
 
@@ -258,8 +266,10 @@
 
 		if (res) {
 			tags.set(await getAllTags(localStorage.token));
-			if ($chatId === id) {
-				await goto('/');
+			if (isCurrentChat(id)) {
+				// Reset the active chat in place instead of navigating to `/`, so the
+				// chat surface does not remount and flash its loading state.
+				requestChatReset();
 
 				await chatId.set('');
 				await tick();
@@ -280,8 +290,8 @@
 		try {
 			await archiveChatById(localStorage.token, id);
 
-			if ($chatId === id) {
-				await goto('/');
+			if (isCurrentChat(id)) {
+				requestChatReset();
 				chatId.set('');
 			}
 

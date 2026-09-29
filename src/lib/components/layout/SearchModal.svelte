@@ -25,7 +25,8 @@
 	import Loader from '../common/Loader.svelte';
 	import { createMessagesList } from '$lib/utils';
 	import { getOutputText } from '$lib/components/chat/Messages/structuredOutput';
-	import { config, user, chatId as currentChatId, tags } from '$lib/stores';
+	import { config, user, chatId as currentChatId, tags, requestChatReset } from '$lib/stores';
+	import { getChatIdFromLocation } from '$lib/utils/chatId';
 	import { refreshSidebar } from '$lib/stores/chatList';
 	import Messages from '../chat/Messages.svelte';
 	import { goto } from '$app/navigation';
@@ -55,6 +56,9 @@
 	let editingChatTitle = '';
 
 	let shiftKey = false;
+
+	// See ChatItem.svelte: the `$chatId` store can lag the URL, so combine both.
+	const isCurrentChat = (id: string) => id === $currentChatId || id === getChatIdFromLocation();
 
 	const onShiftKeyDown = (e) => {
 		if (e.key === 'Shift') shiftKey = true;
@@ -101,8 +105,8 @@
 
 			chatList = chatList?.filter((c) => c.id !== id) ?? null;
 
-			if ($currentChatId === id) {
-				await goto('/');
+			if (isCurrentChat(id)) {
+				requestChatReset();
 				currentChatId.set('');
 			}
 
@@ -123,8 +127,8 @@
 			chatList = chatList?.filter((c) => c.id !== id) ?? null;
 			tags.set(await getAllTags(localStorage.token));
 
-			if ($currentChatId === id) {
-				await goto('/');
+			if (isCurrentChat(id)) {
+				requestChatReset();
 				currentChatId.set('');
 			}
 
