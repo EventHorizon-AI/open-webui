@@ -188,8 +188,6 @@
 	"Analysis complete": "已完成分析",
 	"Analytics": "分析",
 	"Analyzed": "已分析",
-	"Analyzed in {{DURATION}}": "已分析，用时 {{DURATION}}",
-	"Analyzed in {{DURATION}} seconds": "已分析，用时 {{DURATION}} 秒",
 	"Analyzing...": "正在分析...",
 	"and {{COUNT}} more": "还有 {{COUNT}} 个",
 	"and create a new shared link.": "并创建新的分享链接",

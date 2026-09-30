@@ -553,9 +553,16 @@ export function getDetailsDurationSeconds(tokens: OutputDetailToken[] = []): num
 	return Math.round(summedDuration);
 }
 
+/**
+ * `group` mirrors the message lifecycle: while a reply is still streaming the
+ * caller passes `false`, so the run renders the way it always did (narrated
+ * content inline, consecutive details folded into a plain `detail_group`) and
+ * only collapses into a process group once the message is done.
+ */
 export function buildOutputDisplayItems(
 	output: OutputItem[] = [],
-	forceInlineFiles = false
+	forceInlineFiles = false,
+	group = true
 ): OutputDisplayItem[] {
 	const displayItems: OutputDisplayItem[] = [];
 	// Details and narration accumulate here until it is known whether the run ends
@@ -610,6 +617,12 @@ export function buildOutputDisplayItems(
 			return;
 		}
 
+		if (!group) {
+			displayItems.push(...processItems);
+			processItems.length = 0;
+			return;
+		}
+
 		const hasContent = processItems.some((item) => item.type === 'message');
 		const hasDetailGroup = processItems.some((item) => item.type === 'detail_group');
 		const hasAnyDetail = processItems.some(
@@ -632,8 +645,9 @@ export function buildOutputDisplayItems(
 
 	const pushContent = (index: number, id: string, text: string) => {
 		// While a later tool step can still appear the content is narrated, so it
-		// is held in the process group; otherwise it is the final answer.
-		if (index < lastGroupableIndex) {
+		// is held in the process group; otherwise it is the final answer. Grouping
+		// itself only happens once the message is done.
+		if (group && index < lastGroupableIndex) {
 			flushDetails();
 			processItems.push({ type: 'message', id, text });
 		} else {

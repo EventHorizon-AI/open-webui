@@ -145,25 +145,14 @@
 				: $i18n.t('Analysis complete');
 	};
 
-	// Settled label (steps paused, reply still streaming): past tense about the
-	// analysis only, so it never reads as the whole reply being done.
-	const getProcessSettledLabel = (processToken: any) => {
-		const processDuration = getDetailsDurationSeconds(getProcessTokens(processToken));
-
-		return processDuration >= 60
-			? $i18n.t('Analyzed in {{DURATION}}', {
-					DURATION: dayjs.duration(processDuration, 'seconds').humanize()
-				})
-			: processDuration >= 1
-				? $i18n.t('Analyzed in {{DURATION}} seconds', { DURATION: processDuration })
-				: $i18n.t('Explored');
-	};
-
 	$: detailButtonClassName = `py-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 
-	$: displayTokens = buildMarkdownDisplayTokens(tokens);
+	// Process grouping only happens once the message is done: while it is still
+	// streaming the run renders flat (narrated content inline, consecutive
+	// details folded into a plain detail group) instead of the process group.
+	$: displayTokens = buildMarkdownDisplayTokens(tokens, done);
 	$: singlePlainBlock =
 		displayTokens.length === 1 &&
 		(displayTokens[0]?.type === 'paragraph' || displayTokens[0]?.type === 'text');
@@ -573,16 +562,15 @@
 	{:else if token.type === 'process_group'}
 		<!-- A run of details plus the content narrated around it. Rendered like the
 		     structured output path's process group: a reasoning-style header whose
-		     body re-renders the run's child tokens. -->
+		     body re-renders the run's child tokens. Only built once the message is
+		     done, so the group never grows while it is shown. -->
 		<ConsecutiveDetailsGroup
 			id={`${rendererId}-${tokenIdx}-process-group`}
 			tokens={getProcessTokens(token)}
 			variant="reasoning"
 			runningLabel={$i18n.t('Processing...')}
-			settledLabel={getProcessSettledLabel(token)}
 			doneLabel={getProcessDoneLabel(token)}
 			messageDone={done}
-			groupOpen={!done && !nested && tokenIdx === displayTokens.length - 1}
 			{compactPreview}
 			allowEmbeds={nested ? false : allowEmbeds}
 			resolvable={!nested && !!chatId && !!messageId && save}

@@ -138,17 +138,6 @@
 			: processDuration >= 1
 				? $i18n.t('Completed in {{DURATION}} seconds', { DURATION: processDuration })
 				: $i18n.t('Analysis complete');
-
-	// Settled label (steps paused, reply still streaming): past tense about the
-	// analysis only, so it never reads as the whole reply being done.
-	$: processSettledLabel =
-		processDuration >= 60
-			? $i18n.t('Analyzed in {{DURATION}}', {
-					DURATION: dayjs.duration(processDuration, 'seconds').humanize()
-				})
-			: processDuration >= 1
-				? $i18n.t('Analyzed in {{DURATION}} seconds', { DURATION: processDuration })
-				: $i18n.t('Explored');
 </script>
 
 {#if displayItem.type === 'message'}
@@ -267,16 +256,15 @@
 	</ConsecutiveDetailsGroup>
 {:else if displayItem.type === 'process_group'}
 	<!-- The process group behaves like a detail group, but its body holds the
-	     nested detail groups and the content the model narrated around them. -->
+	     nested detail groups and the content the model narrated around them. Only
+	     built once the message is done, so the group never grows while it is shown. -->
 	<ConsecutiveDetailsGroup
 		id={itemId}
 		tokens={processTokens}
 		variant="reasoning"
 		runningLabel={$i18n.t('Processing...')}
-		settledLabel={processSettledLabel}
 		doneLabel={processDoneLabel}
 		messageDone={done}
-		groupOpen={!done && isLast}
 		{compactPreview}
 		{allowEmbeds}
 		{resolvable}

@@ -23,8 +23,16 @@ const isDetailDisplayToken = (token: MarkdownDisplayToken): boolean =>
  * process group, so does a run mixing narrated content with any detail; a lone
  * groupable detail stays flat. Content after the last groupable detail is the
  * final answer and stays top level.
+ *
+ * `group` mirrors the message lifecycle: while a reply is still streaming the
+ * caller passes `false`, so the run renders the way it always did (narrated
+ * content inline, consecutive details folded into a plain `detail_group`) and
+ * only collapses into a process group once the message is done.
  */
-export function buildMarkdownDisplayTokens(tokenList: any[] = []): MarkdownDisplayToken[] {
+export function buildMarkdownDisplayTokens(
+	tokenList: any[] = [],
+	group = true
+): MarkdownDisplayToken[] {
 	const displayTokens: MarkdownDisplayToken[] = [];
 	let processItems: MarkdownDisplayToken[] = [];
 	let detailGroup: any[] = [];
@@ -56,10 +64,16 @@ export function buildMarkdownDisplayTokens(tokenList: any[] = []): MarkdownDispl
 	// Emit whatever has accumulated. A run that contains a detail group always
 	// becomes a process group, even when no content was narrated around it; so
 	// does a run mixing narrated content with any details. A lone detail stays
-	// flat.
+	// flat, and while the message is still streaming everything stays flat.
 	const flushProcess = () => {
 		flushDetailGroup();
 		if (processItems.length === 0) {
+			return;
+		}
+
+		if (!group) {
+			displayTokens.push(...processItems);
+			processItems = [];
 			return;
 		}
 
@@ -90,7 +104,7 @@ export function buildMarkdownDisplayTokens(tokenList: any[] = []): MarkdownDispl
 			return;
 		}
 
-		if (index < lastGroupableIndex) {
+		if (group && index < lastGroupableIndex) {
 			// Narrated while a later tool step can still appear.
 			flushDetailGroup();
 			processItems.push({ ...token, id: `md-${index}` });

@@ -43,14 +43,10 @@
 	export let onResolve: (callId: string, approved: boolean) => void = () => {};
 
 	// 'details' is the regular tool-list header. 'reasoning' renders the header like
-	// a reasoning button instead: a spinner while running, the newest reasoning
-	// preview as the text, and a plain label once it settles (no tool summary).
+	// a reasoning button instead: a spinner while the group's work is still active
+	// and a plain duration label once it is done (no tool summary).
 	export let variant: 'details' | 'reasoning' = 'details';
 	export let runningLabel = '';
-	// Step-scoped past-tense label for the window where the group's own work has
-	// settled but the whole reply is still streaming. Empty falls back to
-	// `doneLabel`, preserving the old two-state behaviour.
-	export let settledLabel = '';
 	export let doneLabel = '';
 
 	let open = $settings?.expandDetails ?? false;
@@ -202,9 +198,11 @@
 		return null;
 	})();
 
-	// The header only surfaces a preview while that reasoning is still streaming;
-	// once the block finishes it falls back to the running/done label so it does
-	// not keep echoing a stale thought. Used by both header variants.
+	// The details header surfaces a preview while that reasoning is still
+	// streaming; once the block finishes it falls back to the tool summary so it
+	// does not keep echoing a stale thought. The reasoning variant is only used by
+	// a process group, which renders once the message is done, so it never
+	// previews.
 	$: latestReasoningPreview =
 		!messageDone && newestReasoningToken?.attributes?.done !== 'true'
 			? (newestReasoningToken?.summary ?? '')
@@ -214,17 +212,6 @@
 	// never disagree (the spinner used to also check `hasActiveToolCalls` while
 	// the text only looked at `groupOpen`).
 	$: groupLive = groupOpen || hasActiveToolCalls;
-
-	// reasoning header state: preview > running > settled > done. `settled` is the
-	// window where the group's own steps have paused but the overall reply is
-	// still streaming: it must not read as the whole reply being complete.
-	$: headerState = latestReasoningPreview
-		? 'preview'
-		: groupLive
-			? 'running'
-			: !messageDone && settledLabel
-				? 'settled'
-				: 'done';
 
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
 	// Once it is closed it settles to "Explored" regardless of the last tool
@@ -288,14 +275,8 @@
 				     tool list sweep together. -->
 				<div class="min-w-0 flex items-center gap-1.5 {isReasoningVariant ? '' : 'flex-1'}">
 					{#if isReasoningVariant}
-						{#if headerState === 'preview'}
-							<span class="min-w-0 truncate {groupLive ? 'shimmer' : ''}"
-								>{latestReasoningPreview}</span
-							>
-						{:else if headerState === 'running'}
+						{#if groupLive}
 							<span class="min-w-0 truncate shimmer">{runningLabel}</span>
-						{:else if headerState === 'settled'}
-							<span class="min-w-0 truncate">{settledLabel}</span>
 						{:else}
 							<span class="min-w-0 truncate">{doneLabel}</span>
 						{/if}
