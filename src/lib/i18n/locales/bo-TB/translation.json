@@ -2,6 +2,7 @@
 	"-1 for no limit, or a positive integer for a specific limit": "-1 ནི་ཚད་མེད་པའི་ཆེད་དམ། ཡང་ན་ཧྲིལ་གྲངས་དགོས་ངེས་ཤིག་ཚད་བཀག་ངེས་ཅན་ཞིག་གི་ཆེད་དུ།",
 	"(latest)": "(ཆེས་གསར།)",
 	"(leave blank for to use commercial endpoint)": "(ཚོང་ལས་མཇུག་མཐུད་སྤྱོད་པར་སྟོང་པར་འཇོག་རོགས།)",
+	"[Last] dddd": "",
 	"[Last] dddd [at] h:mm A": "[གཟའ་འཁོར་སྔོན་མའི་] dddd [ཆུ་ཚོད་] h:mm A",
 	"[Today at] h:mm A": "[དེ་རིང་ཆུ་ཚོད་] h:mm A",
 	"[Yesterday at] h:mm A": "[ཁ་སང་ཆུ་ཚོད་] h:mm A",

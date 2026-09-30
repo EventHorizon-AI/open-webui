@@ -2,6 +2,7 @@
 	"-1 for no limit, or a positive integer for a specific limit": "-1 fyri einki mark, ella eitt positivt heiltal fyri eitt ávíst mark",
 	"(latest)": "(nýggjasta)",
 	"(leave blank for to use commercial endpoint)": "(lat standa tómt fyri at brúka handilsliga endapunktið)",
+	"[Last] dddd": "",
 	"[Last] dddd [at] h:mm A": "[Seinasta] dddd [kl.] h:mm A",
 	"[Today at] h:mm A": "[Í dag kl.] h:mm A",
 	"[Yesterday at] h:mm A": "[Í gjár kl.] h:mm A",

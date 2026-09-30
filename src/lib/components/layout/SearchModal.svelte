@@ -676,6 +676,7 @@
 							{$i18n.t('October')}
 							{$i18n.t('November')}
 							{$i18n.t('December')}
+							{$i18n.t('[Last] dddd')}
 							-->
 							</div>
 						{/if}
@@ -777,7 +778,9 @@
 											nextDay: '[Tomorrow]',
 											nextWeek: 'dddd',
 											lastDay: '[Yesterday]',
-											lastWeek: '[Last] dddd',
+											// "Last" is a hard-coded English literal, so translate the format string
+											// itself (e.g. "[上]dddd") before dayjs renders the localized weekday.
+											lastWeek: $i18n.t('[Last] dddd'),
 											sameElse: 'L'
 										})
 									)}

@@ -2,6 +2,7 @@
 	"-1 for no limit, or a positive integer for a specific limit": "-1 alang sa walay limitasyon, o positibong tibuok numero alang sa piho nga limitasyon",
 	"(latest)": "(pinakabag-o)",
 	"(leave blank for to use commercial endpoint)": "(ibiling blangko aron gamiton ang komersiyal nga endpoint)",
+	"[Last] dddd": "",
 	"[Last] dddd [at] h:mm A": "[Sa miaging semana:] dddd [sa] h:mm A",
 	"[Today at] h:mm A": "[Karon sa] h:mm A",
 	"[Yesterday at] h:mm A": "[Kagahapon sa] h:mm A",
