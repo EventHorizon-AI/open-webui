@@ -61,7 +61,7 @@
 	role="listitem"
 	class="flex flex-col justify-between px-3.5 mb-3 w-full {($settings?.widescreenMode ?? null)
 		? 'max-w-full'
-		: 'max-w-[58rem]'} mx-auto rounded-lg group message-listitem"
+		: 'max-w-[56rem]'} mx-auto rounded-lg group message-listitem"
 	class:message-virtualized={!isWebKit}
 >
 	{#if history.messages[messageId]}

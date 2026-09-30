@@ -185,7 +185,7 @@
 				<div
 					class="pt-5 px-2 w-full {($settings?.widescreenMode ?? null)
 						? 'max-w-full'
-						: 'max-w-[58rem]'} mx-auto"
+						: 'max-w-[56rem]'} mx-auto"
 				>
 					<div class="px-3">
 						<h1 class=" text-2xl font-normal line-clamp-1 m-0">
