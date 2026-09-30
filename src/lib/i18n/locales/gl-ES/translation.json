@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "",
 	"Analyzed": "Analizado",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Analizando..",
 	"and {{COUNT}} more": "e {{COUNT}} mais",
 	"and create a new shared link.": "e xerar un novo enlace compartido.",

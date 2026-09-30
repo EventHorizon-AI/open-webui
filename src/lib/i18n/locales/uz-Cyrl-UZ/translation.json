@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "",
 	"Analyzed": "Таҳлил қилинган",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Таҳлил қилинмоқда...",
 	"and {{COUNT}} more": "ва яна {{COUNT}} та",
 	"and create a new shared link.": "ва янги умумий ҳавола яратинг.",

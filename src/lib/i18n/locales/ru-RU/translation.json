@@ -208,6 +208,8 @@
 	"Analysis complete": "",
 	"Analytics": "Аналитика",
 	"Analyzed": "Проанализировано",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Анализирую...",
 	"and {{COUNT}} more": "и еще {{COUNT}}",
 	"and create a new shared link.": "и создайте новую общую ссылку.",

@@ -208,6 +208,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analytika",
 	"Analyzed": "Analyzováno",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Analyzuji...",
 	"and {{COUNT}} more": "a {{COUNT}} dalších",
 	"and create a new shared link.": "a vytvořit nový sdílený odkaz.",

@@ -208,6 +208,8 @@
 	"Analysis complete": "",
 	"Analytics": "Аналітика",
 	"Analyzed": "Проаналізовано",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Аналізую...",
 	"and {{COUNT}} more": "та ще {{COUNT}}",
 	"and create a new shared link.": "і створіть нове спільне посилання.",

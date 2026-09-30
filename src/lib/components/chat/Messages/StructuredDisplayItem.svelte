@@ -138,6 +138,17 @@
 			: processDuration >= 1
 				? $i18n.t('Completed in {{DURATION}} seconds', { DURATION: processDuration })
 				: $i18n.t('Analysis complete');
+
+	// Settled label (steps paused, reply still streaming): past tense about the
+	// analysis only, so it never reads as the whole reply being done.
+	$: processSettledLabel =
+		processDuration >= 60
+			? $i18n.t('Analyzed in {{DURATION}}', {
+					DURATION: dayjs.duration(processDuration, 'seconds').humanize()
+				})
+			: processDuration >= 1
+				? $i18n.t('Analyzed in {{DURATION}} seconds', { DURATION: processDuration })
+				: $i18n.t('Explored');
 </script>
 
 {#if displayItem.type === 'message'}
@@ -262,6 +273,7 @@
 		tokens={processTokens}
 		variant="reasoning"
 		runningLabel={$i18n.t('Processing...')}
+		settledLabel={processSettledLabel}
 		doneLabel={processDoneLabel}
 		messageDone={done}
 		groupOpen={!done && isLast}

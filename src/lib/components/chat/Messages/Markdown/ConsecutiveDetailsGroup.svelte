@@ -47,6 +47,10 @@
 	// preview as the text, and a plain label once it settles (no tool summary).
 	export let variant: 'details' | 'reasoning' = 'details';
 	export let runningLabel = '';
+	// Step-scoped past-tense label for the window where the group's own work has
+	// settled but the whole reply is still streaming. Empty falls back to
+	// `doneLabel`, preserving the old two-state behaviour.
+	export let settledLabel = '';
 	export let doneLabel = '';
 
 	let open = $settings?.expandDetails ?? false;
@@ -206,6 +210,22 @@
 			? (newestReasoningToken?.summary ?? '')
 			: '';
 
+	// One condition drives both the icon and the text of the header so they can
+	// never disagree (the spinner used to also check `hasActiveToolCalls` while
+	// the text only looked at `groupOpen`).
+	$: groupLive = groupOpen || hasActiveToolCalls;
+
+	// reasoning header state: preview > running > settled > done. `settled` is the
+	// window where the group's own steps have paused but the overall reply is
+	// still streaming: it must not read as the whole reply being complete.
+	$: headerState = latestReasoningPreview
+		? 'preview'
+		: groupLive
+			? 'running'
+			: !messageDone && settledLabel
+				? 'settled'
+				: 'done';
+
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
 	// Once it is closed it settles to "Explored" regardless of the last tool
 	// call status, which may have completed while the group kept streaming.
@@ -236,7 +256,7 @@
 				<!-- Status icon: a group that can still grow is always running, so
 				     success/error icons only appear once it is closed. -->
 				{#if isReasoningVariant}
-					{#if groupOpen || hasActiveToolCalls}
+					{#if groupLive}
 						<div>
 							<Spinner className="size-4" />
 						</div>
@@ -268,12 +288,14 @@
 				     tool list sweep together. -->
 				<div class="min-w-0 flex items-center gap-1.5 {isReasoningVariant ? '' : 'flex-1'}">
 					{#if isReasoningVariant}
-						{#if latestReasoningPreview}
-							<span class="min-w-0 truncate {groupOpen ? 'shimmer' : ''}"
+						{#if headerState === 'preview'}
+							<span class="min-w-0 truncate {groupLive ? 'shimmer' : ''}"
 								>{latestReasoningPreview}</span
 							>
-						{:else if groupOpen}
+						{:else if headerState === 'running'}
 							<span class="min-w-0 truncate shimmer">{runningLabel}</span>
+						{:else if headerState === 'settled'}
+							<span class="min-w-0 truncate">{settledLabel}</span>
 						{:else}
 							<span class="min-w-0 truncate">{doneLabel}</span>
 						{/if}

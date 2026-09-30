@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "பகுப்பாய்வு",
 	"Analyzed": "பகுப்பாய்வு செய்யப்பட்டது",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "பகுப்பாய்வு செய்கிறது...",
 	"and {{COUNT}} more": "மற்றும் {{COUNT}} மேலும்",
 	"and create a new shared link.": "மற்றும் புதிய பகிரப்பட்ட இணைப்பை உருவாக்கவும்.",

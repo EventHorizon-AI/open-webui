@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "ანალიტიკა",
 	"Analyzed": "გაანაზლიებულია",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "ანალიზი...",
 	"and {{COUNT}} more": "და კიდევ {{COUNT}}",
 	"and create a new shared link.": "და ახალი გაზიარებული ბმულის შექმნა.",

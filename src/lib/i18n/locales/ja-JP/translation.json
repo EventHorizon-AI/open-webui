@@ -181,6 +181,8 @@
 	"Analysis complete": "",
 	"Analytics": "分析",
 	"Analyzed": "分析済み",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "分析中...",
 	"and {{COUNT}} more": "および{{COUNT}}件",
 	"and create a new shared link.": "そして、新しい共有リンクを作成します。",

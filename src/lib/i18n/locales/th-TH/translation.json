@@ -181,6 +181,8 @@
 	"Analysis complete": "",
 	"Analytics": "การวิเคราะห์",
 	"Analyzed": "วิเคราะห์แล้ว",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "กำลังวิเคราะห์...",
 	"and {{COUNT}} more": "และอีก {{COUNT}} รายการ",
 	"and create a new shared link.": "และสร้างลิงก์ที่แชร์ใหม่",

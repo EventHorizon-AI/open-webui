@@ -199,6 +199,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analitika",
 	"Analyzed": "Analizirano",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Analiziranje...",
 	"and {{COUNT}} more": "i još {{COUNT}}",
 	"and create a new shared link.": "i stvorite novu dijeljenu vezu.",

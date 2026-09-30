@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "تحلیل و بررسی",
 	"Analyzed": "تحلیل شده",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "در حال تحلیل...",
 	"and {{COUNT}} more": "و {{COUNT}} مورد دیگر",
 	"and create a new shared link.": "و یک پیوند اشتراک\u200cگذاری جدید ایجاد کنید.",

@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analyse",
 	"Analyzed": "Geanalyseerd",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Aan het analyseren...",
 	"and {{COUNT}} more": "en {{COUNT}} meer",
 	"and create a new shared link.": "en maak een nieuwe gedeelde link.",

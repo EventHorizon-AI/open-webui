@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analiz",
 	"Analyzed": "Analiz edildi",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Analiz ediliyor...",
 	"and {{COUNT}} more": "ve {{COUNT}} daha",
 	"and create a new shared link.": "ve yeni bir paylaşılan bağlantı oluşturun.",

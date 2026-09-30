@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "",
 	"Analyzed": "تەھلىل قىلىندى",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "تەھلىل قىلىنىۋاتىدۇ...",
 	"and {{COUNT}} more": "ۋە يەنە {{COUNT}}",
 	"and create a new shared link.": "يېڭى ھەمبەھىرلەنگەن ئۇلانما قۇرۇڭ.",

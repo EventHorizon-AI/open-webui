@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "",
 	"Analyzed": "Tahlil qilingan",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Tahlil qilinmoqda...",
 	"and {{COUNT}} more": "va yana {{COUNT}} ta",
 	"and create a new shared link.": "va yangi umumiy havola yarating.",

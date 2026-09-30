@@ -199,6 +199,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analītika",
 	"Analyzed": "Analizēts",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Analizē...",
 	"and {{COUNT}} more": "un vēl {{COUNT}}",
 	"and create a new shared link.": "un izveidot jaunu kopīgotu saiti.",

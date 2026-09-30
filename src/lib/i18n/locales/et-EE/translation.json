@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analüütika",
 	"Analyzed": "Analüüsitud",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Analüüsimine...",
 	"and {{COUNT}} more": "ja veel {{COUNT}}",
 	"and create a new shared link.": "ja looge uus jagatud link.",

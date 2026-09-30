@@ -188,6 +188,8 @@
 	"Analysis complete": "",
 	"Analytics": "",
 	"Analyzed": "",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "",
 	"and {{COUNT}} more": "",
 	"and create a new shared link.": "dan membuat tautan bersama baru.",

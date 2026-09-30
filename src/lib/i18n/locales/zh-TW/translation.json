@@ -181,6 +181,8 @@
 	"Analysis complete": "已完成分析",
 	"Analytics": "分析",
 	"Analyzed": "分析完畢",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "正在分析...",
 	"and {{COUNT}} more": "和另外 {{COUNT}} 個",
 	"and create a new shared link.": "並建立新的共用連結。",

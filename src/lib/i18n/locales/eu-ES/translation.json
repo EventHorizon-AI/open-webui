@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "Analitika",
 	"Analyzed": "Aztertuta",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "Aztertzen...",
 	"and {{COUNT}} more": "eta {{COUNT}} gehiago",
 	"and create a new shared link.": "eta sortu partekatutako esteka berri bat.",

@@ -190,6 +190,8 @@
 	"Analysis complete": "",
 	"Analytics": "",
 	"Analyzed": "",
+	"Analyzed in {{DURATION}}": "",
+	"Analyzed in {{DURATION}} seconds": "",
 	"Analyzing...": "",
 	"and {{COUNT}} more": "",
 	"and create a new shared link.": "ਅਤੇ ਇੱਕ ਨਵਾਂ ਸਾਂਝਾ ਲਿੰਕ ਬਣਾਓ।",

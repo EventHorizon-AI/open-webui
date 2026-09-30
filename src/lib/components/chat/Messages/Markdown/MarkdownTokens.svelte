@@ -145,6 +145,20 @@
 				: $i18n.t('Analysis complete');
 	};
 
+	// Settled label (steps paused, reply still streaming): past tense about the
+	// analysis only, so it never reads as the whole reply being done.
+	const getProcessSettledLabel = (processToken: any) => {
+		const processDuration = getDetailsDurationSeconds(getProcessTokens(processToken));
+
+		return processDuration >= 60
+			? $i18n.t('Analyzed in {{DURATION}}', {
+					DURATION: dayjs.duration(processDuration, 'seconds').humanize()
+				})
+			: processDuration >= 1
+				? $i18n.t('Analyzed in {{DURATION}} seconds', { DURATION: processDuration })
+				: $i18n.t('Explored');
+	};
+
 	$: detailButtonClassName = `py-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
@@ -565,6 +579,7 @@
 			tokens={getProcessTokens(token)}
 			variant="reasoning"
 			runningLabel={$i18n.t('Processing...')}
+			settledLabel={getProcessSettledLabel(token)}
 			doneLabel={getProcessDoneLabel(token)}
 			messageDone={done}
 			groupOpen={!done && !nested && tokenIdx === displayTokens.length - 1}
