@@ -42,7 +42,16 @@
 	export let resolvingCallId = '';
 	export let onResolve: (callId: string, approved: boolean) => void = () => {};
 
+	// 'details' is the regular tool-list header. 'reasoning' renders the header like
+	// a reasoning button instead: a spinner while running, the newest reasoning
+	// preview as the text, and a plain label once it settles (no tool summary).
+	export let variant: 'details' | 'reasoning' = 'details';
+	export let runningLabel = '';
+	export let doneLabel = '';
+
 	let open = $settings?.expandDetails ?? false;
+
+	$: isReasoningVariant = variant === 'reasoning';
 
 	function parseJSONString(str: string) {
 		try {
@@ -180,19 +189,22 @@
 		return detail;
 	})();
 
-	// While the group contains reasoning that is still streaming, surface the
-	// latest reasoning preview so it can shimmer in place of the tool list.
-	$: latestReasoningPreview = (() => {
-		if (messageDone) return '';
-
+	// The newest reasoning token in the group, if any.
+	$: newestReasoningToken = (() => {
 		for (let i = tokens.length - 1; i >= 0; i--) {
 			const token = tokens[i];
-			if (token?.attributes?.type !== 'reasoning') continue;
-			if (token.attributes?.done === 'true') return '';
-			return token.summary ?? '';
+			if (token?.attributes?.type === 'reasoning') return token;
 		}
-		return '';
+		return null;
 	})();
+
+	// The header only surfaces a preview while that reasoning is still streaming;
+	// once the block finishes it falls back to the running/done label so it does
+	// not keep echoing a stale thought. Used by both header variants.
+	$: latestReasoningPreview =
+		!messageDone && newestReasoningToken?.attributes?.done !== 'true'
+			? (newestReasoningToken?.summary ?? '')
+			: '';
 
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
 	// Once it is closed it settles to "Explored" regardless of the last tool
@@ -205,7 +217,7 @@
 		<div
 			role="button"
 			tabindex="0"
-			class="flex-1 min-w-0 py-0.5 text-left {compactPreview
+			class="{isReasoningVariant ? 'w-fit' : 'flex-1'} min-w-0 py-0.5 text-left {compactPreview
 				? 'text-xs'
 				: 'text-[0.9375rem]'} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition cursor-pointer"
 			aria-label={$i18n.t('Toggle details')}
@@ -220,10 +232,16 @@
 				}
 			}}
 		>
-			<div class="flex items-center gap-1.5 min-w-0">
+			<div class="flex items-center gap-2 min-w-0">
 				<!-- Status icon: a group that can still grow is always running, so
 				     success/error icons only appear once it is closed. -->
-				{#if groupOpen || hasActiveToolCalls}
+				{#if isReasoningVariant}
+					{#if groupOpen || hasActiveToolCalls}
+						<div>
+							<Spinner className="size-4" />
+						</div>
+					{/if}
+				{:else if groupOpen || hasActiveToolCalls}
 					<div>
 						<Spinner className="size-4" />
 					</div>
@@ -248,16 +266,28 @@
 				<!-- Summary text: while the group is still live the whole row shares a
 				     single shimmer gradient, so the prefix and the evolving preview /
 				     tool list sweep together. -->
-				<div class="flex-1 min-w-0 flex items-center gap-1.5">
-					<span class="shrink-0 text-gray-600 dark:text-gray-300">{prefixText}</span>
-					{#if latestReasoningPreview}
-						<span class="min-w-0 flex-1 truncate {groupOpen ? 'shimmer' : ''}"
-							>{latestReasoningPreview}</span
-						>
-					{:else if summaryText}
-						<span class="min-w-0 flex-1 truncate text-gray-400 dark:text-gray-500"
-							>{summaryText}</span
-						>
+				<div class="min-w-0 flex items-center gap-1.5 {isReasoningVariant ? '' : 'flex-1'}">
+					{#if isReasoningVariant}
+						{#if latestReasoningPreview}
+							<span class="min-w-0 truncate {groupOpen ? 'shimmer' : ''}"
+								>{latestReasoningPreview}</span
+							>
+						{:else if groupOpen}
+							<span class="min-w-0 truncate shimmer">{runningLabel}</span>
+						{:else}
+							<span class="min-w-0 truncate">{doneLabel}</span>
+						{/if}
+					{:else}
+						<span class="shrink-0 text-gray-600 dark:text-gray-300">{prefixText}</span>
+						{#if latestReasoningPreview}
+							<span class="min-w-0 flex-1 truncate {groupOpen ? 'shimmer' : ''}"
+								>{latestReasoningPreview}</span
+							>
+						{:else if summaryText}
+							<span class="min-w-0 flex-1 truncate text-gray-400 dark:text-gray-500"
+								>{summaryText}</span
+							>
+						{/if}
 					{/if}
 				</div>
 

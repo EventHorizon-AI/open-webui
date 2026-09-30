@@ -137,7 +137,7 @@
 							{:else}
 								{$i18n.t('Thought')}
 							{/if}
-						{:else if title}
+						{:else if !open && title}
 							{title}
 						{:else}
 							{$i18n.t('Thinking...')}

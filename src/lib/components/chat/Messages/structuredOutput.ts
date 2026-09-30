@@ -19,6 +19,8 @@ export type OutputItem = {
 	code?: string;
 	lang?: string;
 	duration?: number | string | null;
+	started_at?: number | string | null;
+	ended_at?: number | string | null;
 	action?: Record<string, unknown>;
 	actions?: Array<Record<string, unknown>>;
 	queries?: unknown[];
@@ -34,6 +36,10 @@ export type OutputDetailToken = {
 		name?: string;
 		done?: string;
 		duration?: string;
+		// Timing stamped by the backend on reasoning / code-interpreter items
+		// (epoch seconds); `duration` above is derived from the pair.
+		started_at?: string;
+		ended_at?: string;
 		arguments?: string;
 		files?: string;
 		embeds?: string;
@@ -57,6 +63,15 @@ export type OutputDisplayItem =
 			type: 'detail_group';
 			id: string;
 			tokens: OutputDetailToken[];
+	  }
+	| {
+			// A run of detail groups plus the content the model narrated around
+			// them. A content message only becomes a final answer when nothing
+			// after it can still be a tool step; everything before that is folded
+			// in here instead of leaking into the transcript as plain text.
+			type: 'process_group';
+			id: string;
+			items: OutputDisplayItem[];
 	  }
 	| {
 			type: 'file';
@@ -251,7 +266,8 @@ function stripMarkdownInline(text: string): string {
 // line is complete (terminated by a newline) it replaces the previous block's
 // preview, but it does not update character by character within a line. Until the
 // current block has a usable line the last completed block is shown instead.
-// When the whole reasoning item is done the caller reverts to the duration summary.
+// The preview is what `summary` carries for the whole lifetime of the item; the
+// duration text shown once a reasoning block finishes is rendered separately.
 type ReasoningPreviewState = {
 	length: number;
 	tail: string;
@@ -385,18 +401,21 @@ function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 	const isDone = isDoneStatus(item.status) || item.duration !== undefined || !isLastItem;
 	const reasoningText = getReasoningText(item);
 	const cacheId = item.id ?? item.call_id ?? '';
-	if (isDone && cacheId) {
-		reasoningPreviewStates.delete(cacheId);
-	}
-	const preview = isDone ? '' : getReasoningPreview(cacheId, reasoningText);
+	// `summary` always carries the newest block's preview line, even once the block
+	// is done; `done` marks the state and consumers render the duration from
+	// `attributes.duration` themselves. The preview state is kept cached so a
+	// finished block is not re-scanned on every render.
+	const preview = getReasoningPreview(cacheId, reasoningText);
 
 	return {
-		summary: isDone ? `Thought for ${duration || 0} seconds` : preview,
+		summary: preview,
 		text: reasoningText,
 		attributes: {
 			type: 'reasoning',
 			done: isDone ? 'true' : 'false',
-			duration: String(duration)
+			duration: String(duration),
+			started_at: stringifyAttribute(item.started_at),
+			ended_at: stringifyAttribute(item.ended_at)
 		}
 	};
 }
@@ -414,6 +433,8 @@ function buildCodeInterpreterToken(item: OutputItem, isLastItem: boolean) {
 			type: 'code_interpreter',
 			done: isDone ? 'true' : 'false',
 			duration: String(duration),
+			started_at: stringifyAttribute(item.started_at),
+			ended_at: stringifyAttribute(item.ended_at),
 			output: stringifyAttribute(item.output)
 		}
 	};
@@ -488,14 +509,63 @@ function buildDetailToken(
 	return null;
 }
 
+/**
+ * Wall-clock seconds covered by a run of detail tokens.
+ *
+ * Only reasoning / code-interpreter tokens are timed: the backend stamps
+ * `started_at` / `ended_at` (epoch seconds) on them and derives `duration` from the
+ * pair; tool calls themselves are not timed. Prefers the span between the earliest
+ * start and the latest end — which also counts the tool execution happening between
+ * the steps — and falls back to summing the per-token `duration`. Returns 0 when
+ * nothing usable was recorded.
+ */
+export function getDetailsDurationSeconds(tokens: OutputDetailToken[] = []): number {
+	let earliestStart = Infinity;
+	let latestEnd = -Infinity;
+	let summedDuration = 0;
+
+	for (const token of tokens) {
+		const attributes = token?.attributes;
+		if (attributes?.type !== 'reasoning' && attributes?.type !== 'code_interpreter') {
+			continue;
+		}
+
+		const start = Number(attributes.started_at);
+		if (Number.isFinite(start) && start > 0) {
+			earliestStart = Math.min(earliestStart, start);
+		}
+
+		const end = Number(attributes.ended_at);
+		if (Number.isFinite(end) && end > 0) {
+			latestEnd = Math.max(latestEnd, end);
+		}
+
+		const duration = Number(attributes.duration ?? 0);
+		if (Number.isFinite(duration) && duration > 0) {
+			summedDuration += duration;
+		}
+	}
+
+	if (earliestStart !== Infinity && latestEnd !== -Infinity && latestEnd > earliestStart) {
+		return Math.round(latestEnd - earliestStart);
+	}
+
+	return Math.round(summedDuration);
+}
+
 export function buildOutputDisplayItems(
 	output: OutputItem[] = [],
 	forceInlineFiles = false
 ): OutputDisplayItem[] {
 	const displayItems: OutputDisplayItem[] = [];
+	// Details and narration accumulate here until it is known whether the run ends
+	// in a final answer or keeps going through more tool steps.
+	const processItems: OutputDisplayItem[] = [];
 	const currentDetailTokens: OutputDetailToken[] = [];
 	const toolOutputByCallId: Record<string, OutputItem> = {};
 	const toolCallByCallId: Record<string, OutputItem> = {};
+	let idCounter = 0;
+	const nextId = (prefix: string) => `${prefix}-${idCounter++}`;
 
 	for (const item of output) {
 		if (item?.type === 'function_call_output' && item.call_id) {
@@ -505,21 +575,71 @@ export function buildOutputDisplayItems(
 		}
 	}
 
+	// A content message is only a final answer when no tool step can still follow
+	// it. Any groupable output later in the list means the message was narrated on
+	// the way to a tool call, so it belongs in the process group.
+	const lastGroupableIndex = output.reduce(
+		(last, item, index) => (item?.type && GROUPABLE_OUTPUT_TYPES.has(item.type) ? index : last),
+		-1
+	);
+
 	const flushDetails = () => {
 		if (currentDetailTokens.length > 1) {
-			displayItems.push({
+			processItems.push({
 				type: 'detail_group',
-				id: `detail-group-${displayItems.length}`,
+				id: nextId('detail-group'),
 				tokens: [...currentDetailTokens]
 			});
 		} else if (currentDetailTokens.length === 1) {
-			displayItems.push({
+			processItems.push({
 				type: 'detail_single',
-				id: `detail-${displayItems.length}`,
+				id: nextId('detail'),
 				token: currentDetailTokens[0]
 			});
 		}
 		currentDetailTokens.length = 0;
+	};
+
+	// Emit whatever has accumulated. A run that contains a detail group (two or
+	// more details) always becomes a process group, even when no content was
+	// narrated around it; so does a run mixing narrated content with any details.
+	// A lone detail (detail_single) stays flat.
+	const flushProcess = () => {
+		flushDetails();
+		if (processItems.length === 0) {
+			return;
+		}
+
+		const hasContent = processItems.some((item) => item.type === 'message');
+		const hasDetailGroup = processItems.some((item) => item.type === 'detail_group');
+		const hasAnyDetail = processItems.some(
+			(item) => item.type === 'detail_group' || item.type === 'detail_single'
+		);
+
+		if (hasDetailGroup || (hasAnyDetail && hasContent)) {
+			// Tie the id to the first member so it survives reclassification while
+			// streaming (a trailing message becoming narration must not remount it).
+			displayItems.push({
+				type: 'process_group',
+				id: `process-group-${processItems[0].id}`,
+				items: [...processItems]
+			});
+		} else {
+			displayItems.push(...processItems);
+		}
+		processItems.length = 0;
+	};
+
+	const pushContent = (index: number, id: string, text: string) => {
+		// While a later tool step can still appear the content is narrated, so it
+		// is held in the process group; otherwise it is the final answer.
+		if (index < lastGroupableIndex) {
+			flushDetails();
+			processItems.push({ type: 'message', id, text });
+		} else {
+			flushProcess();
+			displayItems.push({ type: 'message', id, text });
+		}
 	};
 
 	output.forEach((item, index) => {
@@ -530,10 +650,10 @@ export function buildOutputDisplayItems(
 		if (item.type === 'function_call_output') {
 			const inlineFile = getInlineFileFromToolOutput(toolCallByCallId[item.call_id ?? ''], item);
 			if (inlineFile && (inlineFile.displayed === true || forceInlineFiles)) {
-				flushDetails();
+				flushProcess();
 				displayItems.push({
 					type: 'file',
-					id: item.id ?? `file-${index}`,
+					id: item.id ?? nextId('file'),
 					item: inlineFile
 				});
 			}
@@ -559,28 +679,18 @@ export function buildOutputDisplayItems(
 		if (item.type === 'message') {
 			const text = getMessageText(item);
 			if (text.trim()) {
-				flushDetails();
-				displayItems.push({
-					type: 'message',
-					id: item.id ?? `message-${index}`,
-					text
-				});
+				pushContent(index, item.id ?? nextId('message'), text);
 			}
 			return;
 		}
 
 		const fallbackText = getMessageText(item);
 		if (fallbackText.trim()) {
-			flushDetails();
-			displayItems.push({
-				type: 'message',
-				id: item.id ?? `output-${index}`,
-				text: fallbackText
-			});
+			pushContent(index, item.id ?? nextId('output'), fallbackText);
 		}
 	});
 
-	flushDetails();
+	flushProcess();
 	return displayItems;
 }
 

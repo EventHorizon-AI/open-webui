@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { decode } from 'html-entities';
 	import { onMount, getContext } from 'svelte';
-	const i18n = getContext('i18n');
+	import type { Writable } from 'svelte/store';
+	import type { i18n as i18nType } from 'i18next';
+	const i18n = getContext<Writable<i18nType>>('i18n');
 
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
@@ -9,6 +11,10 @@
 	import { marked, type Token } from 'marked';
 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
 	import { resolveChatMessageToolCall } from '$lib/apis/chats';
+
+	import dayjs from '$lib/dayjs';
+	import dayjsDuration from 'dayjs/plugin/duration';
+	import dayjsRelativeTime from 'dayjs/plugin/relativeTime';
 
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { settings } from '$lib/stores';
@@ -28,6 +34,11 @@
 	import HtmlToken from './HTMLToken.svelte';
 	import Clipboard from '$lib/components/icons/Clipboard.svelte';
 	import ColonFenceBlock from './ColonFenceBlock.svelte';
+	import { buildMarkdownDisplayTokens, isGroupableDetailToken } from './markdownDisplayTokens';
+	import { getDetailsDurationSeconds } from '../structuredOutput';
+
+	dayjs.extend(dayjsDuration);
+	dayjs.extend(dayjsRelativeTime);
 
 	export let id: string;
 	export let chatId = '';
@@ -61,43 +72,6 @@
 		return 'h' + depth;
 	};
 
-	const GROUPABLE_DETAIL_TYPES = new Set(['tool_calls', 'reasoning', 'code_interpreter']);
-
-	const isGroupableDetailToken = (token: Token & { attributes?: { type?: string } }) => {
-		return token?.type === 'details' && GROUPABLE_DETAIL_TYPES.has(token?.attributes?.type ?? '');
-	};
-
-	const getDisplayTokens = (tokenList: Token[] = []) => {
-		const displayTokens = [];
-		let detailGroup = [];
-
-		const flushDetailGroup = () => {
-			if (detailGroup.length > 1) {
-				displayTokens.push({
-					type: 'detail_group',
-					items: [...detailGroup]
-				});
-			} else if (detailGroup.length === 1) {
-				displayTokens.push(detailGroup[0]);
-			}
-
-			detailGroup = [];
-		};
-
-		for (const token of tokenList) {
-			if (isGroupableDetailToken(token)) {
-				detailGroup.push(token);
-			} else {
-				flushDetailGroup();
-				displayTokens.push(token);
-			}
-		}
-
-		flushDetailGroup();
-
-		return displayTokens;
-	};
-
 	const getDetailTextContent = (token) => {
 		return decode(token?.text || '')
 			.replace(/<summary>.*?<\/summary>/gi, '')
@@ -128,11 +102,54 @@
 		}
 	};
 
+	// Keep dayjs' duration humanization in the active UI language, the same way
+	// Collapsible does for reasoning durations.
+	const loadDayjsLocale = (locales: readonly string[] | undefined) => {
+		if (!locales?.length) return;
+		for (const locale of locales) {
+			try {
+				dayjs.locale(locale);
+				break;
+			} catch {
+				// not bundled for dayjs; fall through to the next language
+			}
+		}
+	};
+	$: loadDayjsLocale($i18n?.languages);
+
+	// Every groupable detail token a process group holds, so its header can
+	// summarise the whole run and surface embeds / approval buttons.
+	const getProcessTokens = (processToken: any) => {
+		const detailTokens: any[] = [];
+		for (const item of processToken?.items ?? []) {
+			if (item?.type === 'detail_group') {
+				detailTokens.push(...item.items);
+			} else if (isGroupableDetailToken(item)) {
+				detailTokens.push(item);
+			}
+		}
+		return detailTokens;
+	};
+
+	// Mirrors how a reasoning block's duration is rendered: seconds below a
+	// minute, humanized above it, and no duration at all when none was recorded.
+	const getProcessDoneLabel = (processToken: any) => {
+		const processDuration = getDetailsDurationSeconds(getProcessTokens(processToken));
+
+		return processDuration >= 60
+			? $i18n.t('Completed in {{DURATION}}', {
+					DURATION: dayjs.duration(processDuration, 'seconds').humanize()
+				})
+			: processDuration >= 1
+				? $i18n.t('Completed in {{DURATION}} seconds', { DURATION: processDuration })
+				: $i18n.t('Analysis complete');
+	};
+
 	$: detailButtonClassName = `py-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 
-	$: displayTokens = getDisplayTokens(tokens);
+	$: displayTokens = buildMarkdownDisplayTokens(tokens);
 	$: singlePlainBlock =
 		displayTokens.length === 1 &&
 		(displayTokens[0]?.type === 'paragraph' || displayTokens[0]?.type === 'text');
@@ -195,13 +212,13 @@
 </script>
 
 <!-- {JSON.stringify(tokens)} -->
-{#each displayTokens as token, tokenIdx (tokenIdx)}
+{#snippet tokenRenderer(token: any, tokenIdx: number, nested: boolean, rendererId: string)}
 	{#if token.type === 'hr'}
 		<hr class="border-gray-50 dark:border-gray-850/30" />
 	{:else if token.type === 'heading'}
 		<svelte:element this={headerComponent(token.depth)} dir="auto">
 			<MarkdownInlineTokens
-				id={`${id}-${tokenIdx}-h`}
+				id={`${rendererId}-${tokenIdx}-h`}
 				tokens={token.tokens}
 				{done}
 				{sourceIds}
@@ -211,7 +228,7 @@
 	{:else if token.type === 'code'}
 		{#if token.raw.includes('```')}
 			<CodeBlock
-				id={`${id}-${tokenIdx}`}
+				id={`${rendererId}-${tokenIdx}`}
 				collapsed={$settings?.collapseCodeBlocks ?? false}
 				{token}
 				lang={token?.lang ?? ''}
@@ -252,7 +269,7 @@
 									<div class="gap-1.5 text-start">
 										<div class="shrink-0 break-normal">
 											<MarkdownInlineTokens
-												id={`${id}-${tokenIdx}-header-${headerIdx}`}
+												id={`${rendererId}-${tokenIdx}-header-${headerIdx}`}
 												tokens={header.tokens}
 												{done}
 												{sourceIds}
@@ -278,7 +295,7 @@
 									>
 										<div class="break-normal">
 											<MarkdownInlineTokens
-												id={`${id}-${tokenIdx}-row-${rowIdx}-${cellIdx}`}
+												id={`${rendererId}-${tokenIdx}-row-${rowIdx}-${cellIdx}`}
 												tokens={cell.tokens}
 												{done}
 												{sourceIds}
@@ -326,7 +343,7 @@
 		{:else}
 			<blockquote dir="auto">
 				<svelte:self
-					id={`${id}-${tokenIdx}`}
+					id={`${rendererId}-${tokenIdx}`}
 					{chatId}
 					{messageId}
 					tokens={token.tokens}
@@ -367,7 +384,7 @@
 						{/if}
 
 						<svelte:self
-							id={`${id}-${tokenIdx}-${itemIdx}`}
+							id={`${rendererId}-${tokenIdx}-${itemIdx}`}
 							{chatId}
 							{messageId}
 							tokens={item.tokens}
@@ -408,7 +425,7 @@
 
 							<div>
 								<svelte:self
-									id={`${id}-${tokenIdx}-${itemIdx}`}
+									id={`${rendererId}-${tokenIdx}-${itemIdx}`}
 									{chatId}
 									{messageId}
 									tokens={item.tokens}
@@ -426,7 +443,7 @@
 							</div>
 						{:else}
 							<svelte:self
-								id={`${id}-${tokenIdx}-${itemIdx}`}
+								id={`${rendererId}-${tokenIdx}-${itemIdx}`}
 								{chatId}
 								{messageId}
 								tokens={item.tokens}
@@ -448,13 +465,13 @@
 		{/if}
 	{:else if token.type === 'detail_group'}
 		<ConsecutiveDetailsGroup
-			id={`${id}-${tokenIdx}-detail-group`}
+			id={`${rendererId}-${tokenIdx}-detail-group`}
 			tokens={token.items}
 			messageDone={done}
-			groupOpen={!done && tokenIdx === displayTokens.length - 1}
+			groupOpen={!done && !nested && tokenIdx === displayTokens.length - 1}
 			{compactPreview}
-			{allowEmbeds}
-			resolvable={!!chatId && !!messageId && save}
+			allowEmbeds={nested ? false : allowEmbeds}
+			resolvable={!nested && !!chatId && !!messageId && save}
 			{resolvingCallId}
 			onResolve={resolveToolCall}
 		>
@@ -464,11 +481,11 @@
 
 					{#if detailToken?.attributes?.type === 'tool_calls'}
 						<ToolCallDisplay
-							id={`${id}-${tokenIdx}-${detailIdx}-tc`}
+							id={`${rendererId}-${tokenIdx}-${detailIdx}-tc`}
 							attributes={detailToken.attributes}
 							resultContent={getDetailTextContent(detailToken)}
 							grouped={true}
-							resolvable={!!chatId && !!messageId && save}
+							resolvable={!nested && !!chatId && !!messageId && save}
 							resolving={resolvingCallId === detailToken.attributes?.id}
 							onResolve={(approved) => resolveToolCall(detailToken.attributes?.id ?? '', approved)}
 							open={$settings?.expandDetails ?? false}
@@ -477,7 +494,7 @@
 						/>
 					{:else if detailToken?.attributes?.type === 'reasoning' && textContent.length > 0}
 						<ReasoningDisplay
-							id={`${id}-${tokenIdx}-${detailIdx}-d`}
+							id={`${rendererId}-${tokenIdx}-${detailIdx}-d`}
 							title={detailToken.summary}
 							attributes={detailToken?.attributes}
 							content={decode(detailToken.text)}
@@ -507,7 +524,7 @@
 						>
 							<div class="mb-1.5" slot="content">
 								<svelte:self
-									id={`${id}-${tokenIdx}-${detailIdx}-d`}
+									id={`${rendererId}-${tokenIdx}-${detailIdx}-d`}
 									{chatId}
 									{messageId}
 									tokens={marked.lexer(decode(detailToken.text))}
@@ -539,17 +556,41 @@
 				{/each}
 			</div>
 		</ConsecutiveDetailsGroup>
+	{:else if token.type === 'process_group'}
+		<!-- A run of details plus the content narrated around it. Rendered like the
+		     structured output path's process group: a reasoning-style header whose
+		     body re-renders the run's child tokens. -->
+		<ConsecutiveDetailsGroup
+			id={`${rendererId}-${tokenIdx}-process-group`}
+			tokens={getProcessTokens(token)}
+			variant="reasoning"
+			runningLabel={$i18n.t('Processing...')}
+			doneLabel={getProcessDoneLabel(token)}
+			messageDone={done}
+			groupOpen={!done && !nested && tokenIdx === displayTokens.length - 1}
+			{compactPreview}
+			allowEmbeds={nested ? false : allowEmbeds}
+			resolvable={!nested && !!chatId && !!messageId && save}
+			{resolvingCallId}
+			onResolve={resolveToolCall}
+		>
+			<div slot="content">
+				{#each token.items as childToken, childIdx (childToken.id ?? childIdx)}
+					{@render tokenRenderer(childToken, childIdx, true, `${rendererId}-${tokenIdx}`)}
+				{/each}
+			</div>
+		</ConsecutiveDetailsGroup>
 	{:else if token.type === 'details'}
 		{@const textContent = getDetailTextContent(token)}
 
 		{#if token?.attributes?.type === 'tool_calls'}
 			<!-- Tool calls have dedicated handling with ToolCallDisplay component -->
 			<ToolCallDisplay
-				id={`${id}-${tokenIdx}-tc`}
+				id={`${rendererId}-${tokenIdx}-tc`}
 				attributes={token.attributes}
 				resultContent={getDetailTextContent(token)}
-				{allowEmbeds}
-				resolvable={!!chatId && !!messageId && save}
+				allowEmbeds={nested ? false : allowEmbeds}
+				resolvable={!nested && !!chatId && !!messageId && save}
 				resolving={resolvingCallId === token.attributes?.id}
 				onResolve={(approved) => resolveToolCall(token.attributes?.id ?? '', approved)}
 				open={$settings?.expandDetails ?? false}
@@ -558,7 +599,7 @@
 			/>
 		{:else if token?.attributes?.type === 'reasoning' && textContent.length > 0}
 			<ReasoningDisplay
-				id={`${id}-${tokenIdx}-d`}
+				id={`${rendererId}-${tokenIdx}-d`}
 				title={token.summary}
 				attributes={token?.attributes}
 				content={decode(token.text)}
@@ -588,7 +629,7 @@
 			>
 				<div class="mt-2 mb-1.5" slot="content">
 					<svelte:self
-						id={`${id}-${tokenIdx}-d`}
+						id={`${rendererId}-${tokenIdx}-d`}
 						{chatId}
 						{messageId}
 						tokens={marked.lexer(decode(token.text))}
@@ -637,7 +678,7 @@
 		{#if paragraphTag == 'span'}
 			<span dir="auto">
 				<MarkdownInlineTokens
-					id={`${id}-${tokenIdx}-p`}
+					id={`${rendererId}-${tokenIdx}-p`}
 					tokens={token.tokens ?? []}
 					{done}
 					{sourceIds}
@@ -649,7 +690,7 @@
 				{#each paragraphChunks as chunk, chunkIdx (chunkIdx)}
 					<div class="md-block">
 						<MarkdownInlineTokens
-							id={`${id}-${tokenIdx}-p-${chunkIdx}`}
+							id={`${rendererId}-${tokenIdx}-p-${chunkIdx}`}
 							tokens={chunk}
 							{done}
 							{sourceIds}
@@ -661,7 +702,7 @@
 		{:else}
 			<p dir="auto" class={singlePlainBlock ? '!my-0' : ''}>
 				<MarkdownInlineTokens
-					id={`${id}-${tokenIdx}-p`}
+					id={`${rendererId}-${tokenIdx}-p`}
 					tokens={token.tokens ?? []}
 					{done}
 					{sourceIds}
@@ -677,7 +718,7 @@
 					{#each textChunks as chunk, chunkIdx (chunkIdx)}
 						<div class="md-block">
 							<MarkdownInlineTokens
-								id={`${id}-${tokenIdx}-t-${chunkIdx}`}
+								id={`${rendererId}-${tokenIdx}-t-${chunkIdx}`}
 								tokens={chunk}
 								{done}
 								{sourceIds}
@@ -690,7 +731,7 @@
 				<p class={singlePlainBlock ? '!my-0' : ''}>
 					{#if token.tokens}
 						<MarkdownInlineTokens
-							id={`${id}-${tokenIdx}-t`}
+							id={`${rendererId}-${tokenIdx}-t`}
 							tokens={token.tokens}
 							{done}
 							{sourceIds}
@@ -703,7 +744,7 @@
 			{/if}
 		{:else if token.tokens}
 			<MarkdownInlineTokens
-				id={`${id}-${tokenIdx}-p`}
+				id={`${rendererId}-${tokenIdx}-p`}
 				tokens={token.tokens ?? []}
 				{done}
 				{sourceIds}
@@ -722,7 +763,7 @@
 		{/if}
 	{:else if token.type === 'colonFence'}
 		<ColonFenceBlock
-			id={`${id}-${tokenIdx}`}
+			id={`${rendererId}-${tokenIdx}`}
 			{token}
 			{tokenIdx}
 			{done}
@@ -737,4 +778,8 @@
 	{:else}
 		{console.log('Unknown token', token)}
 	{/if}
+{/snippet}
+
+{#each displayTokens as token, tokenIdx (token.id ?? tokenIdx)}
+	{@render tokenRenderer(token, tokenIdx, false, id)}
 {/each}
