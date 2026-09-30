@@ -65,6 +65,7 @@
 	let pendingUpdate = null;
 	let lastContent = '';
 	let lastParsedContent = '';
+	let hasParsed = false;
 
 	const parseTokens = () => {
 		if (content === lastContent) return;
@@ -79,10 +80,16 @@
 
 	const updateHandler = (content) => {
 		if (content) {
-			if (done) {
+			// The first parse runs synchronously. A disclosure that mounts with
+			// already-streamed text must expose its real height in the same frame,
+			// otherwise an expand transition measures an empty body and clips
+			// everything that appears after it until the animation ends. Only
+			// follow-up updates are throttled to one per animation frame.
+			if (done || !hasParsed) {
 				cancelAnimationFrame(pendingUpdate);
 				pendingUpdate = null;
 				parseTokens();
+				hasParsed = true;
 			} else if (!pendingUpdate) {
 				pendingUpdate = requestAnimationFrame(() => {
 					pendingUpdate = null;
