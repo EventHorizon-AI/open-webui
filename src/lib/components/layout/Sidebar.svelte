@@ -1378,7 +1378,6 @@
 										<button
 											class="flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] select-none cursor-pointer hover:bg-gray-50/40 dark:hover:bg-gray-800/40"
 											on:click={() => {
-												showChatsMenu = false;
 												showCreateFolderModal = true;
 											}}
 										>
