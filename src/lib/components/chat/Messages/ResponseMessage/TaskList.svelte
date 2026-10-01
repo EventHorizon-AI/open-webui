@@ -26,10 +26,10 @@
 			<div class="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
 				<TaskListIcon className="w-3.5 h-3.5" />
 				<span>
-					{completedCount}
-					{$i18n.t('out of')}
-					{totalCount}
-					{$i18n.t('tasks completed')}
+					{$i18n.t('{{completed}} of {{total}} tasks completed', {
+						completed: completedCount,
+						total: totalCount
+					})}
 				</span>
 			</div>
 
