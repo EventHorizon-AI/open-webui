@@ -1665,7 +1665,7 @@
 			<div
 				class="flex flex-col px-3 {($settings?.widescreenMode ?? null)
 					? 'max-w-full'
-					: 'max-w-[56rem]'} w-full"
+					: 'max-w-[52rem]'} w-full"
 			>
 				<div class="relative">
 					{#if autoScroll === false && history?.currentId}
@@ -1703,7 +1703,7 @@
 			<div
 				class="{($settings?.widescreenMode ?? null)
 					? 'max-w-full'
-					: 'max-w-[56rem]'} px-2 mx-auto inset-x-0"
+					: 'max-w-[52rem]'} px-2 mx-auto inset-x-0"
 			>
 				<div class="">
 					<input
