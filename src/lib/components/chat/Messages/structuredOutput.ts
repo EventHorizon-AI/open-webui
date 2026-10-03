@@ -65,10 +65,12 @@ export type OutputDisplayItem =
 			tokens: OutputDetailToken[];
 	  }
 	| {
-			// A run of detail groups plus the content the model narrated around
-			// them. A content message only becomes a final answer when nothing
-			// after it can still be a tool step; everything before that is folded
-			// in here instead of leaking into the transcript as plain text.
+			// A run of details plus the content the model narrated around them. Only
+			// built when the run holds a non-reasoning detail (a tool call, code
+			// interpreter, …); a run of reasoning alone stays flat. A content message
+			// only becomes a final answer when nothing after it can still be a tool
+			// step; everything before that is folded in here instead of leaking into
+			// the transcript as plain text.
 			type: 'process_group';
 			id: string;
 			items: OutputDisplayItem[];
@@ -607,10 +609,12 @@ export function buildOutputDisplayItems(
 		currentDetailTokens.length = 0;
 	};
 
-	// Emit whatever has accumulated. A run that contains a detail group (two or
-	// more details) always becomes a process group, even when no content was
-	// narrated around it; so does a run mixing narrated content with any details.
-	// A lone detail (detail_single) stays flat.
+	// Emit whatever has accumulated. Only a run that holds at least one
+	// non-reasoning detail (a tool call, code interpreter, …) becomes a process
+	// group; a run of reasoning alone stays flat, since reasoning already renders
+	// as its own collapsible block. A run of pure content (the final answer) also
+	// stays flat. When a run does fold, the whole run — reasoning included — goes
+	// into the group.
 	const flushProcess = () => {
 		flushDetails();
 		if (processItems.length === 0) {
@@ -623,13 +627,14 @@ export function buildOutputDisplayItems(
 			return;
 		}
 
-		const hasContent = processItems.some((item) => item.type === 'message');
-		const hasDetailGroup = processItems.some((item) => item.type === 'detail_group');
-		const hasAnyDetail = processItems.some(
-			(item) => item.type === 'detail_group' || item.type === 'detail_single'
-		);
+		const isNonReasoningDetail = (item: OutputDisplayItem): boolean =>
+			item.type === 'detail_group'
+				? item.tokens.some((token) => token.attributes?.type !== 'reasoning')
+				: item.type === 'detail_single'
+					? item.token.attributes?.type !== 'reasoning'
+					: false;
 
-		if (hasDetailGroup || (hasAnyDetail && hasContent)) {
+		if (processItems.some(isNonReasoningDetail)) {
 			// Tie the id to the first member so it survives reclassification while
 			// streaming (a trailing message becoming narration must not remount it).
 			displayItems.push({

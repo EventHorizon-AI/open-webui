@@ -10,19 +10,15 @@ export type MarkdownDisplayToken = {
 export const isGroupableDetailToken = (token: any): boolean =>
 	token?.type === 'details' && GROUPABLE_DETAIL_TYPES.has(token?.attributes?.type ?? '');
 
-const isDetailDisplayToken = (token: MarkdownDisplayToken): boolean =>
-	token?.type === 'detail_group' || isGroupableDetailToken(token);
-
 /**
  * Compiles a flat list of marked block tokens into the tokens the markdown
  * renderer actually draws, folding runs of groupable `<details>` blocks (and the
  * prose narrated around them) into a single `process_group` token.
  *
- * This mirrors `buildOutputDisplayItems` in structuredOutput.ts: a run that holds
- * a detail group (two or more consecutive groupable details) always becomes a
- * process group, so does a run mixing narrated content with any detail; a lone
- * groupable detail stays flat. Content after the last groupable detail is the
- * final answer and stays top level.
+ * This mirrors `buildOutputDisplayItems` in structuredOutput.ts: a run becomes a
+ * process group only when it holds at least one non-reasoning detail (a tool
+ * call, code interpreter, …); a run of reasoning alone stays flat. Content after
+ * the last groupable detail is the final answer and stays top level.
  *
  * `group` mirrors the message lifecycle: while a reply is still streaming the
  * caller passes `false`, so the run renders the way it always did (narrated
@@ -61,10 +57,11 @@ export function buildMarkdownDisplayTokens(
 		detailGroup = [];
 	};
 
-	// Emit whatever has accumulated. A run that contains a detail group always
-	// becomes a process group, even when no content was narrated around it; so
-	// does a run mixing narrated content with any details. A lone detail stays
-	// flat, and while the message is still streaming everything stays flat.
+	// Emit whatever has accumulated. Only a run that holds at least one
+	// non-reasoning detail (a tool call, code interpreter, …) becomes a process
+	// group; a run of reasoning alone stays flat. When a run does fold, the whole
+	// run — reasoning included — goes into the group. While the message is still
+	// streaming everything stays flat.
 	const flushProcess = () => {
 		flushDetailGroup();
 		if (processItems.length === 0) {
@@ -77,11 +74,12 @@ export function buildMarkdownDisplayTokens(
 			return;
 		}
 
-		const hasContent = processItems.some((item) => !isDetailDisplayToken(item));
-		const hasDetailGroup = processItems.some((item) => item.type === 'detail_group');
-		const hasAnyDetail = processItems.some(isDetailDisplayToken);
+		const isNonReasoningDetail = (token: MarkdownDisplayToken): boolean =>
+			token?.type === 'detail_group'
+				? (token.items ?? []).some((item: any) => item?.attributes?.type !== 'reasoning')
+				: isGroupableDetailToken(token) && token?.attributes?.type !== 'reasoning';
 
-		if (hasDetailGroup || (hasAnyDetail && hasContent)) {
+		if (processItems.some(isNonReasoningDetail)) {
 			// Tie the id to the first member so it survives reclassification while
 			// streaming (a trailing message becoming narration must not remount it).
 			displayTokens.push({
