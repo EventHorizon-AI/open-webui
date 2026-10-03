@@ -200,11 +200,12 @@
 
 	// The details header surfaces a preview while that reasoning is still
 	// streaming; once the block finishes it falls back to the tool summary so it
-	// does not keep echoing a stale thought. The reasoning variant is only used by
-	// a process group, which renders once the message is done, so it never
-	// previews.
+	// does not keep echoing a stale thought. Expanding the group hides the preview
+	// too, falling back to the tool summary as if there were no preview. The
+	// reasoning variant is only used by a process group, which renders once the
+	// message is done, so it never previews.
 	$: latestReasoningPreview =
-		!messageDone && newestReasoningToken?.attributes?.done !== 'true'
+		!open && !messageDone && newestReasoningToken?.attributes?.done !== 'true'
 			? (newestReasoningToken?.summary ?? '')
 			: '';
 
