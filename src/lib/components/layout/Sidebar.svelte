@@ -96,8 +96,6 @@
 	const BREAKPOINT = 768;
 	const DEFAULT_PINNED_ITEMS = ['notes', 'workspace'];
 
-	let scrollTop = 0;
-
 	let navElement;
 	let shiftKey = false;
 
@@ -1114,25 +1112,12 @@
 							</div>
 						</button>
 					</Tooltip>
-
-					<div
-						class="{scrollTop > 0
-							? 'visible'
-							: 'invisible'} sidebar-bg-gradient-to-b bg-linear-to-b from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mb-6"
-					></div>
 				</div>
 
 				<div
-					class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 pt-2.5 pb-2.5"
-					on:scroll={(e) => {
-						if (e.target.scrollTop === 0) {
-							scrollTop = 0;
-						} else {
-							scrollTop = e.target.scrollTop;
-						}
-					}}
+					class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden space-y-1.5 pb-2.5"
 				>
-					<div class="pb-1">
+					<div class="sidebar-top-fade -mb-1.5 pb-4 pt-2.5 sticky top-0 z-20">
 						<div class="px-1 flex justify-center text-gray-700 dark:text-gray-300">
 							<a
 								id="sidebar-new-chat-button"
@@ -1657,6 +1642,29 @@
 </MobileSwipePanel>
 
 <style>
+	/* The sticky sidebar header reserves its own bottom padding for this fade, so
+	   content scrolling underneath dissolves into the background instead of hitting
+	   a hard edge. The header also cancels the container's space-y gap (negative
+	   margin, see -mb-1.5 above) so this gap is controlled solely by its own bottom
+	   padding and stays independent from the spacing between the sections below.
+	   The fade is invisible at rest because its transparent end just reveals the
+	   matching background color. */
+	.sidebar-top-fade {
+		background-image: linear-gradient(
+			to bottom,
+			var(--color-gray-50) calc(100% - 1rem),
+			transparent
+		);
+	}
+
+	:global(.dark) .sidebar-top-fade {
+		background-image: linear-gradient(
+			to bottom,
+			var(--color-gray-950) calc(100% - 1rem),
+			transparent
+		);
+	}
+
 	@media (max-width: 767px) {
 		#sidebar {
 			will-change: transform;
