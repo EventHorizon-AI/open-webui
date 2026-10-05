@@ -13,7 +13,9 @@
 	import { downloadFileBlob, downloadFilePreview, readFile } from '$lib/apis/terminal';
 	import FilePreview from '$lib/components/chat/FileNav/FilePreview.svelte';
 	import Icon from '$lib/components/chat/FileNav/Icon.svelte';
+	import CodePreview from './CodePreview.svelte';
 	import { fileIconName } from '$lib/components/chat/FileNav/fileIcon';
+	import { extToLang, isCodeFile } from '$lib/utils/codeHighlight';
 	import { normalizeDocumentTargetPage } from '$lib/utils/documentPreview';
 
 	export let item: any;
@@ -63,6 +65,27 @@
 			  getExt(path) === 'svg'
 			? 'h-96'
 			: 'h-72';
+	// Code files render as a read-only CodePreview inline (line numbers +
+	// highlighting); everything else — including plain text — keeps going through
+	// FilePreview. Formats FilePreview renders with a dedicated view (Markdown,
+	// JSON tree, CSV table, HTML iframe, SVG, notebooks) keep that view too.
+	const RICH_PREVIEW_EXTS = new Set([
+		'md',
+		'markdown',
+		'mdx',
+		'csv',
+		'tsv',
+		'html',
+		'htm',
+		'json',
+		'jsonc',
+		'jsonl',
+		'json5',
+		'svg',
+		'ipynb'
+	]);
+	$: codePreview = isCodeFile(path) && !RICH_PREVIEW_EXTS.has(getExt(path));
+	$: previewLang = codePreview ? (extToLang(getExt(path)) ?? '') : '';
 	$: if (expanded && terminal && path && previewKey !== loadedKey && !loading) {
 		void loadPreview(previewKey);
 	}
@@ -285,33 +308,39 @@
 			<div
 				class="{previewClass} max-h-[75vh] min-h-24 resize-y overflow-hidden bg-gray-50 dark:bg-gray-950"
 			>
-				<FilePreview
-					selectedFile={path}
-					fileLoading={loading}
-					{fileImageUrl}
-					{fileVideoUrl}
-					{fileAudioUrl}
-					{filePdfData}
-					{fileSqliteData}
-					{fileDocxData}
-					{fileContent}
-					baseUrl={terminal?.url ?? ''}
-					apiKey={terminal?.key ?? ''}
-					{fileOfficeHtml}
-					{fileOfficeSlides}
-					{currentSlide}
-					{targetPage}
-					{excelSheetNames}
-					{selectedExcelSheet}
-					onSheetChange={loadExcelSheet}
-					readOnly={true}
-				/>
-				{#if !loading && fileImageUrl === null && fileVideoUrl === null && fileAudioUrl === null && filePdfData === null && fileSqliteData === null && fileDocxData === null && fileContent === null && fileOfficeHtml === null && fileOfficeSlides === null}
-					<div
-						class="flex h-full items-center justify-center px-3 text-xs text-gray-500 dark:text-gray-400"
-					>
-						{t('No preview available')}
+				{#if codePreview && !loading && fileContent !== null}
+					<div class="h-full overflow-auto">
+						<CodePreview code={fileContent} lang={previewLang} />
 					</div>
+				{:else}
+					<FilePreview
+						selectedFile={path}
+						fileLoading={loading}
+						{fileImageUrl}
+						{fileVideoUrl}
+						{fileAudioUrl}
+						{filePdfData}
+						{fileSqliteData}
+						{fileDocxData}
+						{fileContent}
+						baseUrl={terminal?.url ?? ''}
+						apiKey={terminal?.key ?? ''}
+						{fileOfficeHtml}
+						{fileOfficeSlides}
+						{currentSlide}
+						{targetPage}
+						{excelSheetNames}
+						{selectedExcelSheet}
+						onSheetChange={loadExcelSheet}
+						readOnly={true}
+					/>
+					{#if !loading && fileImageUrl === null && fileVideoUrl === null && fileAudioUrl === null && filePdfData === null && fileSqliteData === null && fileDocxData === null && fileContent === null && fileOfficeHtml === null && fileOfficeSlides === null}
+						<div
+							class="flex h-full items-center justify-center px-3 text-xs text-gray-500 dark:text-gray-400"
+						>
+							{t('No preview available')}
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
