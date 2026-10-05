@@ -8,6 +8,7 @@
 	import colonFenceExtension from '$lib/utils/marked/colon-fence-extension';
 	import footnoteExtension from '$lib/utils/marked/footnote-extension';
 	import citationExtension from '$lib/utils/marked/citation-extension';
+	import cjkFriendlyExtension from '$lib/utils/marked/cjk-friendly-extension';
 
 	const options = {
 		throwOnError: false
@@ -18,6 +19,7 @@
 	marked.use(citationExtension(options));
 	marked.use(footnoteExtension(options));
 	marked.use(colonFenceExtension(options));
+	marked.use(cjkFriendlyExtension());
 	marked.use(disableSingleTilde);
 	marked.use({
 		extensions: [

@@ -41,10 +41,6 @@ export const formatNumber = (num: number): string => {
 		.toLowerCase();
 };
 
-function escapeRegExp(string: string): string {
-	return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 // Replace tokens outside code blocks only
 export const replaceOutsideCode = (content: string, replacer: (str: string) => string) => {
 	return content
@@ -97,80 +93,11 @@ export const sanitizeResponseContent = (content: string) => {
 };
 
 export const processResponseContent = (content: string) => {
-	content = processChineseContent(content);
+	// CJK emphasis (`**中文：**测试`, `中文**（重点）**`, …) is handled by the
+	// CJK-friendly tokenizer extension in `$lib/utils/marked/cjk-friendly-extension`,
+	// so the content can be rendered as-is.
 	return content.trim();
 };
-
-function isChineseChar(char: string): boolean {
-	return /\p{Script=Han}/u.test(char);
-}
-
-// Tackle "Model output issue not following the standard Markdown/LaTeX format" in Chinese.
-function processChineseContent(content: string): string {
-	// This function is used to process the response content before the response content is rendered.
-	if (!/[\u4e00-\u9fa5]/.test(content)) return content;
-	const lines = content.split('\n');
-	const processedLines = lines.map((line) => {
-		if (/[\u4e00-\u9fa5]/.test(line)) {
-			// Problems caused by Chinese parentheses
-			/* Discription:
-			 *   When `*` has Chinese delimiters on the inside, markdown parser ignore bold or italic style.
-			 *   - e.g. `**中文名（English）**中文内容` will be parsed directly,
-			 *          instead of `<strong>中文名（English）</strong>中文内容`.
-			 * Solution:
-			 *   Adding a `space` before and after the bold/italic part can solve the problem.
-			 *   - e.g. `**中文名（English）**中文内容` -> ` **中文名（English）** 中文内容`
-			 * Note:
-			 *   Similar problem was found with English parentheses and other full delimiters,
-			 *   but they are not handled here because they are less likely to appear in LLM output.
-			 *   Change the behavior in future if needed.
-			 */
-			if (line.includes('*')) {
-				// Handle **bold** and *italic*
-				// 1. With Chinese parentheses
-				if (/（|）/.test(line)) {
-					line = processChineseDelimiters(line, '**', '（', '）');
-					line = processChineseDelimiters(line, '*', '（', '）');
-				}
-				// 2. With Chinese quotations
-				if (/“|”/.test(line)) {
-					line = processChineseDelimiters(line, '**', '“', '”');
-					line = processChineseDelimiters(line, '*', '“', '”');
-				}
-			}
-		}
-		return line;
-	});
-	content = processedLines.join('\n');
-
-	return content;
-}
-
-// Helper function for `processChineseContent`
-function processChineseDelimiters(
-	line: string,
-	symbol: string,
-	leftSymbol: string,
-	rightSymbol: string
-): string {
-	// NOTE: If needed, with a little modification, this function can be applied to more cases.
-	const escapedSymbol = escapeRegExp(symbol);
-	const regex = new RegExp(
-		`(.?)(?<!${escapedSymbol})(${escapedSymbol})([^${escapedSymbol}]+)(${escapedSymbol})(?!${escapedSymbol})(.)`,
-		'g'
-	);
-	return line.replace(regex, (match, l, left, content, right, r) => {
-		const result =
-			(content.startsWith(leftSymbol) && l && l.length > 0 && isChineseChar(l[l.length - 1])) ||
-			(content.endsWith(rightSymbol) && r && r.length > 0 && isChineseChar(r[0]));
-
-		if (result) {
-			return `${l} ${left}${content}${right} ${r}`;
-		} else {
-			return match;
-		}
-	});
-}
 
 export function unescapeHtml(html: string): string {
 	return decode(html);
