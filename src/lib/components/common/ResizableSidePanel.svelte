@@ -9,7 +9,6 @@
 	export let minWidth = 300;
 	export let maxWidth: number | null = null;
 	export let minSiblingWidth = 0;
-	export let closeOnDragBelowMinWidth = false;
 	export let storageKey = '';
 	export let className = '';
 	export let resizerId = 'controls-resizer';
@@ -47,11 +46,6 @@
 		}
 	};
 
-	const close = () => {
-		open = false;
-		onClose();
-	};
-
 	const resizeStartHandler = (e: PointerEvent) => {
 		if (!open) return;
 
@@ -84,11 +78,6 @@
 	const resizeHandler = (endClientX: number) => {
 		const dx = endClientX - startClientX;
 		const nextWidth = side === 'right' ? startWidth - dx : startWidth + dx;
-		if (closeOnDragBelowMinWidth && nextWidth < minWidth - 200) {
-			close();
-			resizeEndHandler();
-			return;
-		}
 		width = clamp(nextWidth);
 	};
 

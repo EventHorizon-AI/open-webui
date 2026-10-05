@@ -319,7 +319,6 @@
 		bind:width={controlsWidth}
 		minWidth={350}
 		minSiblingWidth={360}
-		closeOnDragBelowMinWidth
 		onClose={closeControls}
 		storageKey="chatControlsSize"
 		className="h-full z-10 bg-white dark:bg-gray-900"

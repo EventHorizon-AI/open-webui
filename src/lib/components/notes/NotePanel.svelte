@@ -44,7 +44,6 @@
 		bind:width={panelWidth}
 		minWidth={350}
 		minSiblingWidth={360}
-		closeOnDragBelowMinWidth
 		className="h-full z-10"
 	>
 		<div class="flex h-full max-h-full min-h-full">
