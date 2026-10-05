@@ -113,7 +113,7 @@ textarea::-webkit-scrollbar-corner {
 }
 
 .input-prose-sm {
-	@apply prose dark:prose-invert prose-headings:font-medium prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-hr:my-4 prose-hr:border-gray-50 prose-hr:dark:border-gray-850 prose-p:my-1 prose-img:my-1 prose-headings:my-2 prose-pre:my-0 prose-table:my-1 prose-blockquote:my-0 prose-ul:my-1 prose-ol:my-1 prose-li:my-1 whitespace-pre-line text-sm;
+	@apply prose dark:prose-invert prose-headings:font-medium prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg prose-hr:my-4 prose-hr:border-gray-50 prose-hr:dark:border-gray-850 prose-p:my-1 prose-img:my-1 prose-headings:my-2 prose-pre:my-0 prose-table:my-1 prose-blockquote:border-s-gray-100 prose-blockquote:dark:border-gray-800 prose-blockquote:border-s-2 prose-blockquote:not-italic prose-blockquote:font-normal prose-blockquote:my-0 prose-ul:my-1 prose-ol:my-1 prose-li:my-1 whitespace-pre-line text-sm;
 }
 
 .markdown-prose {
@@ -122,15 +122,23 @@ textarea::-webkit-scrollbar-corner {
 
 /* Tailwind Typography's default list colors come from its own bluish gray
    palette, while the app uses neutral grays. Point list markers at the app
-   scale so ordered/unordered lists stay gray in both prose variants. */
+   scale so ordered/unordered lists stay gray in the editor and the markdown
+   renderer. The small variants (.input-prose-sm for notes, .markdown-prose-sm
+   and .markdown-prose-xs) need the override too. */
 .input-prose,
-.markdown-prose {
+.input-prose-sm,
+.markdown-prose,
+.markdown-prose-sm,
+.markdown-prose-xs {
 	--tw-prose-counters: var(--color-gray-600);
 	--tw-prose-bullets: var(--color-gray-300);
 }
 
 .dark .input-prose,
-.dark .markdown-prose {
+.dark .input-prose-sm,
+.dark .markdown-prose,
+.dark .markdown-prose-sm,
+.dark .markdown-prose-xs {
 	--tw-prose-counters: var(--color-gray-500);
 	--tw-prose-bullets: var(--color-gray-700);
 }
