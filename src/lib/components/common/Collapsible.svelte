@@ -94,13 +94,20 @@
 	};
 
 	const collapsibleId = uuidv4();
+
+	// Whether a leading status icon is currently shown (code-interpreter still
+	// streaming). The icon swaps to the expand chevron on hover. Reasoning keeps
+	// its leading icon but never moves the expand chevron to the front.
+	$: hasLeadingIcon = !!(attributes?.done && attributes?.done !== 'true' && !messageDone);
+	$: isReasoning = attributes?.type === 'reasoning';
+	$: leadingArrow = hasLeadingIcon && !isReasoning;
 </script>
 
 <div {id} class={className}>
 	{#if title !== null}
 		<button
 			type="button"
-			class="{buttonClassName} block text-start disabled:cursor-default"
+			class="{buttonClassName} group/collapsible block text-start disabled:cursor-default"
 			aria-expanded={open}
 			{disabled}
 			on:click={toggleOpen}
@@ -113,9 +120,23 @@
 					: ''}
 			"
 			>
-				{#if attributes?.done && attributes?.done !== 'true' && !messageDone}
-					<div>
-						<Spinner className="size-4" />
+				{#if hasLeadingIcon}
+					<div class="relative flex size-4 shrink-0 items-center justify-center self-center">
+						<div class="flex {leadingArrow ? 'group-hover/collapsible:invisible' : ''}">
+							<Spinner className="size-4" />
+						</div>
+
+						{#if leadingArrow && !disabled}
+							<div
+								class="absolute inset-0 hidden items-center justify-center group-hover/collapsible:flex"
+							>
+								{#if open}
+									<ChevronUp strokeWidth={chevronStrokeWidth} className={chevronClassName} />
+								{:else}
+									<ChevronDown strokeWidth={chevronStrokeWidth} className={chevronClassName} />
+								{/if}
+							</div>
+						{/if}
 					</div>
 				{/if}
 
@@ -153,7 +174,7 @@
 					{/if}
 				</div>
 
-				{#if !disabled}
+				{#if !disabled && !leadingArrow}
 					<div class="flex self-center translate-y-[1px]">
 						{#if open}
 							<ChevronUp strokeWidth={chevronStrokeWidth} className={chevronClassName} />

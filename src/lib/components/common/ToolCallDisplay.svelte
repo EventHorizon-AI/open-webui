@@ -212,39 +212,53 @@
 	{:else}
 		<!-- Tool call display -->
 		<div
-			class="{buttonClassName} w-full min-w-0 cursor-pointer"
+			class="{buttonClassName} group/toolcall w-full min-w-0 cursor-pointer"
 			role="button"
 			tabindex="0"
 			on:click={toggleOpen}
 			on:keydown={toggleOpenOnKeydown}
 		>
 			<div
-				class="w-full min-w-0 max-w-full font-normal flex items-center gap-1.5 {isActive
+				class="w-full min-w-0 max-w-full font-normal flex items-center gap-2 {isActive
 					? 'shimmer'
 					: ''}"
 			>
-				<!-- Status icon -->
-				{#if isActive}
-					<div>
-						<Spinner className="size-4" />
+				<!-- Leading: status icon that swaps to the expand chevron on hover -->
+				<div class="relative flex size-4 shrink-0 items-center justify-center self-center">
+					<div class="flex group-hover/toolcall:invisible">
+						{#if isActive}
+							<Spinner className="size-4" />
+						{:else if isRejected}
+							<div class="text-red-400 dark:text-red-500">
+								<XMark className="size-4" strokeWidth="2.5" />
+							</div>
+						{:else if isError}
+							<div class="text-red-500 dark:text-red-400">
+								<XMark className="size-4" strokeWidth="2.5" />
+							</div>
+						{:else if isDone}
+							<div class="text-emerald-500 dark:text-emerald-400">
+								<CheckCircle className="size-4" strokeWidth="2" />
+							</div>
+						{:else}
+							<div class="text-gray-400 dark:text-gray-500">
+								<WrenchSolid className="size-3.5" />
+							</div>
+						{/if}
 					</div>
-				{:else if isRejected}
-					<div class="text-red-400 dark:text-red-500">
-						<XMark className="size-4" strokeWidth="2.5" />
-					</div>
-				{:else if isError}
-					<div class="text-red-500 dark:text-red-400">
-						<XMark className="size-4" strokeWidth="2.5" />
-					</div>
-				{:else if isDone}
-					<div class="text-emerald-500 dark:text-emerald-400">
-						<CheckCircle className="size-4" strokeWidth="2" />
-					</div>
-				{:else}
-					<div class="text-gray-400 dark:text-gray-500">
-						<WrenchSolid className="size-3.5" />
-					</div>
-				{/if}
+
+					{#if !(needsApproval && !isAskUser)}
+						<div
+							class="absolute inset-0 hidden items-center justify-center group-hover/toolcall:flex"
+						>
+							{#if open}
+								<ChevronUp strokeWidth="3.5" className="size-3" />
+							{:else}
+								<ChevronDown strokeWidth="3.5" className="size-3" />
+							{/if}
+						</div>
+					{/if}
+				</div>
 
 				<!-- Label -->
 				<div class="flex-1 min-w-0 line-clamp-1">
@@ -287,15 +301,6 @@
 							{$i18n.t('Deny')}
 						</button>
 					</span>
-				{:else}
-					<!-- Chevron -->
-					<div class="flex shrink-0 self-center translate-y-[1px]">
-						{#if open}
-							<ChevronUp strokeWidth="3.5" className="size-3" />
-						{:else}
-							<ChevronDown strokeWidth="3.5" className="size-3" />
-						{/if}
-					</div>
 				{/if}
 			</div>
 		</div>

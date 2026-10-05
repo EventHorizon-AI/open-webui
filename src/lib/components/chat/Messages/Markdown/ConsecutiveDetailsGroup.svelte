@@ -218,6 +218,10 @@
 	// Once it is closed it settles to "Explored" regardless of the last tool
 	// call status, which may have completed while the group kept streaming.
 	$: prefixText = groupOpen ? $i18n.t('Exploring') : $i18n.t('Explored');
+
+	// Whether the header leads with a status icon. A reasoning group shows none
+	// until it starts, in which case the expand chevron stays on the right.
+	$: hasLeadingIcon = isReasoningVariant ? groupLive : true;
 </script>
 
 <div {id} class="w-full min-w-0">
@@ -225,7 +229,9 @@
 		<div
 			role="button"
 			tabindex="0"
-			class="{isReasoningVariant ? 'w-fit' : 'flex-1'} min-w-0 py-0.5 text-left {compactPreview
+			class="group/groupheader {isReasoningVariant
+				? 'w-fit'
+				: 'flex-1'} min-w-0 py-0.5 text-left {compactPreview
 				? 'text-xs'
 				: 'text-[0.9375rem]'} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition cursor-pointer"
 			aria-label={$i18n.t('Toggle details')}
@@ -241,33 +247,40 @@
 			}}
 		>
 			<div class="flex items-center gap-2 min-w-0">
-				<!-- Status icon: a group that can still grow is always running, so
-				     success/error icons only appear once it is closed. -->
-				{#if isReasoningVariant}
-					{#if groupLive}
-						<div>
-							<Spinner className="size-4" />
+				<!-- Leading: status icon swaps to the expand chevron on hover. -->
+				{#if hasLeadingIcon}
+					<div class="relative flex size-4 shrink-0 items-center justify-center self-center">
+						<div class="flex group-hover/groupheader:invisible">
+							{#if groupOpen || hasActiveToolCalls}
+								<Spinner className="size-4" />
+							{:else if hasRejected}
+								<div class="text-red-400 dark:text-red-500">
+									<XMark className="size-4" strokeWidth="2.5" />
+								</div>
+							{:else if toolCallCount > 0 && lastToolCallFailed}
+								<div class="text-red-500 dark:text-red-400">
+									<XMark className="size-4" strokeWidth="2.5" />
+								</div>
+							{:else if toolCallCount > 0}
+								<div class="text-emerald-500 dark:text-emerald-400">
+									<CheckCircle className="size-4" strokeWidth="2" />
+								</div>
+							{:else}
+								<div class="text-gray-400 dark:text-gray-500">
+									<Sparkles className="size-3.5" />
+								</div>
+							{/if}
 						</div>
-					{/if}
-				{:else if groupOpen || hasActiveToolCalls}
-					<div>
-						<Spinner className="size-4" />
-					</div>
-				{:else if hasRejected}
-					<div class="text-red-400 dark:text-red-500">
-						<XMark className="size-4" strokeWidth="2.5" />
-					</div>
-				{:else if toolCallCount > 0 && lastToolCallFailed}
-					<div class="text-red-500 dark:text-red-400">
-						<XMark className="size-4" strokeWidth="2.5" />
-					</div>
-				{:else if toolCallCount > 0}
-					<div class="text-emerald-500 dark:text-emerald-400">
-						<CheckCircle className="size-4" strokeWidth="2" />
-					</div>
-				{:else}
-					<div class="text-gray-400 dark:text-gray-500">
-						<Sparkles className="size-3.5" />
+
+						<div
+							class="absolute inset-0 hidden items-center justify-center group-hover/groupheader:flex text-gray-400 dark:text-gray-500"
+						>
+							{#if open}
+								<ChevronUp strokeWidth="3.5" className="size-3" />
+							{:else}
+								<ChevronDown strokeWidth="3.5" className="size-3" />
+							{/if}
+						</div>
 					</div>
 				{/if}
 
@@ -315,8 +328,7 @@
 							{$i18n.t('Deny')}
 						</button>
 					</span>
-				{:else}
-					<!-- Chevron -->
+				{:else if !hasLeadingIcon}
 					<div class="flex shrink-0 self-center text-gray-400 dark:text-gray-500">
 						{#if open}
 							<ChevronUp strokeWidth="3.5" className="size-3" />
