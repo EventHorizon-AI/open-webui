@@ -16,10 +16,10 @@
 		: null;
 </script>
 
-<div class="code-preview text-sm" dir="ltr" style:--gutter-width={gutterWidth}>
-	<div class="line-numbers" aria-hidden="true">
+<div class="code-preview" dir="ltr">
+	<div class="gutter" aria-hidden="true" style:--gutter-width={gutterWidth}>
 		{#each lines as _, index}
-			<span>{index + 1}</span>
+			<span class="number">{index + 1}</span>
 		{/each}
 	</div>
 	<pre><code class={lang ? `language-${lang}` : undefined}
@@ -31,45 +31,46 @@
 	.code-preview {
 		display: flex;
 		align-items: stretch;
+		width: 100%;
 		overflow-x: auto;
 		background: #ffffff;
 		color: #1f2328;
-		width: 100%;
-		font-family: var(--font-mono, ui-monospace, monospace);
+		font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+		font-size: 0.916667em;
+		line-height: 1.636364;
 	}
 
-	.line-numbers {
-		flex: 0 0 auto;
-		display: flex;
-		flex-direction: column;
-		padding: 0.5rem 0;
-		min-width: var(--gutter-width);
-		background: #ffffff;
-		color: #6e7781;
-		border-inline-end: 1px solid #d0d7de;
-		user-select: none;
+	.gutter {
 		position: sticky;
 		left: 0;
 		z-index: 1;
+		flex: 0 0 auto;
+		display: flex;
+		flex-direction: column;
+		min-width: var(--gutter-width);
+		padding: 0.5rem 0;
+		background: #ffffff;
+		user-select: none;
 	}
 
-	.line-numbers span {
-		padding: 0 0.75rem;
+	.number {
+		padding: 0 0.5rem;
 		text-align: right;
-		line-height: 1.6;
+		color: #6e7781;
+		border-right: 1px solid rgb(0 0 0 / 0.05);
 	}
 
 	pre {
 		flex: 0 0 auto;
 		margin: 0;
-		padding: 0.5rem 1rem;
+		padding: 0.5rem 1rem 0.5rem 0.5rem;
 		background: transparent;
 		color: inherit;
 		border-radius: 0;
-		font-size: inherit;
-		font-family: var(--font-mono, ui-monospace, Consolas, monospace);
+		font: inherit;
+		font-family: inherit;
+		line-height: inherit;
 		white-space: pre;
-		line-height: 1.6;
 		tab-size: 4;
 	}
 
@@ -88,8 +89,11 @@
 		color: #c9d1d9;
 	}
 
-	:global(.dark) .line-numbers {
+	:global(.dark) .gutter {
 		background: #000000;
-		border-inline-end-color: #30363d;
+	}
+
+	:global(.dark) .number {
+		border-color: rgb(255 255 255 / 0.04);
 	}
 </style>
