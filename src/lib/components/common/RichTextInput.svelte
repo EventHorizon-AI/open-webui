@@ -140,7 +140,7 @@
 	import { Fragment, DOMParser } from 'prosemirror-model';
 	import { EditorState, Plugin, PluginKey, TextSelection, Selection } from 'prosemirror-state';
 	import { Decoration, DecorationSet } from 'prosemirror-view';
-	import { Editor, Extension, markInputRule, mergeAttributes } from '@tiptap/core';
+	import { Editor, Extension, markInputRule, markPasteRule, mergeAttributes } from '@tiptap/core';
 
 	import { AIAutocompletion } from './RichTextInput/AutoCompletion.js';
 
@@ -162,8 +162,11 @@
 	import Typography from '@tiptap/extension-typography';
 	import Highlight from '@tiptap/extension-highlight';
 	import Code from '@tiptap/extension-code';
+	import Bold from '@tiptap/extension-bold';
 	import Italic from '@tiptap/extension-italic';
 	import CodeBlockLowlight from '@tiptap/extension-code-block-lowlight';
+
+	import { CJK } from '$lib/utils/marked/cjk-friendly-extension';
 
 	// WORKAROUND: TipTap's default Code mark input rule regex captures the
 	// character before the opening backtick, causing it to be deleted.
@@ -182,8 +185,68 @@
 		}
 	});
 
+	// WORKAROUND: TipTap's default emphasis input/paste rules only trigger when
+	// the opening delimiter follows whitespace or the start of the block:
+	//
+	//   /(?:^|\s)(\*\*(?!\s+\*\*)((?:[^*]+))\*\*(?!\s+\*\*))$/
+	//
+	// CJK text has no word spaces, so `这是**重点**` and emphasis after
+	// full-width punctuation (e.g. `。**重点**`) never converted in the
+	// composer. Allow CJK characters and punctuation to act as the opening
+	// boundary too, mirroring the CJK-friendly tokenizer that renders messages
+	// (see `$lib/utils/marked/cjk-friendly-extension`).
+	const cjkEmphasisBoundary = `(?<=^|[\\s\\p{P}\\p{S}${CJK}])`;
+	const buildEmphasisRules = (delimiter: string) => {
+		const quoted = delimiter.replace(/\*/g, '\\*');
+		const body = `((?:[^${delimiter[0]}]+))`;
+		return {
+			input: new RegExp(
+				`${cjkEmphasisBoundary}(${quoted}(?!\\s+${quoted})${body}${quoted}(?!\\s+${quoted}))$`,
+				'u'
+			),
+			paste: new RegExp(
+				`${cjkEmphasisBoundary}(${quoted}(?!\\s+${quoted})${body}${quoted}(?!\\s+${quoted}))`,
+				'gu'
+			)
+		};
+	};
+	const starBoldRules = buildEmphasisRules('**');
+	const underscoreBoldRules = buildEmphasisRules('__');
+	const starItalicRules = buildEmphasisRules('*');
+	const underscoreItalicRules = buildEmphasisRules('_');
+
+	const CjkBold = Bold.extend({
+		addInputRules() {
+			return [
+				markInputRule({ find: starBoldRules.input, type: this.type }),
+				markInputRule({ find: underscoreBoldRules.input, type: this.type })
+			];
+		},
+		addPasteRules() {
+			return [
+				markPasteRule({ find: starBoldRules.paste, type: this.type }),
+				markPasteRule({ find: underscoreBoldRules.paste, type: this.type })
+			];
+		}
+	});
+
+	const CjkItalic = Italic.extend({
+		addInputRules() {
+			return [
+				markInputRule({ find: starItalicRules.input, type: this.type }),
+				markInputRule({ find: underscoreItalicRules.input, type: this.type })
+			];
+		},
+		addPasteRules() {
+			return [
+				markPasteRule({ find: starItalicRules.paste, type: this.type }),
+				markPasteRule({ find: underscoreItalicRules.paste, type: this.type })
+			];
+		}
+	});
+
 	// Prompt inputs need literal asterisks preserved, while toolbar-applied italic should still work.
-	const PromptItalic = Italic.extend({
+	const PromptItalic = CjkItalic.extend({
 		addInputRules() {
 			return [];
 		},
@@ -810,7 +873,9 @@
 				StarterKit.configure({
 					link: link ? { autolink: autoFormat, linkOnPaste: autoFormat } : false,
 					code: false, // Disabled in favor of FixedCode (see workaround above)
-					...(messageInput ? { italic: false } : {}),
+					// Disabled in favor of the CJK-friendly variants below.
+					bold: false,
+					italic: false,
 					// When rich text is on, ListKit + CodeBlockLowlight provide these.
 					// Disable StarterKit's equivalents to avoid duplicate extension names.
 					...(richText
@@ -829,7 +894,8 @@
 					...(richText ? {} : { strike: false })
 				}),
 				FixedCode,
-				...(messageInput ? [PromptItalic] : []),
+				CjkBold,
+				...(messageInput ? [PromptItalic] : [CjkItalic]),
 				...(dragHandle ? [ListItemDragHandle] : []),
 				Placeholder.configure({ placeholder: () => _placeholder, showOnlyWhenEditable: false }),
 				...(messageInput ? [] : [SelectionDecoration]),
