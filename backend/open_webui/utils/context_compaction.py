@@ -10,7 +10,6 @@ from open_webui.models.config import Config
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import (
-    add_or_update_system_message,
     get_content_from_message,
     get_last_user_message,
     get_message_list,
@@ -62,7 +61,8 @@ async def compact_messages_for_request(
     system_messages = [messages[0]] if messages and messages[0].get('role') == 'system' else []
     messages = messages[1:] if system_messages else messages
 
-    messages, previous_summary = _apply_latest_summary_checkpoint(messages)
+    previous_summary = current_summary(messages)
+    messages, _ = _apply_latest_summary_checkpoint(messages)
     token_threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], metadata)
     if not _exceeds_token_threshold(messages, system_prompt, previous_summary, token_threshold) or len(messages) <= 3:
         return [*system_messages, *messages], previous_summary, False
@@ -110,7 +110,8 @@ async def compact_messages_for_request(
     return [*system_messages, *recent_messages], summary, True
 
 
-# Plans a cut without persisting one: the tool messages it compacts have no chat rows to sit on.
+# Plans a mid-turn cut and returns its summary/count; the caller stores the
+# checkpoint (the compacted tool messages have no chat rows to sit on).
 async def plan_mid_turn_compaction(
     request,
     user,
@@ -166,26 +167,216 @@ async def plan_mid_turn_compaction(
     return summary, boundary - pinned_count
 
 
+# The rolling summary lives as a single block (``[CONVERSATION SUMMARY]\n...``)
+# inside the leading system message. A new summary replaces the previous one by
+# exact text match, so it never accumulates — no delimiters or regex needed.
+def _summary_block(summary: str) -> str:
+    return f'[CONVERSATION SUMMARY]\n{summary}'
+
+
+def _replace_summary_text(text: str, block: str, previous_block: str | None) -> str:
+    if previous_block and previous_block in text:
+        return text.replace(previous_block, block, 1)
+    return f'{text}\n{block}' if text else block
+
+
+def _with_summary_block(content: Any, block: str, previous_block: str | None) -> Any:
+    if isinstance(content, list):
+        items = [dict(item) if isinstance(item, dict) else item for item in content]
+        for index, item in enumerate(items):
+            if isinstance(item, dict) and item.get('type') == 'text':
+                items[index] = {**item, 'text': _replace_summary_text(item.get('text', ''), block, previous_block)}
+                return items
+        items.append({'type': 'text', 'text': block})
+        return items
+    return _replace_summary_text(content if isinstance(content, str) else '', block, previous_block)
+
+
+def set_conversation_summary(
+    messages: list[dict], summary: str | None, previous_summary: str | None = None
+) -> list[dict]:
+    """Return a copy of messages with the rolling summary as a single block in
+    the leading system message.
+
+    The previous block (built from ``previous_summary``) is replaced in place by
+    exact text match, so the summary never stacks.
+    """
+    if not summary:
+        return messages
+    block = _summary_block(summary)
+    previous_block = _summary_block(previous_summary) if previous_summary else None
+    if messages and messages[0].get('role') == 'system':
+        system = messages[0]
+        return [
+            {**system, 'content': _with_summary_block(system.get('content'), block, previous_block)},
+            *messages[1:],
+        ]
+    return [{'role': 'system', 'content': block}, *messages]
+
+
+def current_summary(messages: list[dict]) -> str | None:
+    """Return the newest stored summary along the message chain.
+
+    The chain is chronological, so scanning backwards yields the latest one — no
+    timestamp needed. The mid-turn summary lives on an ``output`` item
+    (``context_summary``); the chat-level checkpoint lives on the message
+    (``contextSummary``). ``meta['contextCompaction']['summary']`` is a legacy
+    fallback.
+    """
+    for message in reversed(messages):
+        value = message.get('contextSummary') or message.get('context_summary')
+        if isinstance(value, str) and value.strip():
+            return value
+
+        output = message.get('output')
+        if isinstance(output, list):
+            for item in reversed(output):
+                if isinstance(item, dict):
+                    value = item.get('context_summary')
+                    if isinstance(value, str) and value.strip():
+                        return value
+
+        checkpoint = message.get('contextCompaction')
+        if not isinstance(checkpoint, dict):
+            meta = message.get('meta')
+            checkpoint = meta.get('contextCompaction') if isinstance(meta, dict) else None
+        if isinstance(checkpoint, dict):
+            value = checkpoint.get('summary')
+            if isinstance(value, str) and value.strip():
+                return value
+    return None
+
+
 # The pinned count it returns shifts the indices the next plan call reports against.
 def apply_mid_turn_compaction(
-    messages: list[dict], compacted_count: int, summary: str | None, task_message: dict | None
+    messages: list[dict],
+    compacted_count: int,
+    task_message: dict | None,
+    summary: str | None = None,
+    previous_summary: str | None = None,
 ) -> tuple[list[dict], int]:
-    if not compacted_count:
-        return messages, 0
+    if compacted_count:
+        # Copied because the caller may reuse the prefix across iterations.
+        system_messages = [deepcopy(messages[0])] if messages and messages[0].get('role') == 'system' else []
+        recent_messages = (messages[1:] if system_messages else messages)[compacted_count:]
 
-    # Copied because add_or_update_system_message appends in place and this runs on every iteration.
-    system_messages = [deepcopy(messages[0])] if messages and messages[0].get('role') == 'system' else []
-    recent_messages = (messages[1:] if system_messages else messages)[compacted_count:]
+        # Without the request the run is working towards, the model abandons the task early.
+        pinned_count = 1 if task_message and not any(message is task_message for message in recent_messages) else 0
+        if pinned_count:
+            recent_messages = [task_message, *recent_messages]
 
-    # Without the request the run is working towards, the model abandons the task early.
-    pinned_count = 1 if task_message and not any(message is task_message for message in recent_messages) else 0
-    if pinned_count:
-        recent_messages = [task_message, *recent_messages]
+        compacted = [*system_messages, *recent_messages]
+    else:
+        compacted, pinned_count = messages, 0
 
-    compacted = [*system_messages, *recent_messages]
     if summary:
-        compacted = add_or_update_system_message(f'[CONVERSATION SUMMARY]\n{summary}', compacted, append=True)
+        compacted = set_conversation_summary(compacted, summary, previous_summary)
     return compacted, pinned_count
+
+
+def get_stored_mid_turn_compaction(messages: list[dict]) -> dict | None:
+    """Return the latest stored mid-turn compaction checkpoint, if any.
+
+    The checkpoint is promoted onto the message's ``contextCompaction`` key
+    (from ``meta['contextCompaction']``) when messages are rebuilt for replay.
+    """
+    checkpoint = None
+    for message in messages:
+        value = message.get('contextCompaction')
+        if not isinstance(value, dict):
+            meta = message.get('meta')
+            value = meta.get('contextCompaction') if isinstance(meta, dict) else None
+        if isinstance(value, dict):
+            checkpoint = value
+    return checkpoint
+
+
+async def store_mid_turn_compaction(metadata: dict, checkpoint: dict) -> dict | None:
+    """Store a mid-turn compaction checkpoint on the turn's message meta.
+
+    Prefers the assistant message, but falls back to the user message (which
+    always exists) so a checkpoint is never lost to an uncreated row and no
+    half-formed row is created just to hold it. Returns the merged meta so
+    callers can mirror it in the response, or None when it cannot be stored.
+    """
+    chat_id = metadata.get('chat_id')
+    if not is_saved_chat_id(chat_id):
+        return None
+
+    assistant_message_id = metadata.get('message_id')
+    target_id = assistant_message_id
+    if assistant_message_id:
+        if not await Chats.get_message_by_id_and_message_id(chat_id, assistant_message_id):
+            target_id = metadata.get('user_message_id')
+    else:
+        target_id = metadata.get('user_message_id')
+
+    if not target_id:
+        return None
+
+    existing = await Chats.get_message_by_id_and_message_id(chat_id, target_id) or {}
+    existing_meta = existing.get('meta') if isinstance(existing.get('meta'), dict) else {}
+    merged_meta = {**existing_meta, 'contextCompaction': checkpoint}
+
+    await Chats.upsert_message_to_chat_by_id_and_message_id(
+        chat_id,
+        target_id,
+        {'meta': merged_meta},
+        touch=False,
+    )
+    return merged_meta
+
+
+def _anchor_drop_count(messages: list[dict], call_id: str) -> int | None:
+    """Count the non-system messages before the expanded message produced by
+    ``call_id`` (the cut anchor), or None if it isn't present."""
+    leading_system = 1 if messages and messages[0].get('role') == 'system' else 0
+    count = 0
+    for index, message in enumerate(messages):
+        if index < leading_system:
+            continue
+        role = message.get('role')
+        if role == 'assistant' and any(
+            tool_call.get('id') == call_id for tool_call in (message.get('tool_calls') or [])
+        ):
+            return count
+        if role == 'tool' and message.get('tool_call_id') == call_id:
+            return count
+        count += 1
+    return None
+
+
+def apply_stored_mid_turn_compaction(
+    processed_messages: list[dict], source_messages: list[dict], task_message: dict | None = None
+) -> list[dict]:
+    """Re-apply a stored mid-turn compaction cut after output expansion.
+
+    Only the cut is applied here; the summary is written as the single system
+    block by the caller. The cut is anchored on the first retained tool call
+    (``anchor.call_id``) when available — robust to expansion changes — and falls
+    back to the stored ``drop`` count. ``task_message`` is re-pinned exactly as
+    the tool loop did so the prompt prefix stays byte-identical. Returns the
+    messages unchanged when no checkpoint is present.
+    """
+    checkpoint = get_stored_mid_turn_compaction(source_messages)
+    if not checkpoint:
+        return processed_messages
+
+    drop = _parse_positive_int(checkpoint.get('drop'))
+    anchor = checkpoint.get('anchor')
+    if isinstance(anchor, dict) and isinstance(anchor.get('call_id'), str):
+        anchored = _anchor_drop_count(processed_messages, anchor['call_id'])
+        if anchored is not None:
+            drop = anchored
+    if not drop:
+        return processed_messages
+
+    leading_system = 1 if processed_messages and processed_messages[0].get('role') == 'system' else 0
+    if drop >= len(processed_messages) - leading_system:
+        return processed_messages
+
+    compacted, _ = apply_mid_turn_compaction(processed_messages, drop, task_message)
+    return compacted
 
 
 def resolve_compaction_models(request) -> dict:
@@ -283,7 +474,9 @@ async def compact_chat_branch(request, user, chat: Any, model_id: str, models: d
     if not messages_map:
         messages_map = history.get('messages') or {}
 
-    messages, previous_summary = _apply_latest_summary_checkpoint(get_message_list(messages_map, current_id))
+    chain = get_message_list(messages_map, current_id)
+    previous_summary = current_summary(chain)
+    messages, _ = _apply_latest_summary_checkpoint(chain)
     compacted_messages = messages[:-1]
     recent_messages = messages[-1:]
     if not compacted_messages or not recent_messages:

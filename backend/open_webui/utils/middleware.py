@@ -90,10 +90,15 @@ from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.code_interpreter import execute_code_jupyter
 from open_webui.utils.context_compaction import (
     apply_mid_turn_compaction,
+    apply_stored_mid_turn_compaction,
     compact_messages_for_request,
+    current_summary,
+    get_stored_mid_turn_compaction,
     load_compaction_config,
     plan_mid_turn_compaction,
     resolve_compaction_models,
+    set_conversation_summary,
+    store_mid_turn_compaction,
 )
 from open_webui.utils.files import (
     convert_markdown_base64_images,
@@ -2242,6 +2247,43 @@ async def convert_url_images_to_base64(form_data, user=None):
 MESSAGE_REPLAY_KEYS = ('id', 'role', 'content', 'output', 'files', 'contextSummary', 'usage', 'model')
 
 
+def _replay_message_fields(message: dict) -> dict:
+    """Select the fields kept for LLM replay.
+
+    A stored compaction checkpoint is promoted out of ``meta`` onto a dedicated
+    key so the request pipeline never has to carry the whole meta bag.
+    """
+    replay = {k: v for k, v in message.items() if k in MESSAGE_REPLAY_KEYS}
+    meta = message.get('meta')
+    if isinstance(meta, dict) and isinstance(meta.get('contextCompaction'), dict):
+        replay['contextCompaction'] = meta['contextCompaction']
+    return replay
+
+
+def _first_retained_call_id(messages: list[dict], retained_from: int) -> str | None:
+    """The first retained countable message's tool-call id, used as the cut anchor."""
+    leading_system = 1 if messages and messages[0].get('role') == 'system' else 0
+    countable = messages[leading_system:]
+    if not 0 <= retained_from < len(countable):
+        return None
+    message = countable[retained_from]
+    if message.get('role') == 'tool':
+        return message.get('tool_call_id')
+    for tool_call in message.get('tool_calls') or []:
+        if tool_call.get('id'):
+            return tool_call['id']
+    return None
+
+
+def _mark_output_call(output: list, call_id: str, summary: str) -> bool:
+    """Put the summary on the output item that starts the retained block."""
+    for item in reversed(output):
+        if isinstance(item, dict) and item.get('type') == 'function_call' and item.get('call_id') == call_id:
+            item['context_summary'] = summary
+            return True
+    return False
+
+
 async def load_messages_from_db(chat_id: str, message_id: str) -> Optional[list[dict]]:
     """
     Load the message chain from DB up to message_id,
@@ -2256,7 +2298,7 @@ async def load_messages_from_db(chat_id: str, message_id: str) -> Optional[list[
         return None
 
     return [
-        {k: v for k, v in msg.items() if k in MESSAGE_REPLAY_KEYS}
+        _replay_message_fields(msg)
         for msg in db_messages
         if not (
             msg.get('role') == 'assistant' and msg.get('error') and not msg.get('content') and not msg.get('output')
@@ -2301,6 +2343,10 @@ def process_messages_with_output(
     """
     processed = []
 
+    checkpoint = get_stored_mid_turn_compaction(messages)
+    task_message_id = checkpoint.get('task_message_id') if checkpoint else None
+    task_message = None
+
     for message in messages:
         if message.get('role') == 'assistant' and message.get('output'):
             # Use output items for clean OpenAI-format messages
@@ -2317,11 +2363,28 @@ def process_messages_with_output(
                 continue
 
         clean_message = dict(message)
-        for key in ('id', 'files', 'output', 'model', 'contextSummary', 'context_summary', 'usage'):
+        for key in (
+            'id',
+            'files',
+            'output',
+            'model',
+            'contextSummary',
+            'context_summary',
+            'usage',
+            'contextCompaction',
+        ):
             clean_message.pop(key, None)
+        if task_message_id and message.get('id') == task_message_id:
+            task_message = clean_message
         processed.append(clean_message)
 
-    return processed
+    # Re-apply a stored mid-turn compaction cut so a turn whose tool loop was
+    # compacted isn't replayed in full on later requests, then write the newest
+    # summary (found on the output/checkpoint, not the system block) as the
+    # single system-prompt block.
+    processed = apply_stored_mid_turn_compaction(processed, messages, task_message)
+    current = current_summary(messages)
+    return set_conversation_summary(processed, current, current)
 
 
 def sanitize_tool_pairs(messages: list[dict]) -> list[dict]:
@@ -2455,6 +2518,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 
     # Guided regeneration: extract before it reaches the LLM provider
     regeneration_prompt = form_data.pop('regeneration_prompt', None)
+    # The appended regeneration prompt is transient (no chat row), so it must
+    # not be recorded as the pin-able task message.
+    metadata['regeneration_prompt_active'] = bool(regeneration_prompt)
 
     # Load messages from DB when available — DB preserves structured 'output' items
     # which the frontend strips, causing tool calls to be merged into content.
@@ -2470,7 +2536,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             if assistant_message_id:
                 assistant_message = await Chats.get_message_by_id_and_message_id(chat_id, assistant_message_id)
                 if assistant_message and (assistant_message.get('content') or assistant_message.get('output')):
-                    db_messages.append({k: v for k, v in assistant_message.items() if k in MESSAGE_REPLAY_KEYS})
+                    db_messages.append(_replay_message_fields(assistant_message))
 
             system_message = get_system_message(form_data.get('messages', []))
             form_data['messages'] = [system_message, *db_messages] if system_message else db_messages
@@ -2502,6 +2568,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
     if regeneration_prompt:
         form_data['messages'].append({'role': 'user', 'content': regeneration_prompt})
 
+    # Captured before request-level compaction, which may rewrite the list.
+    # The tool loop runs in a different function, so carry it through metadata.
+    stored_mid_turn_compaction = get_stored_mid_turn_compaction(form_data.get('messages', []))
+    if stored_mid_turn_compaction:
+        metadata['stored_mid_turn_compaction'] = stored_mid_turn_compaction
+
     if is_saved_chat_id(chat_id) and user_message_id:
         compaction_models = resolve_compaction_models(request)
 
@@ -2519,11 +2591,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 system_prompt,
             )
             if context_summary:
-                form_data['messages'] = add_or_update_system_message(
-                    f'[CONVERSATION SUMMARY]\n{context_summary}',
-                    form_data['messages'],
-                    append=True,
+                # Replace the block's previous summary (if any) with this one.
+                form_data['messages'] = set_conversation_summary(
+                    form_data['messages'], context_summary, metadata.get('context_summary')
                 )
+                metadata['context_summary'] = context_summary
         except Exception:
             log.exception('Context compaction failed; continuing with full chat history')
 
@@ -2535,10 +2607,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         if message.get('role') == 'assistant' and message.get('model') != model['id'] and isinstance(output, list):
             message['output'] = strip_reasoning_details(output)
 
+    chain_summary = current_summary(form_data.get('messages', []))
     form_data['messages'] = process_messages_with_output(
         form_data.get('messages', []),
         reasoning_format=get_reasoning_format(model),
     )
+    if chain_summary:
+        metadata['context_summary'] = chain_summary
     form_data['messages'] = sanitize_tool_pairs(form_data['messages'])
 
     system_message = get_system_message(form_data.get('messages', []))
@@ -3590,7 +3665,7 @@ async def drain_approved_tool_calls(request, form_data, user, model, metadata) -
         if db_messages:
             assistant_message = await Chats.get_message_by_id_and_message_id(chat_id, message_id)
             if assistant_message:
-                db_messages.append({k: v for k, v in assistant_message.items() if k in MESSAGE_REPLAY_KEYS})
+                db_messages.append(_replay_message_fields(assistant_message))
             for message in db_messages:
                 output = message.get('output')
                 # reasoning_details can be model/provider-bound, so only replay them
@@ -3602,10 +3677,13 @@ async def drain_approved_tool_calls(request, form_data, user, model, metadata) -
                 ):
                     message['output'] = strip_reasoning_details(output)
 
+            chain_summary = current_summary(db_messages)
             form_data['messages'] = process_messages_with_output(
                 db_messages,
                 reasoning_format=get_reasoning_format(model),
             )
+            if chain_summary:
+                metadata['context_summary'] = chain_summary
             form_data['messages'] = sanitize_tool_pairs(form_data['messages'])
 
         if not paused and ENABLE_PLUGINS:
@@ -5889,7 +5967,18 @@ async def streaming_chat_response_handler(response, ctx):
                 tool_call_sources = []  # Track citation sources from tool results
                 all_tool_call_sources = []  # Accumulated sources across all iterations
                 compacted_message_count = 0
-                compaction_summary = None
+                # The summary currently in the system block (set upstream).
+                compaction_summary = metadata.get('context_summary')
+                compaction_meta = None
+                compaction_base_drop = 0
+                stored_mid_turn_compaction = metadata.pop('stored_mid_turn_compaction', None)
+                if isinstance(stored_mid_turn_compaction, dict):
+                    try:
+                        compaction_base_drop = int(stored_mid_turn_compaction.get('drop') or 0)
+                    except (TypeError, ValueError):
+                        compaction_base_drop = 0
+                    if compaction_base_drop < 0:
+                        compaction_base_drop = 0
                 compaction_config = await load_compaction_config() if tool_calls else {'enable': False}
                 compaction_models = resolve_compaction_models(request) if tool_calls else {}
                 task_message = get_last_user_message_item(form_data['messages'])
@@ -6322,7 +6411,11 @@ async def streaming_chat_response_handler(response, ctx):
 
                             base_messages = [*form_data['messages'], *tool_messages]
                             continuation_messages, pinned_count = apply_mid_turn_compaction(
-                                base_messages, compacted_message_count, compaction_summary, task_message
+                                base_messages,
+                                compacted_message_count,
+                                task_message,
+                                compaction_summary,
+                                metadata.get('context_summary'),
                             )
 
                             try:
@@ -6341,14 +6434,39 @@ async def streaming_chat_response_handler(response, ctx):
                                         previous_summary=compaction_summary,
                                     )
                                     if dropped_count:
+                                        retained_from = compacted_message_count + dropped_count
                                         continuation_messages, _ = apply_mid_turn_compaction(
                                             base_messages,
-                                            compacted_message_count + dropped_count,
-                                            summary,
+                                            retained_from,
                                             task_message,
+                                            summary,
+                                            metadata.get('context_summary'),
                                         )
                                         compaction_summary = summary
                                         compacted_message_count += dropped_count
+                                        # Anchor the cut on the first retained tool call so
+                                        # replay finds it without an index, and keep the
+                                        # summary on that output item.
+                                        anchor_call_id = _first_retained_call_id(base_messages, retained_from)
+                                        if anchor_call_id is None or not _mark_output_call(
+                                            output, anchor_call_id, compaction_summary
+                                        ):
+                                            saved_output = full_output()
+                                            if saved_output and isinstance(saved_output[-1], dict):
+                                                saved_output[-1]['context_summary'] = compaction_summary
+                                        checkpoint = {
+                                            'drop': compaction_base_drop + compacted_message_count,
+                                            'task_message_id': (
+                                                None
+                                                if metadata.get('regeneration_prompt_active')
+                                                else metadata.get('user_message_id')
+                                            ),
+                                        }
+                                        if anchor_call_id:
+                                            checkpoint['anchor'] = {'call_id': anchor_call_id}
+                                        compaction_meta = (
+                                            await store_mid_turn_compaction(metadata, checkpoint) or compaction_meta
+                                        )
                             except Exception:
                                 log.exception('Mid-turn context compaction failed; continuing with the current context')
 
@@ -6633,11 +6751,15 @@ async def streaming_chat_response_handler(response, ctx):
 
                 current_output = full_output()
                 title = await Chats.get_chat_title_by_id(metadata['chat_id']) if save_to_chat else ''
+
+                # compaction_meta was stored the moment the cut happened; mirror it
+                # in the response so the client keeps it too.
                 data = {
                     'done': True,
                     'output': current_output,
                     'title': title,
                     **({'usage': usage} if usage else {}),
+                    **({'meta': compaction_meta} if compaction_meta else {}),
                 }
 
                 if save_to_chat:
@@ -6650,6 +6772,7 @@ async def streaming_chat_response_handler(response, ctx):
                             'done': True,
                             'output': current_output,
                             **({'usage': usage} if usage else {}),
+                            **({'meta': compaction_meta} if compaction_meta else {}),
                         },
                     )
 
@@ -6676,6 +6799,7 @@ async def streaming_chat_response_handler(response, ctx):
                     else ''.join(content_parts) or get_output_text(current_output),
                     'output': current_output,
                     **({'usage': usage} if usage else {}),
+                    **({'meta': compaction_meta} if compaction_meta else {}),
                 }
                 await outlet_filter_handler(ctx)
                 await background_tasks_handler(ctx)
