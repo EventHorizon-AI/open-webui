@@ -267,6 +267,7 @@ from open_webui.utils.oauth import (
     recover_static_oauth_client_metadata,
     resolve_oauth_client_info,
 )
+from open_webui.utils.payload import remove_open_webui_params
 from open_webui.utils.plugin import install_tool_and_function_dependencies
 from open_webui.utils.redis import get_redis_client
 from open_webui.utils.session_pool import cleanup_response, get_client_timeout, get_session, stream_wrapper
@@ -1284,6 +1285,12 @@ async def chat_completion(
             'model': model,
             'direct': model_item.get('direct', False),
             'params': {
+                # Effective params for this completion (model defaults plus
+                # request overrides, including any selected model-variant preset).
+                # Carried in metadata so server-spawned work such as sub-agents and
+                # timers can inherit them. Open WebUI control params are stripped
+                # first, then re-added explicitly below.
+                **remove_open_webui_params(dict(form_data.get('params') or {})),
                 'stream_delta_chunk_size': stream_delta_chunk_size,
                 'reasoning_tags': reasoning_tags,
                 'compact_token_threshold': compact_token_threshold,
@@ -1806,6 +1813,7 @@ async def chat_completion(
                             'terminal_id': metadata.get('terminal_id'),
                             'features': metadata.get('features') or {},
                             'variables': metadata.get('variables') or {},
+                            'params': metadata.get('params') or {},
                         },
                     )
             except Exception:

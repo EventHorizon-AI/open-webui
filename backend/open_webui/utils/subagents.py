@@ -259,6 +259,7 @@ async def process_pending_internal_messages(
             'features': run.get('features') or {},
             'files': run.get('files') or [],
             'variables': run.get('variables') or {},
+            'params': run.get('params') or {},
         }
         if run.get('terminal_id'):
             form_data['terminal_id'] = run['terminal_id']
@@ -326,6 +327,15 @@ async def delegate(
         'features': features,
         'files': copy.deepcopy(metadata.get('files') or []),
         'variables': copy.deepcopy(metadata.get('variables') or {}),
+        # Inherit the effective params (model defaults + variant/chat overrides)
+        # so the sub-agent runs with the same settings as the parent.
+        # tool_approval_mode is dropped: sub-agents run in a hidden internal chat
+        # where an approval pause would stall them.
+        'params': {
+            key: copy.deepcopy(value)
+            for key, value in (metadata.get('params') or {}).items()
+            if key != 'tool_approval_mode'
+        },
         'direct': bool(metadata.get('direct')),
     }
     if not run.get('model_id'):
@@ -479,6 +489,7 @@ async def delegate(
                 'features': run.get('features') or {},
                 'files': run.get('files') or [],
                 'variables': run.get('variables') or {},
+                'params': run.get('params') or {},
             }
             if run.get('terminal_id'):
                 form_data['terminal_id'] = run['terminal_id']

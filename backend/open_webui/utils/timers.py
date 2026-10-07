@@ -114,6 +114,15 @@ async def create_timer(
         'features': copy.deepcopy(metadata.get('features') or {}),
         'files': copy.deepcopy(metadata.get('files') or []),
         'variables': copy.deepcopy(metadata.get('variables') or {}),
+        # Inherit the effective params (model defaults + variant/chat overrides)
+        # so the timer runs with the same settings as the parent.
+        # tool_approval_mode is dropped to keep timer runs from stalling on an
+        # approval pause.
+        'params': {
+            key: copy.deepcopy(value)
+            for key, value in (metadata.get('params') or {}).items()
+            if key != 'tool_approval_mode'
+        },
     }
 
     chat = await Chats.insert_new_chat(
@@ -393,6 +402,7 @@ async def execute_due_timer(app, timer_id: str, claim_id: str | None = None) -> 
             'features': run.get('features') or {},
             'files': run.get('files') or [],
             'variables': run.get('variables') or {},
+            'params': run.get('params') or {},
         }
         if run.get('terminal_id'):
             form_data['terminal_id'] = run['terminal_id']
