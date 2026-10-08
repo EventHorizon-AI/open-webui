@@ -60,8 +60,8 @@ export function buildMarkdownDisplayTokens(
 	// Emit whatever has accumulated. Only a run that holds at least one
 	// non-reasoning detail (a tool call, code interpreter, …) becomes a process
 	// group; a run of reasoning alone stays flat. When a run does fold, the whole
-	// run — reasoning included — goes into the group. While the message is still
-	// streaming everything stays flat.
+	// run — reasoning included — goes into the group. The latest token must not be
+	// a detail or detail group, and while streaming everything stays flat.
 	const flushProcess = () => {
 		flushDetailGroup();
 		if (processItems.length === 0) {
@@ -78,8 +78,11 @@ export function buildMarkdownDisplayTokens(
 			token?.type === 'detail_group'
 				? (token.items ?? []).some((item: any) => item?.attributes?.type !== 'reasoning')
 				: isGroupableDetailToken(token) && token?.attributes?.type !== 'reasoning';
+		const lastToken = tokenList[tokenList.length - 1];
+		const endsWithDetailOrDetailGroup =
+			lastToken?.type === 'details' || lastToken?.type === 'detail_group';
 
-		if (processItems.some(isNonReasoningDetail)) {
+		if (processItems.some(isNonReasoningDetail) && !endsWithDetailOrDetailGroup) {
 			// Tie the id to the first member so it survives reclassification while
 			// streaming (a trailing message becoming narration must not remount it).
 			displayTokens.push({

@@ -69,8 +69,8 @@ export type OutputDisplayItem =
 			// built when the run holds a non-reasoning detail (a tool call, code
 			// interpreter, …); a run of reasoning alone stays flat. A content message
 			// only becomes a final answer when nothing after it can still be a tool
-			// step; everything before that is folded in here instead of leaking into
-			// the transcript as plain text.
+			// step; a preceding run is folded here only when the output ends in a
+			// message.
 			type: 'process_group';
 			id: string;
 			items: OutputDisplayItem[];
@@ -586,11 +586,13 @@ export function buildOutputDisplayItems(
 
 	// A content message is only a final answer when no tool step can still follow
 	// it. Any groupable output later in the list means the message was narrated on
-	// the way to a tool call, so it belongs in the process group.
+	// the way to a tool call, so it may join the process group when the response
+	// ends in a message.
 	const lastGroupableIndex = output.reduce(
 		(last, item, index) => (item?.type && GROUPABLE_OUTPUT_TYPES.has(item.type) ? index : last),
 		-1
 	);
+	const latestOutputIsMessage = output[output.length - 1]?.type === 'message';
 
 	const flushDetails = () => {
 		if (currentDetailTokens.length > 1) {
@@ -614,7 +616,7 @@ export function buildOutputDisplayItems(
 	// group; a run of reasoning alone stays flat, since reasoning already renders
 	// as its own collapsible block. A run of pure content (the final answer) also
 	// stays flat. When a run does fold, the whole run — reasoning included — goes
-	// into the group.
+	// into the group. The response must end with a message before any run folds.
 	const flushProcess = () => {
 		flushDetails();
 		if (processItems.length === 0) {
@@ -634,7 +636,7 @@ export function buildOutputDisplayItems(
 					? item.token.attributes?.type !== 'reasoning'
 					: false;
 
-		if (processItems.some(isNonReasoningDetail)) {
+		if (latestOutputIsMessage && processItems.some(isNonReasoningDetail)) {
 			// Tie the id to the first member so it survives reclassification while
 			// streaming (a trailing message becoming narration must not remount it).
 			displayItems.push({
