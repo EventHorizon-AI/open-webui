@@ -114,7 +114,12 @@ from open_webui.utils.filter import (
 )
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.mcp.client import MCPClient
-from open_webui.utils.memory import add_memory_context, review_memory_after_turn
+from open_webui.utils.memory import (
+    add_memory_context,
+    add_memory_path_context,
+    model_allows_memory,
+    review_memory_after_turn,
+)
 from open_webui.utils.misc import (
     add_or_update_system_message,
     add_or_update_user_message,
@@ -2786,19 +2791,22 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     form_data['messages'],
                 )
 
-        if (
-            'memory' in features
-            and features['memory']
-            and await Config.get('memories.enable')
-            and await Config.get('memories.system_context.enable')
-        ):
+        if 'memory' in features and features['memory'] and await Config.get('memories.enable'):
             # features is client-supplied; re-check the permission the native FC path enforces.
-            if getattr(user, 'role', None) == 'admin' or await has_permission(
-                getattr(user, 'id', ''),
-                'features.memories',
-                await Config.get('user.permissions'),
-            ):
-                form_data = await add_memory_context(request, form_data, user, model)
+            if (
+                getattr(user, 'role', None) == 'admin'
+                or await has_permission(
+                    getattr(user, 'id', ''),
+                    'features.memories',
+                    await Config.get('user.permissions'),
+                )
+            ) and model_allows_memory(model):
+                if await Config.get('memories.system_context.enable'):
+                    form_data = await add_memory_context(request, form_data, user, model)
+                elif metadata.get('params', {}).get('function_calling') != 'legacy':
+                    # With the memory system context off, inject the user's memory
+                    # paths so the model can view the relevant ones before starting.
+                    form_data = await add_memory_path_context(request, form_data, user, model)
 
         if 'web_search' in features and features['web_search'] and await Config.get('web.search.enable'):
             # features is client-supplied; re-check the permission the native FC path enforces.

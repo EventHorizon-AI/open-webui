@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 MEMORY_CONTEXT_OPEN = '<memory_context>'
 MEMORY_CONTEXT_CLOSE = '</memory_context>'
 
+MEMORY_PATHS_OPEN = '<memory_paths>'
+MEMORY_PATHS_CLOSE = '</memory_paths>'
+
 
 def clean_memory_content(content: str | None) -> str:
     value = (content or '').strip()
@@ -404,6 +407,50 @@ async def add_memory_context(request, form_data: dict, user, model: dict | None 
 
     memory_context = f'{MEMORY_CONTEXT_OPEN}\n{rendered}\n{MEMORY_CONTEXT_CLOSE}'
     form_data['messages'] = add_or_update_system_message(memory_context, messages, append=True)
+    return form_data
+
+
+async def add_memory_path_context(request, form_data: dict, user, model: dict | None = None):
+    """Inject the user's memory paths when the memory system context is disabled.
+
+    Without the automatically retrieved <memory_context>, the model still needs
+    an index of the saved memories so it can view the ones relevant to the task.
+    """
+    if not model_allows_memory(model):
+        return form_data
+
+    memories = await Memories.get_memories_by_user_id(user.id)
+    groups = list_memory_path_groups(memories, limit=200).get('paths', [])
+
+    sections = {'user': [], 'context': []}
+    for group in groups:
+        path = group.get('path')
+        if not path:
+            continue
+        memory_type = Memories.normalize_memory_type(group.get('type'))
+        if memory_type not in sections:
+            continue
+        sections[memory_type].append(f'- {path}')
+
+    parts = []
+    for title, key in (('User Memory Paths', 'user'), ('Context Memory Paths', 'context')):
+        if sections[key]:
+            ordered = sorted(sections[key], key=lambda line: line.casefold())
+            parts.append(f'[{title}]\n' + '\n'.join(ordered))
+    if not parts:
+        return form_data
+
+    instruction = (
+        'The following memory paths index your saved memories.\n'
+        'When a task is even potentially related to a memory path, call the read_memory_path tool '
+        'to load its contents before proceeding.\n'
+        'Use broad semantic matching, including indirect connections and related contexts. '
+        'When uncertain, read the memory rather than skip it. Prefer recall over precision.\n'
+        'Only skip memories that are clearly unrelated to the task.\n\n'
+    )
+    block_body = '\n\n'.join(parts)
+    memory_paths = f'{instruction}{MEMORY_PATHS_OPEN}\n{block_body}\n{MEMORY_PATHS_CLOSE}'
+    form_data['messages'] = add_or_update_system_message(memory_paths, form_data.get('messages', []), append=True)
     return form_data
 
 
