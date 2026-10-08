@@ -556,6 +556,18 @@ export function getDetailsDurationSeconds(tokens: OutputDetailToken[] = []): num
 }
 
 /**
+ * Number of calls a run of detail tokens made: tool calls plus code-interpreter
+ * runs. A process group only forms around a non-reasoning detail, i.e. one of
+ * these, so the count is never zero for a group.
+ */
+export function getDetailCallCount(tokens: OutputDetailToken[] = []): number {
+	return tokens.filter(
+		(token) =>
+			token?.attributes?.type === 'tool_calls' || token?.attributes?.type === 'code_interpreter'
+	).length;
+}
+
+/**
  * `group` mirrors the message lifecycle: while a reply is still streaming the
  * caller passes `false`, so the run renders the way it always did (narrated
  * content inline, consecutive details folded into a plain `detail_group`) and

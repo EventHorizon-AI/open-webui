@@ -35,7 +35,7 @@
 	import Clipboard from '$lib/components/icons/Clipboard.svelte';
 	import ColonFenceBlock from './ColonFenceBlock.svelte';
 	import { buildMarkdownDisplayTokens, isGroupableDetailToken } from './markdownDisplayTokens';
-	import { getDetailsDurationSeconds } from '../structuredOutput';
+	import { getDetailsDurationSeconds, getDetailCallCount } from '../structuredOutput';
 
 	dayjs.extend(dayjsDuration);
 	dayjs.extend(dayjsRelativeTime);
@@ -132,17 +132,26 @@
 	};
 
 	// Mirrors how a reasoning block's duration is rendered: seconds below a
-	// minute, humanized above it, and no duration at all when none was recorded.
+	// minute, humanized above it. Tool calls and code-interpreter runs are not
+	// timed, so a run that made only those records no duration; it summarises how
+	// many calls the run made instead. A process group always holds at least one
+	// such call, so the count is never zero.
 	const getProcessDoneLabel = (processToken: any) => {
-		const processDuration = getDetailsDurationSeconds(getProcessTokens(processToken));
+		const processTokens = getProcessTokens(processToken);
+		const processDuration = getDetailsDurationSeconds(processTokens);
 
-		return processDuration >= 60
-			? $i18n.t('Completed in {{DURATION}}', {
-					DURATION: dayjs.duration(processDuration, 'seconds').humanize()
-				})
-			: processDuration >= 1
-				? $i18n.t('Completed in {{DURATION}} seconds', { DURATION: processDuration })
-				: $i18n.t('Analysis complete');
+		if (processDuration >= 60) {
+			return $i18n.t('Completed in {{DURATION}}', {
+				DURATION: dayjs.duration(processDuration, 'seconds').humanize()
+			});
+		}
+
+		if (processDuration >= 1) {
+			return $i18n.t('Completed in {{DURATION}} seconds', { DURATION: processDuration });
+		}
+
+		const callCount = getDetailCallCount(processTokens);
+		return $i18n.t('Completed, called {{count}} times', { count: callCount });
 	};
 
 	$: detailButtonClassName = `py-0.5 ${

@@ -21,6 +21,7 @@
 	import ConsecutiveDetailsGroup from './Markdown/ConsecutiveDetailsGroup.svelte';
 	import {
 		getDetailsDurationSeconds,
+		getDetailCallCount,
 		type OutputDetailToken,
 		type OutputDisplayItem
 	} from './structuredOutput';
@@ -128,8 +129,16 @@
 	$: processDuration =
 		displayItem.type === 'process_group' ? getDetailsDurationSeconds(processTokens) : 0;
 
+	// Tool calls and code-interpreter runs are not timed, so a run of only those
+	// records no duration. Fall back to counting them for the group's "done"
+	// summary; a process group always holds at least one, so the count is never
+	// zero.
+	$: processCallCount =
+		displayItem.type === 'process_group' ? getDetailCallCount(processTokens) : 0;
+
 	// Mirrors how a reasoning block's duration is rendered: seconds below a minute,
-	// humanized above it, and no duration at all when none was recorded.
+	// humanized above it. With no duration recorded it summarises how many calls
+	// the run made instead.
 	$: processDoneLabel =
 		processDuration >= 60
 			? $i18n.t('Completed in {{DURATION}}', {
@@ -137,7 +146,7 @@
 				})
 			: processDuration >= 1
 				? $i18n.t('Completed in {{DURATION}} seconds', { DURATION: processDuration })
-				: $i18n.t('Analysis complete');
+				: $i18n.t('Completed, called {{count}} times', { count: processCallCount });
 </script>
 
 {#if displayItem.type === 'message'}
