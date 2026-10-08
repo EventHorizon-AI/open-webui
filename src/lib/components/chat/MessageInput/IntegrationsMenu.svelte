@@ -454,7 +454,7 @@
 								<div class="flex-1 truncate">
 									<div class="flex flex-1 gap-2 items-center">
 										<div class="shrink-0">
-											<GlobeAlt />
+											<GlobeAlt className="size-3.5" strokeWidth="1.75" />
 										</div>
 
 										<div class=" truncate">{$i18n.t('Web Search')}</div>
