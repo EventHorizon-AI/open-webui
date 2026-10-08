@@ -4979,7 +4979,10 @@ async def streaming_chat_response_handler(response, ctx):
                 )
 
             reasoning_tags_param = metadata.get('params', {}).get('reasoning_tags')
-            DETECT_REASONING_TAGS = reasoning_tags_param is not False
+            # Do not parse built-in reasoning tags unless detection is explicitly enabled.
+            DETECT_REASONING_TAGS = reasoning_tags_param is True or (
+                isinstance(reasoning_tags_param, list) and len(reasoning_tags_param) == 2
+            )
 
             # Legacy tool-calling only: native FC gets execute_code as a builtin tool.
             # Same five authz gates as utils/tools.py get_builtin_tools.
