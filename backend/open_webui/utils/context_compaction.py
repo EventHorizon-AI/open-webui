@@ -25,8 +25,12 @@ from open_webui.utils.task import (
 
 log = logging.getLogger(__name__)
 
+# The messages being compacted are sent to the compaction model as real chat
+# messages; this template is the trailing user turn that asks for the summary.
+# The retained (kept-in-context) messages are not injected: they stay in the
+# model's context anyway.
 DEFAULT_CONTEXT_COMPACTION_PROMPT = """### Task:
-Summarize the conversation history that will be compacted out of the active chat context.
+Summarize the conversation above that will be compacted out of the active chat context.
 
 ### Instructions:
 - Preserve key decisions, user preferences, and constraints.
@@ -36,13 +40,7 @@ Summarize the conversation history that will be compacted out of the active chat
 - Keep the summary concise, but complete enough for the assistant to continue without the removed messages.
 
 ### Previous Summary:
-{{PREVIOUS_SUMMARY}}
-
-### Messages Being Compacted:
-{{COMPACTED_MESSAGES}}
-
-### Recent Messages Kept In Context:
-{{RECENT_MESSAGES}}"""
+{{PREVIOUS_SUMMARY}}"""
 
 
 async def compact_messages_for_request(
@@ -138,7 +136,10 @@ async def plan_mid_turn_compaction(
     if boundary <= pinned_count:
         return None, 0
 
-    compacted_messages = messages[:boundary]
+    # The summary request gets the full prefix — the leading system message plus
+    # the messages being cut — so it starts identically to the tool-loop prompt
+    # and providers with prefix caching can reuse the cached context.
+    compacted_messages = [*system_messages, *messages[:boundary]]
     recent_messages = messages[boundary:]
     summary = await _summarize_with_events(
         request,
@@ -670,31 +671,41 @@ def _find_tool_block_starts(messages: list[dict]) -> list[int]:
     return block_starts
 
 
+# Used for the retained messages, which are still rendered into the template as
+# ``ROLE: content`` text (not sent as real messages).
 def _message_prompt_text(message: dict) -> str:
-    """Render a message the way the summary template will, so token estimates
-    track what actually reaches the compaction model."""
     content = get_content_from_message(message)
     return f'{message.get("role", "unknown").upper()}: {content or ""}'
 
 
+def _rendered_message_tokens(message: dict) -> int:
+    return _estimate_tokens(_message_prompt_text(message))
+
+
+# Used for the compacted messages, which are sent as real chat messages.
+def _message_tokens(message: dict) -> int:
+    return _estimate_messages_tokens([message])
+
+
 def _estimate_prompt_messages_tokens(messages: list[dict]) -> int:
-    return sum(_estimate_tokens(_message_prompt_text(message)) for message in messages)
+    return sum(_rendered_message_tokens(message) for message in messages)
 
 
 def _truncate_message_for_prompt(message: dict, max_tokens: int) -> dict:
-    """Copy a message with its rendered content capped so it can fit alone."""
+    """Copy a message with its content capped so it can fit a chunk alone."""
     text = get_content_from_message(message) or ''
     if not isinstance(text, str):
         text = str(text)
 
-    prefix = f'{message.get("role", "unknown").upper()}: '
-    max_chars = max(0, max_tokens) * 4 - len(prefix)
+    max_chars = max(0, max_tokens) * 4
     if len(text) <= max_chars:
         return message
     return {**message, 'content': truncate_content(text, max_chars), 'output': None}
 
 
-def _chunk_messages_for_summary(messages: list[dict], budget_tokens: int) -> list[list[dict]]:
+def _chunk_messages_for_summary(
+    messages: list[dict], budget_tokens: int, estimator=_message_tokens
+) -> list[list[dict]]:
     """Split messages into consecutive groups that each fit the token budget.
 
     A single message larger than the budget is emitted on its own, truncated.
@@ -705,7 +716,7 @@ def _chunk_messages_for_summary(messages: list[dict], budget_tokens: int) -> lis
     current_tokens = 0
 
     for message in messages:
-        tokens = _estimate_tokens(_message_prompt_text(message))
+        tokens = estimator(message)
         if tokens > budget_tokens:
             if current:
                 chunks.append(current)
@@ -732,7 +743,7 @@ def _fit_messages_for_prompt(messages: list[dict], budget_tokens: int) -> list[d
         return messages
 
     # Keep the most recent slice; the rest is already represented in the summary.
-    chunks = _chunk_messages_for_summary(messages, budget_tokens)
+    chunks = _chunk_messages_for_summary(messages, budget_tokens, _rendered_message_tokens)
     return chunks[-1] if chunks else []
 
 
@@ -754,10 +765,7 @@ def _plan_summary_calls(
     # prompt stays under the per-call budget.
     effective = max(1, budget_tokens - overhead - 1000)
 
-    if (
-        _estimate_prompt_messages_tokens(compacted_messages) + _estimate_prompt_messages_tokens(recent_messages)
-        <= effective
-    ):
+    if _estimate_messages_tokens(compacted_messages) + _estimate_prompt_messages_tokens(recent_messages) <= effective:
         return [(compacted_messages, recent_messages)]
 
     # Keep a slice of the retained messages in the final call so the summary
@@ -773,20 +781,44 @@ def _plan_summary_calls(
     return [(chunk, recent_for_last if idx == len(chunks) - 1 else []) for idx, chunk in enumerate(chunks)]
 
 
-async def _build_summary_prompt(
+# Fields a chat completion accepts; the rest of what Open WebUI stores per
+# message (output, files, usage, meta, ...) would only confuse the model.
+_SUMMARY_MESSAGE_FIELDS = ('role', 'content', 'name', 'tool_calls', 'tool_call_id')
+
+
+def _project_summary_message(message: dict) -> dict:
+    """Reduce a stored message to the fields the compaction model should see,
+    falling back to the rendered output text when the content is empty."""
+    projected = {field: message[field] for field in _SUMMARY_MESSAGE_FIELDS if field in message}
+    projected['role'] = message.get('role', 'user')
+
+    content = projected.get('content')
+    if content is None or (isinstance(content, str) and not content.strip()):
+        fallback = get_content_from_message(message)
+        projected['content'] = fallback if fallback else ''
+
+    return projected
+
+
+async def _build_summary_messages(
     summary_prompt_template: str,
     compacted_messages: list[dict],
     recent_messages: list[dict],
     previous_summary: str | None,
     user,
-) -> str:
+) -> list[dict]:
+    """Build the compaction request: the messages being cut, sent with their
+    original roles, followed by a user turn asking the model to summarize them."""
     all_messages = [*compacted_messages, *recent_messages]
     prompt = replace_prompt_variable(summary_prompt_template, get_last_user_message(all_messages) or '')
     prompt = replace_messages_variable(prompt, all_messages)
-    prompt = replace_messages_variable(prompt, compacted_messages, 'COMPACTED_MESSAGES')
+    # The compacted messages are already above as real messages, so any
+    # {{COMPACTED_MESSAGES}} placeholder collapses to nothing.
+    prompt = replace_messages_variable(prompt, [], 'COMPACTED_MESSAGES')
     prompt = replace_messages_variable(prompt, recent_messages, 'RECENT_MESSAGES')
     prompt = prompt_variables_template(prompt, {'{{PREVIOUS_SUMMARY}}': previous_summary or ''})
-    return await prompt_template(prompt, user)
+    prompt = await prompt_template(prompt, user)
+    return [*map(_project_summary_message, compacted_messages), {'role': 'user', 'content': prompt}]
 
 
 def _fallback_summary(previous_summary: str | None, messages: list[dict]) -> str:
@@ -839,10 +871,10 @@ async def _generate_summary(
         'max_tokens': models[task_model_id].get('info', {}).get('params', {}).get('max_tokens', 1000)
     }
 
-    async def run_summary_prompt(prompt: str) -> str:
+    async def run_summary_prompt(summary_messages: list[dict]) -> str:
         payload = {
             'model': task_model_id,
-            'messages': [{'role': 'user', 'content': prompt}],
+            'messages': summary_messages,
             'stream': False,
             'metadata': {
                 **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
@@ -864,14 +896,14 @@ async def _generate_summary(
     summary = ''
     running_summary = previous_summary
     for compacted_chunk, recent_chunk in plans:
-        prompt = await _build_summary_prompt(
+        summary_messages = await _build_summary_messages(
             summary_prompt_template,
             compacted_chunk,
             recent_chunk,
             running_summary,
             user,
         )
-        summary = await run_summary_prompt(prompt)
+        summary = await run_summary_prompt(summary_messages)
         if not summary:
             # Model returned nothing usable; keep the essentials so later chunks
             # still have something to fold into.

@@ -355,7 +355,6 @@
 						<div class="mt-1 text-[0.6875rem] text-gray-400 dark:text-gray-600">
 							{$i18n.t('settings.admin.interface.availableVariables.label')}:
 							<code>{'{{PREVIOUS_SUMMARY}}'}</code>,
-							<code>{'{{COMPACTED_MESSAGES}}'}</code>,
 							<code>{'{{RECENT_MESSAGES}}'}</code>,
 							<code>{'{{MESSAGES}}'}</code>,
 							<code>{'{{CURRENT_DATE}}'}</code>
