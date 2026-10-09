@@ -644,11 +644,8 @@ async def execute_code(
 ) -> str:
     """
     Execute Python code in a sandboxed environment and return the output.
-    Use this to perform calculations, data analysis, generate visualizations, file operations,
+    Use this to perform calculations, data analysis, generate visualizations,
     or run any Python code that would help answer the user's question.
-    User-uploaded files are all available at `/mnt/uploads/`.
-    When the user asks you to work with their files, read from this directory.
-    You can also write output files to `/mnt/uploads/`.
 
     :param code: The Python code to execute
     :return: JSON with stdout, stderr, and result from execution

@@ -487,6 +487,8 @@ CODE_INTERPRETER_PYODIDE_PROMPT = """
 
 - This Python environment runs via Pyodide in the browser. **Do not install packages** — `pip install`, `subprocess`, and `micropip.install()` are not available.
 - If a required library is unavailable, use an alternative approach with available modules. Do not attempt to install anything.
+- To get the image to display to the user, use matplotlib.pyplot.show().
+- **If a link to an image, audio, or any file appears in the output, display it exactly as-is** in your response so the user can access it. Do not modify the link.
 
 ##### Persistent File System
 
