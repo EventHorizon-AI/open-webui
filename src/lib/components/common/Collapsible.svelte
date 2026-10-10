@@ -3,7 +3,7 @@
 	import { v4 as uuidv4 } from 'uuid';
 
 	import { getContext } from 'svelte';
-	const i18n = getContext('i18n');
+	const i18n = getContext<typeof import('$lib/i18n').default>('i18n');
 
 	import { settings } from '$lib/stores';
 	import { get } from 'svelte/store';
@@ -152,7 +152,10 @@
 									})}
 								{:else}
 									{$i18n.t('Thought for {{DURATION}}', {
-										DURATION: dayjs.duration(attributes.duration, 'seconds').humanize()
+										DURATION: dayjs
+											.duration(attributes.duration, 'seconds')
+											.locale($i18n.language)
+											.humanize()
 									})}
 								{/if}
 							{:else}

@@ -17,7 +17,7 @@
 	import Tag from '$lib/components/icons/Tag.svelte';
 	import Label from '$lib/components/icons/Label.svelte';
 
-	const i18n = getContext('i18n');
+	const i18n = getContext<typeof import('$lib/i18n').default>('i18n');
 
 	export let selectedModelIdx: number = -1;
 	export let item: any = {};
@@ -31,10 +31,11 @@
 	export let deleteModelHandler: (model: any) => void = () => {};
 	export let selectionOnly = false;
 
-	export let variantsEnabled = false;
-	export let onOpenVariants: () => void = () => {};
+	export let controlsEnabled = false;
+	export let onOpenControls: () => void = () => {};
 
 	export let onClick: () => void = () => {};
+	export let onEdit: () => void = () => {};
 
 	$: localizedDescription = resolveLocalizedModelDescription(item.model, $i18n.language);
 
@@ -131,8 +132,9 @@
 	};
 
 	$: isSelected = compareEnabled ? selectedValues.includes(item.value) : value === item.value;
-	$: hasVariants = variantsEnabled && (item.model?.info?.meta?.variants ?? []).length > 0;
-	$: variantAlwaysVisible = ($settings?.highContrastMode ?? false) || ($mobile && isSelected);
+	$: hasControls =
+		controlsEnabled && Object.keys(item.model?.info?.params?.model_controls ?? {}).length > 0;
+	$: controlAlwaysVisible = ($settings?.highContrastMode ?? false) || ($mobile && isSelected);
 </script>
 
 <button
@@ -265,7 +267,9 @@
 							content={item.model.ollama?.expires_at &&
 							new Date(item.model.ollama?.expires_at * 1000) > new Date()
 								? `${$i18n.t('Unloads {{FROM_NOW}}', {
-										FROM_NOW: dayjs(item.model.ollama?.expires_at * 1000).fromNow()
+										FROM_NOW: dayjs(item.model.ollama?.expires_at * 1000)
+											.locale($i18n.language)
+											.fromNow()
 									})}`
 								: `${$i18n.t('Loaded')}`}
 							className="self-end"
@@ -383,30 +387,31 @@
 				{pinModelHandler}
 				{deleteModelHandler}
 				{unloadModelHandler}
+				{onEdit}
 				copyLinkHandler={() => {
 					copyLinkHandler(item.model);
 				}}
 			/>
 		{/if}
 
-		{#if isSelected || (hasVariants && (!$mobile || variantAlwaysVisible))}
+		{#if isSelected || (hasControls && (!$mobile || controlAlwaysVisible))}
 			<div class="relative flex size-3 shrink-0 items-center justify-center">
-				{#if isSelected && !(hasVariants && variantAlwaysVisible)}
-					<Check className="size-3 {hasVariants ? 'group-hover/item:opacity-0' : ''}" />
+				{#if isSelected && !(hasControls && controlAlwaysVisible)}
+					<Check className="size-3 {hasControls ? 'group-hover/item:opacity-0' : ''}" />
 				{/if}
 
-				{#if hasVariants}
+				{#if hasControls}
 					<Tooltip
-						content={$i18n.t('Variants')}
-						className="absolute inset-0 {variantAlwaysVisible
+						content={$i18n.t('Model controls')}
+						className="absolute inset-0 {controlAlwaysVisible
 							? ''
 							: 'pointer-events-none opacity-0 group-hover/item:pointer-events-auto group-hover/item:opacity-100'}"
 					>
 						<button
 							type="button"
 							class="focus-ring flex size-full items-center justify-center"
-							aria-label={$i18n.t('Select variant')}
-							on:click|preventDefault|stopPropagation={onOpenVariants}
+							aria-label={$i18n.t('Model controls')}
+							on:click|preventDefault|stopPropagation={onOpenControls}
 						>
 							<ChevronRight className="size-3" strokeWidth="2" />
 						</button>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from copy import deepcopy
 from typing import Any
 
@@ -29,6 +30,8 @@ log = logging.getLogger(__name__)
 # messages; this template is the trailing user turn that asks for the summary.
 # The retained (kept-in-context) messages are not injected: they stay in the
 # model's context anyway.
+BASE64_DATA_URI_RE = re.compile(r'data:[\w/+.;=%-]*;base64,[A-Za-z0-9+/=]*')
+
 DEFAULT_CONTEXT_COMPACTION_PROMPT = """### Task:
 Summarize the conversation above that will be compacted out of the active chat context.
 
@@ -61,6 +64,7 @@ async def compact_messages_for_request(
 
     previous_summary = current_summary(messages)
     messages, _ = _apply_latest_summary_checkpoint(messages)
+    system_prompt = system_prompt or (get_content_from_message(system_messages[0]) if system_messages else '')
     token_threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], metadata)
     if not _exceeds_token_threshold(messages, system_prompt, previous_summary, token_threshold) or len(messages) <= 3:
         return [*system_messages, *messages], previous_summary, False
@@ -630,10 +634,12 @@ def _exceeds_token_threshold(messages: list[dict], system_prompt: str, summary: 
     if threshold <= 0:
         return False
 
-    for idx in range(len(messages) - 1, -1, -1):
-        usage = messages[idx].get('usage') or (messages[idx].get('info') or {}).get('usage')
-        if isinstance(usage, dict) and (tokens := _usage_token_count(usage)):
-            return tokens + _estimate_messages_tokens(messages[idx + 1 :]) > threshold
+    # Expanded tool histories include fresh results and rebuilt prompts absent from prior usage.
+    if not any(message.get('role') == 'tool' for message in messages):
+        for idx in range(len(messages) - 1, -1, -1):
+            usage = messages[idx].get('usage') or (messages[idx].get('info') or {}).get('usage')
+            if isinstance(usage, dict) and (tokens := _usage_token_count(usage)):
+                return tokens + _estimate_messages_tokens(messages[idx + 1 :]) > threshold
 
     estimated = _estimate_tokens(system_prompt) + _estimate_tokens(summary or '') + _estimate_messages_tokens(messages)
     return estimated > threshold
@@ -842,6 +848,9 @@ async def _generate_summary(
 ) -> str:
     from open_webui.utils.chat import generate_chat_completion
 
+    if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
+        models = {**dict(models.items()), request.state.model['id']: request.state.model}
+
     task_config = await Config.get_many(
         'task.model.params',
         'chat.context_compaction.model',
@@ -959,7 +968,10 @@ def _estimate_messages_tokens(messages: list[dict]) -> int:
 
         total += _estimate_tokens(message.get('output'))
         total += _estimate_tokens(message.get('tool_calls'))
-        total += _estimate_tokens(message.get('files'))
+        files = message.get('files')
+        if files:
+            # Inline data is not part of the file tags sent to the model.
+            total += _estimate_tokens(BASE64_DATA_URI_RE.sub('', JSONCodec.dumps(files, ensure_ascii=False)))
     return total
 
 

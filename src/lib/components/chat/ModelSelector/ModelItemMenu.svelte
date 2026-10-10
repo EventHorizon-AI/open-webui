@@ -23,17 +23,33 @@
 	export let copyLinkHandler: Function = () => {};
 	export let deleteModelHandler: Function = () => {};
 	export let unloadModelHandler: Function = () => {};
+	export let onEdit: () => void = () => {};
 
 	export let onClose: Function = () => {};
 
 	const providerSupportsDelete = (provider = '') => provider === 'llama.cpp';
+
+	// The menu is opened programmatically (right-click / long-press), not through the
+	// Dropdown's trigger. Close it on any outside pointerdown — including a right-click,
+	// which never fires a `click` — so reopening on another item works and the menu never
+	// lingers. Pointerdowns inside the menu are stopped by the Dropdown content itself.
+	const handleWindowPointerDown = (event: PointerEvent) => {
+		if (!show) return;
+		if (event.target instanceof Element && event.target.closest('.model-selector-child-menu')) {
+			return;
+		}
+		show = false;
+	};
 </script>
+
+<svelte:window on:pointerdown|capture={handleWindowPointerDown} />
 
 <Dropdown
 	bind:show
 	align="start"
 	sideOffset={-2}
 	animate={false}
+	contentClass="model-selector-child-menu"
 	onOpenChange={(state) => {
 		if (state === false) {
 			onClose();
@@ -62,6 +78,7 @@
 							showSettings.set({ tab: 'admin:models', state: { id: model?.id ?? null } });
 						}
 						show = false;
+						onEdit();
 					}}
 				>
 					<Pencil className="size-3" />

@@ -27,6 +27,7 @@
 		WEBUI_NAME
 	} from '$lib/stores';
 	import {
+		allLoaded,
 		loadNextChatListPage,
 		refreshChatList,
 		registerFolderRefreshHandler,
@@ -114,7 +115,8 @@
 	// Pagination variables
 	let chatListLoading = false;
 	let chatListReady = false;
-	let allChatsLoaded = false;
+	// Read pagination state when the shared list publishes its rows.
+	$: allChatsLoaded = $chats !== null && allLoaded;
 
 	let showCreateFolderModal = false;
 
@@ -153,7 +155,7 @@
 
 	$: pinnedItems = $settings?.pinnedMenuItems ?? DEFAULT_PINNED_ITEMS;
 
-	const isMenuItemVisible = (id) => {
+	$: isMenuItemVisible = (id) => {
 		switch (id) {
 			case 'notes':
 				return (
@@ -289,7 +291,10 @@
 
 		// Merge shared folders into the same structure
 		for (const sf of sharedFolders) {
-			if (folderMap[sf.id]) continue; // Already owned by user
+			if (folderMap[sf.id]) {
+				folderMap[sf.id].showOwnerInfo = true;
+				continue;
+			}
 			folderMap[sf.id] = { ...sf, shared: true };
 		}
 
@@ -375,7 +380,6 @@
 	const initChatList = async () => {
 		// Reset pagination variables
 		console.log('initChatList');
-		allChatsLoaded = false;
 		chatListReady = false;
 
 		await Promise.all([
@@ -418,7 +422,6 @@
 		if (result.accepted) {
 			await initFolders();
 			await Promise.all(Object.values(folderRegistry).map((folder) => folder?.setFolderItems?.()));
-			allChatsLoaded = result.allLoaded;
 			chatListReady = true;
 		}
 	};
@@ -430,8 +433,7 @@
 
 		chatListLoading = true;
 
-		const result = await loadNextChatListPage(localStorage.token);
-		allChatsLoaded = result.allLoaded;
+		await loadNextChatListPage(localStorage.token);
 
 		chatListLoading = false;
 	};
@@ -646,6 +648,11 @@
 		}
 
 		const socketInstance = $socket;
+		const scheduleChannelRefresh = () => {
+			socketInstance?.off('connect', initChannels);
+			socketInstance?.once('connect', initChannels);
+		};
+		socketInstance?.on('access:updated', scheduleChannelRefresh);
 		socketInstance?.on('events', chatActiveEventHandler);
 		socketInstance?.on('connect', refreshChatRows);
 
@@ -685,6 +692,8 @@
 				dropZone.removeEventListener('dragleave', onDragLeave);
 			}
 
+			socketInstance?.off('access:updated', scheduleChannelRefresh);
+			socketInstance?.off('connect', initChannels);
 			socketInstance?.off('events', chatActiveEventHandler);
 			socketInstance?.off('connect', refreshChatRows);
 
@@ -1320,6 +1329,10 @@
 										});
 
 										folderRegistry[chat.folder_id]?.setFolderItems();
+
+										if (res) {
+											chat = res;
+										}
 									}
 
 									if (chat.pinned) {
