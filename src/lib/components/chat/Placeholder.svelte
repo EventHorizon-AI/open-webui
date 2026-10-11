@@ -110,14 +110,14 @@
 		!$selectedFolder.write_access;
 </script>
 
-<div class="m-auto w-full max-w-[58rem] px-1 @2xl:px-20 translate-y-6 py-24 text-center">
+<div class="relative m-auto w-full max-w-[58rem] px-1 @2xl:px-20 translate-y-6 py-24 text-center">
 	{#if $temporaryChatEnabled}
 		<Tooltip
 			content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
-			className="w-full flex justify-center mb-0.5"
+			className="pointer-events-none absolute inset-x-0 top-16 flex justify-center"
 			placement="top"
 		>
-			<div class="flex items-center gap-1.5 text-gray-500 text-xs my-1 w-fit">
+			<div class="pointer-events-auto flex items-center gap-1.5 text-gray-500 text-xs my-1 w-fit">
 				<EyeSlash strokeWidth="2" className="size-3.5" />{$i18n.t('Temporary Chat')}
 			</div>
 		</Tooltip>
