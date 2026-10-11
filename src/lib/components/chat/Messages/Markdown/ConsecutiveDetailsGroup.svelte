@@ -109,14 +109,18 @@
 	$: pendingToolTokens = tokens.filter(
 		(t) => t?.attributes?.type === 'tool_calls' && t?.attributes?.status === 'pending'
 	);
-	$: hasActiveToolCalls = tokens.some(
-		(t) =>
-			t?.attributes?.type === 'tool_calls' &&
-			t?.attributes?.status !== 'rejected' &&
-			t?.attributes?.status !== 'failed' &&
-			t?.attributes?.status !== 'incomplete' &&
-			t?.attributes?.done !== 'true'
-	);
+	$: hasActiveDetails = tokens.some((token) => {
+		const attributes = token?.attributes;
+		if (attributes?.type === 'tool_calls') {
+			return (
+				attributes.status !== 'rejected' &&
+				attributes.status !== 'failed' &&
+				attributes.status !== 'incomplete' &&
+				attributes.done !== 'true'
+			);
+		}
+		return !messageDone && attributes?.done && attributes.done !== 'true';
+	});
 	$: hasRejected = tokens.some(
 		(t) => t?.attributes?.type === 'tool_calls' && t?.attributes?.status === 'rejected'
 	);
@@ -210,9 +214,9 @@
 			: '';
 
 	// One condition drives both the icon and the text of the header so they can
-	// never disagree (the spinner used to also check `hasActiveToolCalls` while
+	// never disagree (the spinner used to also check `hasActiveDetails` while
 	// the text only looked at `groupOpen`).
-	$: groupLive = groupOpen || hasActiveToolCalls;
+	$: groupLive = groupOpen || hasActiveDetails;
 
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
 	// Once it is closed it settles to "Explored" regardless of the last tool
@@ -251,7 +255,7 @@
 				{#if hasLeadingIcon}
 					<div class="relative flex size-4 shrink-0 items-center justify-center self-center">
 						<div class="flex group-hover/groupheader:invisible">
-							{#if groupOpen || hasActiveToolCalls}
+							{#if groupOpen || hasActiveDetails}
 								<Spinner className="size-4" />
 							{:else if hasRejected}
 								<div class="text-red-400 dark:text-red-500">

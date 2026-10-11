@@ -21,6 +21,8 @@
 	marked.use(colonFenceExtension(options));
 	marked.use(cjkFriendlyExtension());
 	marked.use(disableSingleTilde);
+	// Also set by RichTextInput, but messages can render before any input mounts.
+	marked.use({ breaks: true });
 	marked.use({
 		extensions: [
 			mentionExtension({ triggerChar: '@' }),

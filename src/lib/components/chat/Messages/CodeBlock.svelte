@@ -63,7 +63,7 @@
 	let _token = null;
 
 	let renderHTML = null;
-	let renderError = null;
+	let renderError: { type: 'diagram' | 'visualization'; detail: string } | null = null;
 
 	let highlightedCode = null;
 	let executing = false;
@@ -243,7 +243,9 @@
 			/\bimport\s+anyio\b|\bfrom\s+anyio\b/.test(code) ? 'anyio' : null,
 			/\bimport\s+httpx\b|\bfrom\s+httpx\b/.test(code) ? 'httpx' : null,
 			/\bimport\s+openpyxl\b|\bfrom\s+openpyxl\b/.test(code) ? 'openpyxl' : null,
-			/\.(read|to)_excel\(|\.Excel(Writer|File)\(/.test(code) ? 'openpyxl' : null
+			/\.(read|to)_excel\(|\.Excel(Writer|File)\(/.test(code) ? 'openpyxl' : null,
+			/\bimport\s+pptx\b|\bfrom\s+pptx\b/.test(code) ? 'python-pptx' : null,
+			/\bimport\s+docx\b|\bfrom\s+docx\b/.test(code) ? 'python-docx' : null
 		].filter(Boolean);
 
 		console.log(packages);
@@ -403,7 +405,7 @@
 			} catch (error) {
 				console.error('Failed to render Vega visualization:', error);
 				const errorMsg = error instanceof Error ? error.message : String(error);
-				renderError = $i18n.t('Failed to render visualization') + `: ${errorMsg}`;
+				renderError = { type: 'visualization', detail: errorMsg };
 				renderHTML = null;
 			}
 		}

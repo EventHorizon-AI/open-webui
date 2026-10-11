@@ -1,11 +1,11 @@
 <script lang="ts">
-	import { models, pinnedModels, selectedModelVariants, settings, user } from '$lib/stores';
+	import { models, pinnedModels, settings, user } from '$lib/stores';
 	import { getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 	import Selector from './ModelSelector/Selector.svelte';
 
 	import { updateUserSettings } from '$lib/apis/users';
-	import { resolveLocalizedModelName } from '$lib/utils/localizedContent';
+	import { localizeModelControls, resolveLocalizedModelName } from '$lib/utils/localizedContent';
 	import equal from 'fast-deep-equal';
 	const i18n = getContext('i18n');
 
@@ -59,36 +59,19 @@
 		compareModels = true;
 	}
 
-	const getModelVariants = (modelId: string) =>
-		$models.find((m) => m.id === modelId)?.info?.meta?.variants ?? [];
-
 	$: primaryModelId = selectedModels.find((modelId) => modelId) ?? '';
-	$: selectedVariantName = primaryModelId ? ($selectedModelVariants[primaryModelId] ?? '') : '';
-	$: selectedVariantLabel = selectedVariantName
-		? (getModelVariants(primaryModelId).find((variant) => variant.name === selectedVariantName)
-				?.name ?? '')
-		: '';
 
-	const getVariants = (modelId: string) => [
-		{ value: '', label: $i18n.t('Default') },
-		...getModelVariants(modelId).map((variant) => ({
-			value: variant.name,
-			label: variant.name
-		}))
-	];
-
-	const getSelectedVariant = (modelId: string) => $selectedModelVariants[modelId] ?? '';
-
-	const handleVariantSelect = (modelId: string, variantName: string) => {
-		selectedModelVariants.update((selections) => ({
-			...selections,
-			[modelId]: variantName
-		}));
-
-		if (!selectedModels.includes(modelId)) {
-			selectedModels = [modelId];
-		}
-	};
+	// The topmost model control's current option, shown next to the model name.
+	$: selectedControlLabel = (() => {
+		if (!primaryModelId) return '';
+		const selected = $models.find((m) => m.id === primaryModelId);
+		const controls = localizeModelControls(selected, $i18n.language);
+		const entry = Object.entries(controls)[0];
+		if (!entry) return '';
+		const [key, control] = entry as [string, any];
+		const value = $settings?.params?.model_controls?.[primaryModelId]?.[key];
+		return control?.options?.[value ?? control?.default ?? '']?.label ?? control?.label ?? '';
+	})();
 </script>
 
 <div class="flex min-w-0 max-w-full flex-col items-start">
@@ -114,11 +97,8 @@
 					multipleEnabled={$user?.role === 'admin' ||
 						($user?.permissions?.chat?.multiple_models ?? true)}
 					{disabled}
-					variantLabel={selectedVariantLabel}
-					variantsEnabled
-					{getVariants}
-					{getSelectedVariant}
-					onVariantSelect={handleVariantSelect}
+					controlLabel={selectedControlLabel}
+					controlsEnabled
 					bind:compareEnabled={compareModels}
 					bind:values={selectedModels}
 				/>
