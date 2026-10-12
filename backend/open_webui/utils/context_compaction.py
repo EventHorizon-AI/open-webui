@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import re
-from copy import deepcopy
 from typing import Any
 
 from fastapi.responses import JSONResponse
@@ -10,26 +9,12 @@ from open_webui.models.chats import Chats
 from open_webui.models.config import Config
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.json_codec import JSONCodec
-from open_webui.utils.misc import (
-    get_content_from_message,
-    get_last_user_message,
-    get_message_list,
-)
+from open_webui.utils.misc import get_content_from_message, get_message_list
 from open_webui.utils.payload import apply_params_to_form_data
-from open_webui.utils.task import (
-    prompt_template,
-    prompt_variables_template,
-    replace_messages_variable,
-    replace_prompt_variable,
-    truncate_content,
-)
+from open_webui.utils.task import prompt_template, prompt_variables_template
 
 log = logging.getLogger(__name__)
 
-# The messages being compacted are sent to the compaction model as real chat
-# messages; this template is the trailing user turn that asks for the summary.
-# The retained (kept-in-context) messages are not injected: they stay in the
-# model's context anyway.
 BASE64_DATA_URI_RE = re.compile(r'data:[\w/+.;=%-]*;base64,[A-Za-z0-9+/=]*')
 
 DEFAULT_CONTEXT_COMPACTION_PROMPT = """### Task:
@@ -54,353 +39,39 @@ async def compact_messages_for_request(
     model_id: str,
     models: dict,
     system_prompt: str = '',
+    previous_summary: str | None = None,
+    prompt_tokens: int | None = None,
 ) -> tuple[list[dict], str | None, bool]:
-    config = await load_compaction_config()
+    config = await _load_config()
     if not config['enable']:
         return messages, None, False
 
     system_messages = [messages[0]] if messages and messages[0].get('role') == 'system' else []
     messages = messages[1:] if system_messages else messages
 
-    previous_summary = current_summary(messages)
-    messages, _ = _apply_latest_summary_checkpoint(messages)
+    messages, checkpoint_summary = _apply_latest_summary_checkpoint(messages)
+    # The rolling summary lives on an output item, so take it straight from the
+    # chain (or from the caller / the current system block) instead of metadata.
+    stored_summary = (get_stored_context_summary(messages) or {}).get('summary')
+    previous_summary = (
+        checkpoint_summary or stored_summary or previous_summary or existing_conversation_summary(system_messages)
+    )
     system_prompt = system_prompt or (get_content_from_message(system_messages[0]) if system_messages else '')
     token_threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], metadata)
-    if not _exceeds_token_threshold(messages, system_prompt, previous_summary, token_threshold) or len(messages) <= 3:
-        return [*system_messages, *messages], previous_summary, False
+    # The tool loop knows the provider's real prompt size, which the local
+    # estimate can miss (tool schemas, chat template, images); trust it when given.
+    over_threshold = _exceeds_token_threshold(messages, system_prompt, previous_summary, token_threshold) or (
+        prompt_tokens is not None and prompt_tokens > token_threshold
+    )
+    if not over_threshold or len(messages) <= 3:
+        return [*system_messages, *messages], checkpoint_summary, False
 
     boundary = _find_compaction_boundary(messages, config['retention_percentage'])
     compacted_messages = messages[:boundary]
     recent_messages = messages[boundary:]
     if not compacted_messages or not recent_messages:
-        return [*system_messages, *messages], previous_summary, False
+        return [*system_messages, *messages], checkpoint_summary, False
 
-    summary = await _summarize_with_events(
-        request,
-        user,
-        metadata,
-        model_id,
-        models,
-        compacted_messages,
-        recent_messages,
-        previous_summary,
-        config['prompt_template'],
-    )
-
-    chat_id = metadata.get('chat_id')
-    checkpoint_message_id = (
-        recent_messages[0].get('id') or metadata.get('user_message_id') or metadata.get('message_id')
-    )
-    if is_saved_chat_id(chat_id) and checkpoint_message_id:
-        await Chats.upsert_message_to_chat_by_id_and_message_id(
-            chat_id,
-            checkpoint_message_id,
-            {'contextSummary': summary},
-            touch=False,
-        )
-
-    log.debug(
-        'Compacted chat context for chat=%s checkpoint=%s response=%s dropped=%d kept=%d summary_chars=%d',
-        chat_id,
-        checkpoint_message_id,
-        metadata.get('message_id'),
-        len(compacted_messages),
-        len(recent_messages),
-        len(summary),
-    )
-
-    return [*system_messages, *recent_messages], summary, True
-
-
-# Plans a mid-turn cut and returns its summary/count; the caller stores the
-# checkpoint (the compacted tool messages have no chat rows to sit on).
-async def plan_mid_turn_compaction(
-    request,
-    user,
-    messages: list[dict],
-    metadata: dict,
-    model_id: str,
-    models: dict,
-    config: dict,
-    prompt_tokens: int | None,
-    pinned_count: int,
-    previous_summary: str | None,
-) -> tuple[str | None, int]:
-    threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], metadata)
-    if max(prompt_tokens or 0, _estimate_messages_tokens(messages)) <= threshold:
-        return None, 0
-
-    system_messages = [messages[0]] if messages and messages[0].get('role') == 'system' else []
-    messages = messages[1:] if system_messages else messages
-    if len(messages) <= 3:
-        return None, 0
-
-    boundary = _find_compaction_boundary(messages, config['retention_percentage'])
-    # A cut at or before the pin drops nothing, since the caller re-adds it.
-    if boundary <= pinned_count:
-        return None, 0
-
-    # The summary request gets the full prefix — the leading system message plus
-    # the messages being cut — so it starts identically to the tool-loop prompt
-    # and providers with prefix caching can reuse the cached context.
-    compacted_messages = [*system_messages, *messages[:boundary]]
-    recent_messages = messages[boundary:]
-    summary = await _summarize_with_events(
-        request,
-        user,
-        metadata,
-        model_id,
-        models,
-        compacted_messages,
-        recent_messages,
-        previous_summary,
-        config['prompt_template'],
-    )
-    # Dropping messages without anything standing in for them loses the context outright.
-    if not summary:
-        return None, 0
-
-    log.debug(
-        'Planned mid-turn context cut for chat=%s response=%s dropped=%d kept=%d summary_chars=%d',
-        metadata.get('chat_id'),
-        metadata.get('message_id'),
-        boundary - pinned_count,
-        len(recent_messages),
-        len(summary),
-    )
-
-    return summary, boundary - pinned_count
-
-
-# The rolling summary lives as a single block (``[CONVERSATION SUMMARY]\n...``)
-# inside the leading system message. A new summary replaces the previous one by
-# exact text match, so it never accumulates — no delimiters or regex needed.
-def _summary_block(summary: str) -> str:
-    return f'[CONVERSATION SUMMARY]\n{summary}'
-
-
-def _replace_summary_text(text: str, block: str, previous_block: str | None) -> str:
-    if previous_block and previous_block in text:
-        return text.replace(previous_block, block, 1)
-    return f'{text}\n{block}' if text else block
-
-
-def _with_summary_block(content: Any, block: str, previous_block: str | None) -> Any:
-    if isinstance(content, list):
-        items = [dict(item) if isinstance(item, dict) else item for item in content]
-        for index, item in enumerate(items):
-            if isinstance(item, dict) and item.get('type') == 'text':
-                items[index] = {**item, 'text': _replace_summary_text(item.get('text', ''), block, previous_block)}
-                return items
-        items.append({'type': 'text', 'text': block})
-        return items
-    return _replace_summary_text(content if isinstance(content, str) else '', block, previous_block)
-
-
-def set_conversation_summary(
-    messages: list[dict], summary: str | None, previous_summary: str | None = None
-) -> list[dict]:
-    """Return a copy of messages with the rolling summary as a single block in
-    the leading system message.
-
-    The previous block (built from ``previous_summary``) is replaced in place by
-    exact text match, so the summary never stacks.
-    """
-    if not summary:
-        return messages
-    block = _summary_block(summary)
-    previous_block = _summary_block(previous_summary) if previous_summary else None
-    if messages and messages[0].get('role') == 'system':
-        system = messages[0]
-        return [
-            {**system, 'content': _with_summary_block(system.get('content'), block, previous_block)},
-            *messages[1:],
-        ]
-    return [{'role': 'system', 'content': block}, *messages]
-
-
-def current_summary(messages: list[dict]) -> str | None:
-    """Return the newest stored summary along the message chain.
-
-    The chain is chronological, so scanning backwards yields the latest one — no
-    timestamp needed. The mid-turn summary lives on an ``output`` item
-    (``context_summary``); the chat-level checkpoint lives on the message
-    (``contextSummary``). ``meta['contextCompaction']['summary']`` is a legacy
-    fallback.
-    """
-    for message in reversed(messages):
-        value = message.get('contextSummary') or message.get('context_summary')
-        if isinstance(value, str) and value.strip():
-            return value
-
-        output = message.get('output')
-        if isinstance(output, list):
-            for item in reversed(output):
-                if isinstance(item, dict):
-                    value = item.get('context_summary')
-                    if isinstance(value, str) and value.strip():
-                        return value
-
-        checkpoint = message.get('contextCompaction')
-        if not isinstance(checkpoint, dict):
-            meta = message.get('meta')
-            checkpoint = meta.get('contextCompaction') if isinstance(meta, dict) else None
-        if isinstance(checkpoint, dict):
-            value = checkpoint.get('summary')
-            if isinstance(value, str) and value.strip():
-                return value
-    return None
-
-
-# The pinned count it returns shifts the indices the next plan call reports against.
-def apply_mid_turn_compaction(
-    messages: list[dict],
-    compacted_count: int,
-    task_message: dict | None,
-    summary: str | None = None,
-    previous_summary: str | None = None,
-) -> tuple[list[dict], int]:
-    if compacted_count:
-        # Copied because the caller may reuse the prefix across iterations.
-        system_messages = [deepcopy(messages[0])] if messages and messages[0].get('role') == 'system' else []
-        recent_messages = (messages[1:] if system_messages else messages)[compacted_count:]
-
-        # Without the request the run is working towards, the model abandons the task early.
-        pinned_count = 1 if task_message and not any(message is task_message for message in recent_messages) else 0
-        if pinned_count:
-            recent_messages = [task_message, *recent_messages]
-
-        compacted = [*system_messages, *recent_messages]
-    else:
-        compacted, pinned_count = messages, 0
-
-    if summary:
-        compacted = set_conversation_summary(compacted, summary, previous_summary)
-    return compacted, pinned_count
-
-
-def get_stored_mid_turn_compaction(messages: list[dict]) -> dict | None:
-    """Return the latest stored mid-turn compaction checkpoint, if any.
-
-    The checkpoint is promoted onto the message's ``contextCompaction`` key
-    (from ``meta['contextCompaction']``) when messages are rebuilt for replay.
-    """
-    checkpoint = None
-    for message in messages:
-        value = message.get('contextCompaction')
-        if not isinstance(value, dict):
-            meta = message.get('meta')
-            value = meta.get('contextCompaction') if isinstance(meta, dict) else None
-        if isinstance(value, dict):
-            checkpoint = value
-    return checkpoint
-
-
-async def store_mid_turn_compaction(metadata: dict, checkpoint: dict) -> dict | None:
-    """Store a mid-turn compaction checkpoint on the turn's message meta.
-
-    Prefers the assistant message, but falls back to the user message (which
-    always exists) so a checkpoint is never lost to an uncreated row and no
-    half-formed row is created just to hold it. Returns the merged meta so
-    callers can mirror it in the response, or None when it cannot be stored.
-    """
-    chat_id = metadata.get('chat_id')
-    if not is_saved_chat_id(chat_id):
-        return None
-
-    assistant_message_id = metadata.get('message_id')
-    target_id = assistant_message_id
-    if assistant_message_id:
-        if not await Chats.get_message_by_id_and_message_id(chat_id, assistant_message_id):
-            target_id = metadata.get('user_message_id')
-    else:
-        target_id = metadata.get('user_message_id')
-
-    if not target_id:
-        return None
-
-    existing = await Chats.get_message_by_id_and_message_id(chat_id, target_id) or {}
-    existing_meta = existing.get('meta') if isinstance(existing.get('meta'), dict) else {}
-    merged_meta = {**existing_meta, 'contextCompaction': checkpoint}
-
-    await Chats.upsert_message_to_chat_by_id_and_message_id(
-        chat_id,
-        target_id,
-        {'meta': merged_meta},
-        touch=False,
-    )
-    return merged_meta
-
-
-def _anchor_drop_count(messages: list[dict], call_id: str) -> int | None:
-    """Count the non-system messages before the expanded message produced by
-    ``call_id`` (the cut anchor), or None if it isn't present."""
-    leading_system = 1 if messages and messages[0].get('role') == 'system' else 0
-    count = 0
-    for index, message in enumerate(messages):
-        if index < leading_system:
-            continue
-        role = message.get('role')
-        if role == 'assistant' and any(
-            tool_call.get('id') == call_id for tool_call in (message.get('tool_calls') or [])
-        ):
-            return count
-        if role == 'tool' and message.get('tool_call_id') == call_id:
-            return count
-        count += 1
-    return None
-
-
-def apply_stored_mid_turn_compaction(
-    processed_messages: list[dict], source_messages: list[dict], task_message: dict | None = None
-) -> list[dict]:
-    """Re-apply a stored mid-turn compaction cut after output expansion.
-
-    Only the cut is applied here; the summary is written as the single system
-    block by the caller. The cut is anchored on the first retained tool call
-    (``anchor.call_id``) when available — robust to expansion changes — and falls
-    back to the stored ``drop`` count. ``task_message`` is re-pinned exactly as
-    the tool loop did so the prompt prefix stays byte-identical. Returns the
-    messages unchanged when no checkpoint is present.
-    """
-    checkpoint = get_stored_mid_turn_compaction(source_messages)
-    if not checkpoint:
-        return processed_messages
-
-    drop = _parse_positive_int(checkpoint.get('drop'))
-    anchor = checkpoint.get('anchor')
-    if isinstance(anchor, dict) and isinstance(anchor.get('call_id'), str):
-        anchored = _anchor_drop_count(processed_messages, anchor['call_id'])
-        if anchored is not None:
-            drop = anchored
-    if not drop:
-        return processed_messages
-
-    leading_system = 1 if processed_messages and processed_messages[0].get('role') == 'system' else 0
-    if drop >= len(processed_messages) - leading_system:
-        return processed_messages
-
-    compacted, _ = apply_mid_turn_compaction(processed_messages, drop, task_message)
-    return compacted
-
-
-def resolve_compaction_models(request) -> dict:
-    if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
-        return {**dict(request.app.state.MODELS.items()), request.state.model['id']: request.state.model}
-    return request.app.state.MODELS
-
-
-async def _summarize_with_events(
-    request,
-    user,
-    metadata: dict,
-    model_id: str,
-    models: dict,
-    compacted_messages: list[dict],
-    recent_messages: list[dict],
-    previous_summary: str | None,
-    prompt_template: str,
-) -> str:
     event_emitter = None
     if metadata.get('chat_id') and metadata.get('message_id'):
         from open_webui.socket.main import get_event_emitter
@@ -426,9 +97,8 @@ async def _summarize_with_events(
             model_id,
             models,
             compacted_messages,
-            recent_messages,
             previous_summary,
-            prompt_template,
+            config['prompt_template'],
         )
     except Exception:
         if event_emitter:
@@ -445,6 +115,29 @@ async def _summarize_with_events(
             )
         raise
 
+    chat_id = metadata.get('chat_id')
+    checkpoint_message_id = (
+        recent_messages[0].get('id') or metadata.get('user_message_id') or metadata.get('message_id')
+    )
+    # Only whole-turn user boundaries correspond to persisted chat checkpoints.
+    if recent_messages[0].get('role') == 'user' and is_saved_chat_id(chat_id) and checkpoint_message_id:
+        await Chats.upsert_message_to_chat_by_id_and_message_id(
+            chat_id,
+            checkpoint_message_id,
+            {'contextSummary': summary},
+            touch=False,
+        )
+
+    log.debug(
+        'Compacted chat context for chat=%s checkpoint=%s response=%s dropped=%d kept=%d summary_chars=%d',
+        chat_id,
+        checkpoint_message_id,
+        metadata.get('message_id'),
+        len(compacted_messages),
+        len(recent_messages),
+        len(summary),
+    )
+
     if event_emitter:
         await event_emitter(
             {
@@ -457,11 +150,11 @@ async def _summarize_with_events(
             }
         )
 
-    return summary
+    return [*system_messages, *recent_messages], summary, True
 
 
 async def compact_chat_branch(request, user, chat: Any, model_id: str, models: dict) -> dict:
-    config = await load_compaction_config()
+    config = await _load_config()
     if not config['enable']:
         return {'ok': True, 'compacted': False, 'reason': 'disabled'}
 
@@ -479,9 +172,7 @@ async def compact_chat_branch(request, user, chat: Any, model_id: str, models: d
     if not messages_map:
         messages_map = history.get('messages') or {}
 
-    chain = get_message_list(messages_map, current_id)
-    previous_summary = current_summary(chain)
-    messages, _ = _apply_latest_summary_checkpoint(chain)
+    messages, previous_summary = _apply_latest_summary_checkpoint(get_message_list(messages_map, current_id))
     compacted_messages = messages[:-1]
     recent_messages = messages[-1:]
     if not compacted_messages or not recent_messages:
@@ -493,7 +184,6 @@ async def compact_chat_branch(request, user, chat: Any, model_id: str, models: d
         model_id,
         models,
         compacted_messages,
-        recent_messages,
         previous_summary,
         config['prompt_template'],
     )
@@ -510,7 +200,7 @@ async def compact_chat_branch(request, user, chat: Any, model_id: str, models: d
     }
 
 
-async def load_compaction_config() -> dict:
+async def _load_config() -> dict:
     values = await Config.get_many(
         'chat.context_compaction.enable',
         'chat.context_compaction.token_threshold',
@@ -567,15 +257,6 @@ def _usage_token_count(usage: dict) -> int:
 
 
 async def get_chat_context_usage(chat: Any, model_id: str | None = None) -> dict | None:
-    config = await load_compaction_config()
-    if not config['enable']:
-        return None
-
-    params = ((chat.chat or {}).get('params') or {}).copy()
-    if model_id:
-        params['model'] = model_id
-    threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], {'params': params})
-
     chat_data = chat.chat or {}
     history = chat_data.get('history') or {}
     current_id = getattr(chat, 'current_message_id', None) or history.get('currentId')
@@ -584,15 +265,21 @@ async def get_chat_context_usage(chat: Any, model_id: str | None = None) -> dict
     if not current_id and isinstance(chat_data.get('messages'), list) and chat_data['messages']:
         current_id = chat_data['messages'][-1].get('id')
     if not current_id:
-        # Fresh chat with no messages yet: still surface the live resolved
-        # threshold so clients can render the context meter immediately.
-        return _build_context_usage(0, threshold)
+        return None
 
     messages_map = await Chats.get_messages_map_by_chat_id(chat.id)
     messages = get_message_list(messages_map or history.get('messages') or {}, current_id)
     if not messages:
-        return _build_context_usage(0, threshold)
+        return None
 
+    config = await _load_config()
+    if not config['enable']:
+        return None
+
+    params = ((chat.chat or {}).get('params') or {}).copy()
+    if model_id:
+        params['model'] = model_id
+    threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], {'params': params})
     messages, previous_summary = _apply_latest_summary_checkpoint(messages)
 
     for idx in range(len(messages) - 1, -1, -1):
@@ -630,6 +317,158 @@ def _apply_latest_summary_checkpoint(messages: list[dict]) -> tuple[list[dict], 
     return messages[summary_idx:], summary
 
 
+CONVERSATION_SUMMARY_MARKER = '[CONVERSATION SUMMARY]'
+
+CONTEXT_SUMMARY_KEY = 'context_summary'
+
+
+def _summary_block(summary: str) -> str:
+    return f'{CONVERSATION_SUMMARY_MARKER}\n{summary}'
+
+
+def _replace_summary_text(text: str, block: str, previous_block: str | None) -> str:
+    # Replace the block produced by the previous summary so summaries never stack.
+    if previous_block and previous_block in text:
+        return text.replace(previous_block, block, 1)
+    return f'{text}\n{block}' if text else block
+
+
+def _content_with_summary(content: Any, block: str, previous_block: str | None) -> Any:
+    if isinstance(content, list):
+        items = [dict(item) if isinstance(item, dict) else item for item in content]
+        for index, item in enumerate(items):
+            if isinstance(item, dict) and item.get('type') == 'text':
+                items[index] = {**item, 'text': _replace_summary_text(item.get('text', ''), block, previous_block)}
+                return items
+        items.append({'type': 'text', 'text': block})
+        return items
+    return _replace_summary_text(content if isinstance(content, str) else '', block, previous_block)
+
+
+def set_conversation_summary(
+    messages: list[dict], summary: str | None, previous_summary: str | None = None
+) -> list[dict]:
+    """Return ``messages`` with a single rolling ``[CONVERSATION SUMMARY]`` block
+    in the leading system message.
+
+    ``previous_summary`` (when given) is replaced in place, so a second
+    compaction within the same request overwrites the first summary instead of
+    appending a duplicate block.
+    """
+    if not summary:
+        return messages
+    block = _summary_block(summary)
+    previous_block = _summary_block(previous_summary) if previous_summary else None
+    if messages and messages[0].get('role') == 'system':
+        system = messages[0]
+        return [
+            {**system, 'content': _content_with_summary(system.get('content'), block, previous_block)},
+            *messages[1:],
+        ]
+    return [{'role': 'system', 'content': block}, *messages]
+
+
+def mark_output_item(output: list, summary: str, anchor_call_id: str | None) -> bool:
+    """Store the rolling summary on the output item that produced the cut anchor.
+
+    The field sits next to ``type`` and the item's own ``call_id`` is what replay
+    anchors on. Nothing is stored when the anchor is absent, so a stale or wrong
+    anchor can never be persisted (which would cut the replayed history wrongly).
+    """
+    if not anchor_call_id:
+        return False
+    for item in reversed(output or []):
+        if isinstance(item, dict) and item.get('call_id') == anchor_call_id:
+            item[CONTEXT_SUMMARY_KEY] = summary
+            return True
+    log.warning('Context compaction anchor %s not found in output; summary not stored', anchor_call_id)
+    return False
+
+
+def get_stored_context_summary(messages: list[dict]) -> dict | None:
+    """Newest stored tool-loop compaction as ``{'summary', 'call_id'}``, or None.
+
+    Only the ``context_summary`` field on a message's output items is read: that
+    is the single source of truth for the mid-turn summary. The upstream message
+    level ``contextSummary`` checkpoint is a separate mechanism handled by
+    ``_apply_latest_summary_checkpoint``.
+    """
+    stored = None
+    for message in messages:
+        output = message.get('output')
+        if isinstance(output, list):
+            for item in output:
+                if not isinstance(item, dict):
+                    continue
+                value = item.get(CONTEXT_SUMMARY_KEY)
+                if isinstance(value, str) and value.strip():
+                    stored = {'summary': value, 'call_id': item.get('call_id')}
+    return stored
+
+
+def existing_conversation_summary(messages: list[dict]) -> str | None:
+    """Body of the newest ``[CONVERSATION SUMMARY]`` block in the system message."""
+    summary = None
+    for message in messages:
+        if message.get('role') != 'system':
+            continue
+        content = get_content_from_message(message)
+        if not isinstance(content, str):
+            continue
+        index = content.rfind(CONVERSATION_SUMMARY_MARKER)
+        if index != -1:
+            summary = content[index + len(CONVERSATION_SUMMARY_MARKER) :].strip() or summary
+    return summary
+
+
+def first_tool_call_id(messages: list[dict]) -> str | None:
+    """Call id of the first retained tool block in a message list."""
+    for message in messages:
+        if message.get('role') in {'system', 'user'}:
+            continue
+        if message.get('role') == 'tool' and message.get('tool_call_id'):
+            return message['tool_call_id']
+        for tool_call in message.get('tool_calls') or []:
+            if tool_call.get('id'):
+                return tool_call['id']
+    return None
+
+
+def _anchor_drop_count(messages: list[dict], call_id: str) -> int | None:
+    """Count messages before the block produced by ``call_id``."""
+    count = 0
+    for message in messages:
+        if message.get('role') == 'assistant' and any(
+            tool_call.get('id') == call_id for tool_call in (message.get('tool_calls') or [])
+        ):
+            return count
+        if message.get('role') == 'tool' and message.get('tool_call_id') == call_id:
+            return count
+        count += 1
+    return None
+
+
+def apply_stored_context_summary(processed_messages: list[dict], stored: dict | None) -> tuple[list[dict], bool]:
+    """Re-apply a stored cut, anchored on the stored tool-call id, and re-pin the
+    task message the run is working towards. Returns the messages unchanged with
+    ``False`` when there is no anchor or the anchor is not in the messages
+    (e.g. a newer checkpoint already summarized the anchor away)."""
+    call_id = (stored or {}).get('call_id')
+    if not call_id:
+        return processed_messages, False
+    leading_system = 1 if processed_messages and processed_messages[0].get('role') == 'system' else 0
+    system_messages = processed_messages[:leading_system]
+    countable = processed_messages[leading_system:]
+    drop = _anchor_drop_count(countable, call_id)
+    if not drop or drop >= len(countable):
+        return processed_messages, False
+    recent = countable[drop:]
+    task_message = next((message for message in reversed(countable[:drop]) if message.get('role') == 'user'), None)
+    if task_message is not None and not any(message is task_message for message in recent):
+        recent = [task_message, *recent]
+    return [*system_messages, *recent], True
+
+
 def _exceeds_token_threshold(messages: list[dict], system_prompt: str, summary: str | None, threshold: int) -> bool:
     if threshold <= 0:
         return False
@@ -649,142 +488,20 @@ def _find_compaction_boundary(messages: list[dict], retention_percentage: int = 
     retention_percentage = _clamp_retention_percentage(retention_percentage)
     keep_count = max(2, len(messages) * retention_percentage // 100)
     target = max(1, len(messages) - keep_count)
-    # A single agentic turn has no later user message to clamp to, so tool blocks are cut points too.
-    cut_points = [idx for idx, message in enumerate(messages) if message.get('role') == 'user'][1:]
-    cut_points += _find_tool_block_starts(messages)
-    return max((idx for idx in cut_points if idx <= target), default=0)
-
-
-# Indices where no tool call is still awaiting its result, matched by id because parallel calls
-# can come back in any order.
-def _find_tool_block_starts(messages: list[dict]) -> list[int]:
-    block_starts = []
-    unanswered_tool_call_ids = set()
-    inside_tool_calling = False
-
-    for idx, message in enumerate(messages):
-        # Only the start of a later block, so plain turns stay whole and are cut on the user list.
-        if inside_tool_calling and not unanswered_tool_call_ids and message.get('tool_calls'):
-            block_starts.append(idx)
-
-        if message.get('role') == 'tool' and message.get('tool_call_id'):
-            unanswered_tool_call_ids.discard(message['tool_call_id'])
-        for tool_call in message.get('tool_calls') or []:
-            if tool_call.get('id'):
-                unanswered_tool_call_ids.add(tool_call['id'])
-                inside_tool_calling = True
-
-    return block_starts
-
-
-# Used for the retained messages, which are still rendered into the template as
-# ``ROLE: content`` text (not sent as real messages).
-def _message_prompt_text(message: dict) -> str:
-    content = get_content_from_message(message)
-    return f'{message.get("role", "unknown").upper()}: {content or ""}'
-
-
-def _rendered_message_tokens(message: dict) -> int:
-    return _estimate_tokens(_message_prompt_text(message))
-
-
-# Used for the compacted messages, which are sent as real chat messages.
-def _message_tokens(message: dict) -> int:
-    return _estimate_messages_tokens([message])
-
-
-def _estimate_prompt_messages_tokens(messages: list[dict]) -> int:
-    return sum(_rendered_message_tokens(message) for message in messages)
-
-
-def _truncate_message_for_prompt(message: dict, max_tokens: int) -> dict:
-    """Copy a message with its content capped so it can fit a chunk alone."""
-    text = get_content_from_message(message) or ''
-    if not isinstance(text, str):
-        text = str(text)
-
-    max_chars = max(0, max_tokens) * 4
-    if len(text) <= max_chars:
-        return message
-    return {**message, 'content': truncate_content(text, max_chars), 'output': None}
-
-
-def _chunk_messages_for_summary(
-    messages: list[dict], budget_tokens: int, estimator=_message_tokens
-) -> list[list[dict]]:
-    """Split messages into consecutive groups that each fit the token budget.
-
-    A single message larger than the budget is emitted on its own, truncated.
-    """
-    budget_tokens = max(1, budget_tokens)
-    chunks: list[list[dict]] = []
-    current: list[dict] = []
-    current_tokens = 0
-
-    for message in messages:
-        tokens = estimator(message)
-        if tokens > budget_tokens:
-            if current:
-                chunks.append(current)
-                current = []
-                current_tokens = 0
-            chunks.append([_truncate_message_for_prompt(message, budget_tokens)])
-            continue
-
-        if current and current_tokens + tokens > budget_tokens:
-            chunks.append(current)
-            current = []
-            current_tokens = 0
-
-        current.append(message)
-        current_tokens += tokens
-
-    if current:
-        chunks.append(current)
-    return chunks
-
-
-def _fit_messages_for_prompt(messages: list[dict], budget_tokens: int) -> list[dict]:
-    if not messages or _estimate_prompt_messages_tokens(messages) <= budget_tokens:
-        return messages
-
-    # Keep the most recent slice; the rest is already represented in the summary.
-    chunks = _chunk_messages_for_summary(messages, budget_tokens, _rendered_message_tokens)
-    return chunks[-1] if chunks else []
-
-
-def _plan_summary_calls(
-    summary_prompt_template: str,
-    compacted_messages: list[dict],
-    recent_messages: list[dict],
-    previous_summary: str | None,
-    budget_tokens: int,
-) -> list[tuple[list[dict], list[dict]]]:
-    """Plan one or more summary calls so no single prompt overflows the
-    compaction model's window.
-
-    Returns ``(compacted_chunk, recent_messages)`` pairs. When everything fits
-    a single pair preserving the original compacted/recent split is returned.
-    """
-    overhead = _estimate_tokens(summary_prompt_template) + _estimate_tokens(previous_summary or '')
-    # Leave room for the prompt skeleton and tokenizer drift so the rendered
-    # prompt stays under the per-call budget.
-    effective = max(1, budget_tokens - overhead - 1000)
-
-    if _estimate_messages_tokens(compacted_messages) + _estimate_prompt_messages_tokens(recent_messages) <= effective:
-        return [(compacted_messages, recent_messages)]
-
-    # Keep a slice of the retained messages in the final call so the summary
-    # stays anchored, but cap it so it cannot crowd out the compacted history.
-    recent_budget = min(_estimate_prompt_messages_tokens(recent_messages), effective // 3)
-    chunk_budget = max(1, effective - recent_budget)
-    recent_for_last = _fit_messages_for_prompt(recent_messages, recent_budget)
-
-    chunks = _chunk_messages_for_summary(compacted_messages, chunk_budget)
-    if not chunks:
-        return [(compacted_messages, recent_for_last)]
-
-    return [(chunk, recent_for_last if idx == len(chunks) - 1 else []) for idx, chunk in enumerate(chunks)]
+    if any(message.get('role') == 'tool' for message in messages):
+        # Only tool blocks produced after the task message (the current run) are
+        # valid cuts: their anchor always lives in the current output and the
+        # task message is the one both the loop and replay re-pin. The first such
+        # block is kept so the run stays anchored in the retained context.
+        last_user = max((idx for idx, message in enumerate(messages) if message.get('role') == 'user'), default=-1)
+        boundaries = [
+            idx
+            for idx, message in enumerate(messages)
+            if idx > last_user and message.get('role') == 'assistant' and message.get('tool_calls')
+        ][1:]
+    else:
+        boundaries = [idx for idx, message in enumerate(messages) if message.get('role') == 'user'][1:]
+    return next((idx for idx in reversed(boundaries) if idx <= target), 0)
 
 
 # Fields a chat completion accepts; the rest of what Open WebUI stores per
@@ -809,22 +526,21 @@ def _project_summary_message(message: dict) -> dict:
 async def _build_summary_messages(
     summary_prompt_template: str,
     compacted_messages: list[dict],
-    recent_messages: list[dict],
     previous_summary: str | None,
     user,
 ) -> list[dict]:
-    """Build the compaction request: the messages being cut, sent with their
-    original roles, followed by a user turn asking the model to summarize them."""
-    all_messages = [*compacted_messages, *recent_messages]
-    prompt = replace_prompt_variable(summary_prompt_template, get_last_user_message(all_messages) or '')
-    prompt = replace_messages_variable(prompt, all_messages)
-    # The compacted messages are already above as real messages, so any
-    # {{COMPACTED_MESSAGES}} placeholder collapses to nothing.
-    prompt = replace_messages_variable(prompt, [], 'COMPACTED_MESSAGES')
-    prompt = replace_messages_variable(prompt, recent_messages, 'RECENT_MESSAGES')
-    prompt = prompt_variables_template(prompt, {'{{PREVIOUS_SUMMARY}}': previous_summary or ''})
+    """Build the compaction request.
+
+    The messages to summarize are sent as real chat messages; a single trailing
+    user turn carries the summary prompt. Only the previous summary is needed in
+    the prompt, since the messages being summarized are already above.
+    """
+    prompt = prompt_variables_template(summary_prompt_template, {'{{PREVIOUS_SUMMARY}}': previous_summary or ''})
     prompt = await prompt_template(prompt, user)
-    return [*map(_project_summary_message, compacted_messages), {'role': 'user', 'content': prompt}]
+    return [
+        *(_project_summary_message(message) for message in compacted_messages),
+        {'role': 'user', 'content': prompt},
+    ]
 
 
 def _fallback_summary(previous_summary: str | None, messages: list[dict]) -> str:
@@ -842,7 +558,6 @@ async def _generate_summary(
     model_id: str,
     models: dict,
     compacted_messages: list[dict],
-    recent_messages: list[dict],
     previous_summary: str | None,
     summary_prompt_template: str,
 ) -> str:
@@ -854,8 +569,6 @@ async def _generate_summary(
     task_config = await Config.get_many(
         'task.model.params',
         'chat.context_compaction.model',
-        'chat.context_compaction.token_cap',
-        'chat.context_compaction.token_threshold',
     )
     context_compaction_model = task_config.get('chat.context_compaction.model')
     task_model_id = context_compaction_model if context_compaction_model in models else model_id
@@ -863,14 +576,6 @@ async def _generate_summary(
         raise ValueError('No available model for context compaction')
 
     summary_prompt_template = summary_prompt_template.strip() or DEFAULT_CONTEXT_COMPACTION_PROMPT
-
-    # The compaction model has no advertised window in Open WebUI, so reuse the
-    # token cap/threshold that bounds the main context as the per-call budget.
-    summary_input_budget = (
-        _parse_positive_int(task_config.get('chat.context_compaction.token_cap'))
-        or _parse_positive_int(task_config.get('chat.context_compaction.token_threshold'))
-        or 80000
-    )
 
     task_model_params = task_config.get('task.model.params') or {}
     if not isinstance(task_model_params, dict):
@@ -880,48 +585,25 @@ async def _generate_summary(
         'max_tokens': models[task_model_id].get('info', {}).get('params', {}).get('max_tokens', 1000)
     }
 
-    async def run_summary_prompt(summary_messages: list[dict]) -> str:
-        payload = {
-            'model': task_model_id,
-            'messages': summary_messages,
-            'stream': False,
-            'metadata': {
-                **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
-                'task': 'context_compaction',
-            },
-        }
-        payload = apply_params_to_form_data(payload, models[task_model_id], task_model_params)
-        response = await generate_chat_completion(request, form_data=payload, user=user)
-        return _response_text(response).strip()
-
-    plans = _plan_summary_calls(
+    summary_messages = await _build_summary_messages(
         summary_prompt_template,
         compacted_messages,
-        recent_messages,
         previous_summary,
-        summary_input_budget,
+        user,
     )
-
-    summary = ''
-    running_summary = previous_summary
-    for compacted_chunk, recent_chunk in plans:
-        summary_messages = await _build_summary_messages(
-            summary_prompt_template,
-            compacted_chunk,
-            recent_chunk,
-            running_summary,
-            user,
-        )
-        summary = await run_summary_prompt(summary_messages)
-        if not summary:
-            # Model returned nothing usable; keep the essentials so later chunks
-            # still have something to fold into.
-            summary = _fallback_summary(running_summary, compacted_chunk)
-        running_summary = summary
-
-    if summary:
-        return summary
-    return _fallback_summary(previous_summary, compacted_messages)
+    payload = {
+        'model': task_model_id,
+        'messages': summary_messages,
+        'stream': False,
+        'metadata': {
+            **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
+            'task': 'context_compaction',
+        },
+    }
+    payload = apply_params_to_form_data(payload, models[task_model_id], task_model_params)
+    response = await generate_chat_completion(request, form_data=payload, user=user)
+    summary = _response_text(response).strip()
+    return summary or _fallback_summary(previous_summary, compacted_messages)
 
 
 def _response_text(response: Any) -> str:
