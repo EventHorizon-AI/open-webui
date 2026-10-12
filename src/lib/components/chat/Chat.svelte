@@ -3540,7 +3540,8 @@
 		}
 
 		const model = atSelectedModel?.id ?? selectedModels.find((modelId) => modelId);
-		const toastId = toast.loading($i18n.t('Compacting context...'));
+		// Keep the in-progress toast until a completion toast replaces it by id.
+		const toastId = toast.loading($i18n.t('Compacting context...'), { duration: Infinity });
 
 		try {
 			const result = await compactChatById(localStorage.token, $chatId, model);
