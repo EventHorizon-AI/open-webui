@@ -259,45 +259,61 @@ select {
 
 @keyframes shimmer {
 	0% {
-		background-position: 100% 0;
+		background-position: 120% 0;
 	}
 	100% {
-		background-position: -100% 0;
+		background-position: -80% 0;
 	}
 }
 
 .shimmer {
 	background: linear-gradient(
 		110deg,
-		#b4b4b4 0%,
-		#b4b4b4 43%,
-		#e8e8e8 50%,
-		#b4b4b4 57%,
-		#b4b4b4 100%
+		#9c9c9c 0%,
+		#9c9c9c 40%,
+		#a5a5a5 42%,
+		#bebebe 44%,
+		#dddddd 46%,
+		#f5f5f5 48%,
+		#ffffff 50%,
+		#f5f5f5 52%,
+		#dddddd 54%,
+		#bebebe 56%,
+		#a5a5a5 58%,
+		#9c9c9c 60%,
+		#9c9c9c 100%
 	);
 	background-size: 200% 100%;
 	background-clip: text;
 	-webkit-background-clip: text;
 	-webkit-text-fill-color: transparent;
 	animation: shimmer 1.5s cubic-bezier(0.7, 0, 1, 0.4) infinite;
-	color: #b4b4b4;
+	color: #9c9c9c;
 }
 
 :global(.dark) .shimmer {
 	background: linear-gradient(
 		110deg,
-		#9a9a9a 0%,
-		#9a9a9a 43%,
-		#5e5e5e 50%,
-		#9a9a9a 57%,
-		#9a9a9a 100%
+		#a8a8a8 0%,
+		#a8a8a8 40%,
+		#9e9e9e 42%,
+		#848484 44%,
+		#636363 46%,
+		#494949 48%,
+		#3f3f3f 50%,
+		#494949 52%,
+		#636363 54%,
+		#848484 56%,
+		#9e9e9e 58%,
+		#a8a8a8 60%,
+		#a8a8a8 100%
 	);
 	background-size: 200% 100%;
 	background-clip: text;
 	-webkit-background-clip: text;
 	-webkit-text-fill-color: transparent;
 	animation: shimmer 1.5s cubic-bezier(0.7, 0, 1, 0.4) infinite;
-	color: #9a9a9a;
+	color: #a8a8a8;
 }
 
 @keyframes smoothFadeIn {
@@ -1079,7 +1095,7 @@ html.high-contrast:not(.dark) .ai-autocompletion::after {
 	color: var(--color-gray-700);
 }
 
-/* The shimmer gradient is 2.10:1 in light, and clipping it to the text leaves no
+/* The shimmer gradient is 2.75:1 in light, and clipping it to the text leaves no
    solid colour to raise; render it as flat text instead. */
 html.high-contrast:not(.dark) .shimmer {
 	background: none;
