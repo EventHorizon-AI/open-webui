@@ -3,7 +3,6 @@
 	import { getContext } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
-	import { slide } from 'svelte/transition';
 	import { quintOut } from 'svelte/easing';
 
 	import ChevronUp from '$lib/components/icons/ChevronUp.svelte';
@@ -50,6 +49,51 @@
 	export let doneLabel = '';
 
 	let open = $settings?.expandDetails ?? false;
+
+	// A slide variant that measures the body on every animation frame instead of
+	// once at creation. Svelte's `slide` samples the body's height synchronously
+	// when the element mounts and animates a fixed pixel height with
+	// overflow:hidden, so content whose render lands in a later microtask (KaTeX,
+	// lazy markdown) grows the body past the animated height and stays clipped
+	// until the animation ends — the last entries in the group appear to pop in
+	// only then. Driving the height from the live `scrollHeight` follows those
+	// late renders instead: the measurement effectively happens after the body
+	// has rendered. The same closure drives the outro (t 1 → 0), so collapsing
+	// still animates, and interrupting either direction reverses smoothly from
+	// the current position.
+	const expandSlide = (
+		node: HTMLElement,
+		params: { duration?: number } = {},
+		{ direction }: { direction: 'in' | 'out' }
+	) => {
+		// Collapsed start state, applied synchronously on mount so there is no
+		// flash of full-height content before the first animation frame. Skipped
+		// when svelte re-invokes this for an outro (it clears its cached options
+		// once the intro completes) — snapping the height to 0 there would blink
+		// the body away for a frame before the outro's first tick restores it.
+		if (direction === 'in') {
+			node.style.overflow = 'hidden';
+			node.style.height = '0px';
+		}
+
+		return {
+			duration: params.duration ?? 300,
+			easing: quintOut,
+			tick: (t: number) => {
+				// Keep the body clipped for the whole animation — including the
+				// outro, whose re-invocation must not be relied on for styles —
+				// and re-measure every frame so content that rendered after the
+				// mount (async KaTeX, lazy markdown) is followed, not clipped.
+				node.style.overflow = 'hidden';
+				node.style.height = `${t * node.scrollHeight}px`;
+
+				if (t === 1) {
+					node.style.height = '';
+					node.style.overflow = '';
+				}
+			}
+		};
+	};
 
 	$: isReasoningVariant = variant === 'reasoning';
 
@@ -379,7 +423,7 @@
 	{/if}
 
 	{#if open}
-		<div class="flow-root" transition:slide={{ duration: 300, easing: quintOut, axis: 'y' }}>
+		<div class="flow-root" transition:expandSlide={{ duration: 300 }}>
 			<slot name="content" />
 		</div>
 	{/if}
