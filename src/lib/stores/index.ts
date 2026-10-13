@@ -157,7 +157,6 @@ export const showSidebar = writable(false);
 export const showSearch = writable(false);
 export const showSettings: Writable<boolean | string | SettingsModalRequest> = writable(false);
 export const showChangelog = writable(false);
-export const expandReasoningBeforeCompletion = writable(false);
 
 export const showControls = writable(false);
 export const showEmbeds = writable(false);
@@ -287,6 +286,8 @@ type Settings = {
 	voiceInterruption?: boolean;
 	collapseCodeBlocks?: boolean;
 	expandDetails?: boolean;
+	reasoningPreviewOnly?: boolean;
+	keepReasoningAfterCompletion?: boolean;
 	notificationSound?: boolean;
 	notificationSoundAlways?: boolean;
 	stylizedPdfExport?: boolean;
@@ -337,7 +338,6 @@ type Settings = {
 	ctrlEnterToSend?: boolean;
 	combineQueuedMessages?: boolean;
 	keyboardShortcuts?: boolean;
-	expandReasoningBeforeCompletion?: boolean;
 	chatHoverPreview?: boolean;
 	chatFadeStreamingText?: boolean;
 	renderMarkdownInPreviews?: boolean;

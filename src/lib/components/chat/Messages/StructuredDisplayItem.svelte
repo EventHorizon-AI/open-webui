@@ -104,8 +104,69 @@
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 	$: itemId = `${id}-${displayItem.id}`;
+
+	// "Show reasoning summary only" drops finished reasoning from the message, so
+	// once the message is done a detail group hides its reasoning tokens and a
+	// process group summarises only what is left. While it is still streaming the
+	// group keeps the reasoning preview, so nothing is filtered until `done`.
+	// With "show reasoning after completion" the finished reasoning stays in the
+	// group (expandable), so nothing is filtered at all.
+	$: reasoningPreviewOnly = $settings?.reasoningPreviewOnly ?? false;
+	$: showAfterCompletion =
+		reasoningPreviewOnly && ($settings?.keepReasoningAfterCompletion ?? false);
+
+	// "Show reasoning summary only" keeps reasoning out of detail groups
+	// entirely: no reasoning entry and no preview inside the group. The newest
+	// block's live preview renders as a plain text line right below the group
+	// instead, and disappears once that block is done. With "show reasoning
+	// after completion" nothing is filtered and the reasoning stays (expandable).
+	$: visibleDetailTokens =
+		displayItem.type === 'detail_group' && reasoningPreviewOnly && !showAfterCompletion
+			? displayItem.tokens.filter((token) => token.attributes?.type !== 'reasoning')
+			: displayItem.type === 'detail_group'
+				? displayItem.tokens
+				: [];
+
+	// The live preview of the newest reasoning block the group holds. The group's
+	// tokens are scanned from the end — the filtered rendering dropped them, but
+	// the group data still carries them, and their `summary` always carries the
+	// newest block's preview line (see buildReasoningToken). Empty once that
+	// block is done, so the line below the group disappears with it. While the
+	// block is still streaming but has no preview yet (its first line is not
+	// complete), it falls back to `fallback` ("Thinking...").
+	function newestLiveReasoningPreview(tokens: OutputDetailToken[], fallback: string): string {
+		for (let i = tokens.length - 1; i >= 0; i--) {
+			const token = tokens[i];
+			if (token?.attributes?.type === 'reasoning' && token?.attributes?.done !== 'true') {
+				return token.summary || fallback;
+			}
+		}
+		return '';
+	}
+
+	$: groupReasoningPreview =
+		displayItem.type === 'detail_group' && reasoningPreviewOnly && !showAfterCompletion
+			? newestLiveReasoningPreview(displayItem.tokens, $i18n.t('Thinking...'))
+			: '';
+
+	// Filtering can strip a detail group down to a single detail — e.g. one tool
+	// call made between two reasoning blocks. A one-entry group reads as noise, so
+	// that lone detail is surfaced flat, rendered exactly like a detail_single
+	// would be.
+	$: detailGroupSingleToken =
+		displayItem.type === 'detail_group' &&
+		reasoningPreviewOnly &&
+		!showAfterCompletion &&
+		visibleDetailTokens.length === 1
+			? visibleDetailTokens[0]
+			: null;
+
 	$: processTokens =
 		displayItem.type === 'process_group' ? collectDetailTokens(displayItem.items) : [];
+	$: visibleProcessTokens =
+		displayItem.type === 'process_group' && reasoningPreviewOnly && done && !showAfterCompletion
+			? processTokens.filter((token) => token.attributes?.type !== 'reasoning')
+			: processTokens;
 	$: nestedAllowEmbeds = nested ? false : allowEmbeds;
 	$: resolvable = !nested && !!chatId && !!messageId && save;
 
@@ -126,6 +187,8 @@
 
 	// Only reasoning and code-interpreter items are timed, so the group's "time
 	// taken" is the span between the first and last of those (see structuredOutput).
+	// The whole run counts, including reasoning that "summary only" hides from the
+	// body, so the header still reports the full duration.
 	$: processDuration =
 		displayItem.type === 'process_group' ? getDetailsDurationSeconds(processTokens) : 0;
 
@@ -177,10 +240,10 @@
 	{:else}
 		<div class="whitespace-pre-wrap text-[0.9375rem]">{displayItem.text}</div>
 	{/if}
-{:else if displayItem.type === 'detail_group'}
+{:else if displayItem.type === 'detail_group' && visibleDetailTokens.length > 0 && !detailGroupSingleToken}
 	<ConsecutiveDetailsGroup
 		id={itemId}
-		tokens={displayItem.tokens}
+		tokens={visibleDetailTokens}
 		messageDone={done}
 		groupOpen={!done && isLast}
 		{compactPreview}
@@ -190,7 +253,7 @@
 		onResolve={resolveToolCall}
 	>
 		<div slot="content">
-			{#each displayItem.tokens as detailToken, detailIndex}
+			{#each visibleDetailTokens as detailToken, detailIndex}
 				{#if detailToken.attributes?.type === 'tool_calls'}
 					<ToolCallDisplay
 						id={`${itemId}-${detailIndex}-tool-call`}
@@ -249,6 +312,8 @@
 							</div>
 						</div>
 					</Collapsible>
+				{:else if detailToken.attributes?.type === 'reasoning' && reasoningPreviewOnly}
+					<!-- Reasoning is hidden here by "summary only"; nothing to render. -->
 				{:else}
 					<Collapsible
 						title={getDetailTitle(detailToken)}
@@ -263,13 +328,13 @@
 			{/each}
 		</div>
 	</ConsecutiveDetailsGroup>
-{:else if displayItem.type === 'process_group'}
+{:else if displayItem.type === 'process_group' && visibleProcessTokens.length > 0}
 	<!-- The process group behaves like a detail group, but its body holds the
 	     nested detail groups and the content the model narrated around them. Only
 	     built once the message is done, so the group never grows while it is shown. -->
 	<ConsecutiveDetailsGroup
 		id={itemId}
-		tokens={processTokens}
+		tokens={visibleProcessTokens}
 		variant="reasoning"
 		runningLabel={$i18n.t('Processing...')}
 		doneLabel={processDoneLabel}
@@ -314,8 +379,13 @@
 	{#if displayItem.item?.displayed || $settings?.terminalFileDisplay === 'inline'}
 		<TerminalOutputFile item={displayItem.item} {chatId} />
 	{/if}
+{:else if (displayItem.type === 'detail_group' && !detailGroupSingleToken) || displayItem.type === 'process_group'}
+	<!-- The group held nothing but reasoning, which "summary only" hides once the
+	     message is done (unless "show reasoning after completion" keeps it), so
+	     there is nothing left to render. -->
 {:else}
-	{@const detailToken = displayItem.token}
+	{@const detailToken =
+		detailGroupSingleToken ?? (displayItem as { token: OutputDetailToken }).token}
 	{#if detailToken.attributes?.type === 'tool_calls'}
 		<ToolCallDisplay
 			id={`${itemId}-tool-call`}
@@ -374,6 +444,8 @@
 				</div>
 			</div>
 		</Collapsible>
+	{:else if detailToken.attributes?.type === 'reasoning' && reasoningPreviewOnly}
+		<!-- Reasoning is hidden here by "summary only"; nothing to render. -->
 	{:else}
 		<Collapsible
 			title={getDetailTitle(detailToken)}
@@ -385,4 +457,19 @@
 			buttonClassName={detailButtonClassName}
 		/>
 	{/if}
+{/if}
+
+{#if groupReasoningPreview}
+	<!-- Live reasoning preview below the group: the group itself hides its
+	     reasoning in this mode, so the newest block previews here and the line
+	     disappears once that block is done. Rendered after the whole item chain
+	     so it also follows a group that collapsed to a single detail or emptied
+	     out entirely. -->
+	<div
+		class="w-full select-none py-0.5 text-start {compactPreview
+			? 'text-xs'
+			: 'text-[0.9375rem]'} text-gray-500"
+	>
+		<span class="block w-full truncate shimmer">{groupReasoningPreview}</span>
+	</div>
 {/if}

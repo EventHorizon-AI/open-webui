@@ -76,7 +76,8 @@
 	let renderMarkdownInUserMessages = true;
 	let renderMarkdownInAssistantMessages = true;
 	let expandDetails = false;
-	let expandReasoningBeforeCompletion = false;
+	let reasoningPreviewOnly = false;
+	let keepReasoningAfterCompletion = false;
 	let chatHoverPreview = true;
 	let renderMarkdownInPreviews = true;
 	let showChatTitleInTab = true;
@@ -353,7 +354,8 @@
 		renderMarkdownInUserMessages = currentSettings?.renderMarkdownInUserMessages ?? true;
 		renderMarkdownInAssistantMessages = currentSettings?.renderMarkdownInAssistantMessages ?? true;
 		expandDetails = currentSettings?.expandDetails ?? false;
-		expandReasoningBeforeCompletion = currentSettings?.expandReasoningBeforeCompletion ?? false;
+		reasoningPreviewOnly = currentSettings?.reasoningPreviewOnly ?? false;
+		keepReasoningAfterCompletion = currentSettings?.keepReasoningAfterCompletion ?? false;
 		chatHoverPreview = currentSettings?.chatHoverPreview ?? true;
 		renderMarkdownInPreviews = currentSettings?.renderMarkdownInPreviews ?? true;
 
@@ -1352,26 +1354,51 @@
 
 	<div>
 		<div class={settingRowClass}>
-			<div id="expand-reasoning-before-completion-label" class={settingLabelClass}>
-				{$i18n.t('Expand reasoning before completion')}
+			<div id="reasoning-summary-only-label" class={settingLabelClass}>
+				{$i18n.t('settings.personal.interface.reasoningPreviewOnly.label')}
 			</div>
 
 			<div class={settingControlClass}>
 				<Switch
-					ariaLabelledbyId="expand-reasoning-before-completion-label"
+					ariaLabelledbyId="reasoning-summary-only-label"
 					tooltip={true}
-					bind:state={expandReasoningBeforeCompletion}
-					inherited={isDefaultSetting('expandReasoningBeforeCompletion')}
+					bind:state={reasoningPreviewOnly}
+					inherited={isDefaultSetting('reasoningPreviewOnly')}
 					on:change={() => {
-						saveSettings({ expandReasoningBeforeCompletion });
+						saveSettings({ reasoningPreviewOnly });
 					}}
 				/>
 			</div>
 		</div>
 		<p class={settingDescriptionClass}>
-			{$i18n.t('Show reasoning process before the final answer.')}
+			{$i18n.t('settings.personal.interface.reasoningPreviewOnly.description')}
 		</p>
 	</div>
+
+	{#if reasoningPreviewOnly}
+		<div>
+			<div class={settingRowClass}>
+				<div id="keep-reasoning-after-completion-label" class={settingLabelClass}>
+					{$i18n.t('settings.personal.interface.keepReasoningAfterCompletion.label')}
+				</div>
+
+				<div class={settingControlClass}>
+					<Switch
+						ariaLabelledbyId="keep-reasoning-after-completion-label"
+						tooltip={true}
+						bind:state={keepReasoningAfterCompletion}
+						inherited={isDefaultSetting('keepReasoningAfterCompletion')}
+						on:change={() => {
+							saveSettings({ keepReasoningAfterCompletion });
+						}}
+					/>
+				</div>
+			</div>
+			<p class={settingDescriptionClass}>
+				{$i18n.t('settings.personal.interface.keepReasoningAfterCompletion.description')}
+			</p>
+		</div>
+	{/if}
 
 	<div>
 		<div class={settingRowClass}>
