@@ -10,7 +10,6 @@ from open_webui.models.config import Config
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.json_codec import JSONCodec
 from open_webui.utils.misc import get_content_from_message, get_message_list
-from open_webui.utils.payload import apply_params_to_form_data
 from open_webui.utils.task import prompt_template, prompt_variables_template
 
 log = logging.getLogger(__name__)
@@ -566,24 +565,16 @@ async def _generate_summary(
     if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
         models = {**dict(models.items()), request.state.model['id']: request.state.model}
 
-    task_config = await Config.get_many(
-        'task.model.params',
-        'chat.context_compaction.model',
-    )
+    # The global task model parameters are tuned for short, single-purpose tasks
+    # (titles, tags, queries); applying them here truncates or warps summaries, so
+    # the compaction request is sent with the provider defaults untouched.
+    task_config = await Config.get_many('chat.context_compaction.model')
     context_compaction_model = task_config.get('chat.context_compaction.model')
     task_model_id = context_compaction_model if context_compaction_model in models else model_id
     if task_model_id not in models:
         raise ValueError('No available model for context compaction')
 
     summary_prompt_template = summary_prompt_template.strip() or DEFAULT_CONTEXT_COMPACTION_PROMPT
-
-    task_model_params = task_config.get('task.model.params') or {}
-    if not isinstance(task_model_params, dict):
-        task_model_params = {}
-    task_model_params = {key: value for key, value in task_model_params.items() if value is not None and value != ''}
-    task_model_params = task_model_params or {
-        'max_tokens': models[task_model_id].get('info', {}).get('params', {}).get('max_tokens', 1000)
-    }
 
     summary_messages = await _build_summary_messages(
         summary_prompt_template,
@@ -600,7 +591,6 @@ async def _generate_summary(
             'task': 'context_compaction',
         },
     }
-    payload = apply_params_to_form_data(payload, models[task_model_id], task_model_params)
     response = await generate_chat_completion(request, form_data=payload, user=user)
     summary = _response_text(response).strip()
     return summary or _fallback_summary(previous_summary, compacted_messages)
