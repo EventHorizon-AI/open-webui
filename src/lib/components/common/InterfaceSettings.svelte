@@ -45,6 +45,7 @@
 	let showUsername = false;
 
 	let highContrastMode = false;
+	let compactGenerationInfo = true;
 
 	let detectArtifacts = true;
 	let displayMultiModelResponsesInTabs = false;
@@ -320,6 +321,7 @@
 		autoFollowUps = currentSettings?.autoFollowUps ?? true;
 
 		highContrastMode = currentSettings?.highContrastMode ?? false;
+		compactGenerationInfo = currentSettings?.compactGenerationInfo ?? true;
 
 		detectArtifacts = currentSettings?.detectArtifacts ?? true;
 		responseAutoCopy = currentSettings?.responseAutoCopy ?? false;
@@ -610,6 +612,29 @@
 		</div>
 		<p class={settingDescriptionClass}>
 			{$i18n.t('settings.personal.interface.accessibilityMode.description')}
+		</p>
+	</div>
+
+	<div>
+		<div class={settingRowClass}>
+			<div id="compact-generation-info-label" class={settingLabelClass}>
+				{$i18n.t('settings.personal.interface.compactGenerationInfo.label')}
+			</div>
+
+			<div class={settingControlClass}>
+				<Switch
+					ariaLabelledbyId="compact-generation-info-label"
+					tooltip={true}
+					bind:state={compactGenerationInfo}
+					inherited={isDefaultSetting('compactGenerationInfo')}
+					on:change={() => {
+						saveSettings({ compactGenerationInfo });
+					}}
+				/>
+			</div>
+		</div>
+		<p class={settingDescriptionClass}>
+			{$i18n.t('settings.personal.interface.compactGenerationInfo.description')}
 		</p>
 	</div>
 

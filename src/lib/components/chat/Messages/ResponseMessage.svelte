@@ -31,7 +31,6 @@
 		copyToClipboard as _copyToClipboard,
 		approximateToHumanReadable,
 		getMessageContentParts,
-		sanitizeResponseContent,
 		createMessagesList,
 		formatMessageTimestamp,
 		formatMessageTimestampFull,
@@ -64,6 +63,7 @@
 	import { flyAndScale } from '$lib/utils/transitions';
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
+	import GenerationInfo from './ResponseMessage/GenerationInfo.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import OutputEditView from './OutputEditView.svelte';
 	import { getOutputText, replaceOutputMessageText, type OutputItem } from './structuredOutput';
@@ -118,6 +118,7 @@
 			load_duration?: number;
 			usage?: unknown;
 		};
+		usage?: unknown;
 		annotation?: { type: string; rating: number };
 	}
 
@@ -1223,20 +1224,7 @@
 								{/if}
 
 								{#if message.usage}
-									<Tooltip
-										content={message.usage
-											? `<pre>${sanitizeResponseContent(
-													JSON.stringify(message.usage, null, 2)
-														.replace(/"([^(")"]+)":/g, '$1:')
-														.slice(1, -1)
-														.split('\n')
-														.map((line) => line.slice(2))
-														.map((line) => (line.endsWith(',') ? line.slice(0, -1) : line))
-														.join('\n')
-												)}</pre>`
-											: ''}
-										placement="bottom"
-									>
+									<Tooltip elementId="generation-info-{message.id}" placement="bottom">
 										<button
 											aria-hidden="true"
 											class=" {isLastMessage || ($settings?.highContrastMode ?? false)
@@ -1263,6 +1251,14 @@
 												/>
 											</svg>
 										</button>
+
+										<div slot="tooltip" id="generation-info-{message.id}">
+											<GenerationInfo
+												usage={message.usage}
+												compact={$settings?.compactGenerationInfo ?? true}
+												locale={$i18n.language}
+											/>
+										</div>
 									</Tooltip>
 								{/if}
 

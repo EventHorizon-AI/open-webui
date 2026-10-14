@@ -72,6 +72,7 @@ class InterfaceSettings(BaseModel):
     autoTags: bool | None = None
     autoFollowUps: bool | None = None
     highContrastMode: bool | None = None
+    compactGenerationInfo: bool | None = None
     detectArtifacts: bool | None = None
     responseAutoCopy: bool | None = None
     showUsername: bool | None = None

@@ -62,7 +62,17 @@ USAGE_COST_KEYS = {
     'completion_cost',
 }
 
-USAGE_SUMMABLE_KEYS = USAGE_TOKEN_KEYS | USAGE_COST_KEYS
+# Per-call cached-prompt token counts. Unlike durations and speeds these are
+# additive, so a reply that spans several model calls reports the total cached
+# tokens across all of them.
+USAGE_CACHED_TOKEN_KEYS = {
+    'prompt_eval_cached_count',  # Ollama
+    'cache_n',  # llama.cpp
+    'cache_read_input_tokens',  # Anthropic
+    'cache_creation_input_tokens',  # Anthropic
+}
+
+USAGE_SUMMABLE_KEYS = USAGE_TOKEN_KEYS | USAGE_COST_KEYS | USAGE_CACHED_TOKEN_KEYS
 
 USAGE_DETAIL_KEYS = {
     'prompt_tokens_details',
@@ -101,7 +111,8 @@ def merge_usage(current: dict | None, incoming: dict | None) -> dict:
     """
     Merge usage payloads from multiple model calls into one cumulative usage dict.
 
-    Canonical token fields are additive; provider aliases keep the latest value.
+    Canonical token fields, cost fields, and cached-prompt token counts are
+    additive; the remaining provider aliases keep the latest value.
     """
     current_usage = normalize_usage(current or {}) if current else {}
     incoming_usage = normalize_usage(incoming or {}) if incoming else {}

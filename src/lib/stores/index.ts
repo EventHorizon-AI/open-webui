@@ -340,6 +340,7 @@ type Settings = {
 	showUsername?: boolean;
 	notificationEnabled?: boolean;
 	highContrastMode?: boolean;
+	compactGenerationInfo?: boolean;
 	title?: TitleSettings;
 	showChatTitleInTab?: boolean;
 	splitLargeDeltas?: boolean;
