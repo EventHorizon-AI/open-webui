@@ -49,12 +49,9 @@ async def compact_messages_for_request(
     messages = messages[1:] if system_messages else messages
 
     messages, checkpoint_summary = _apply_latest_summary_checkpoint(messages)
-    # The rolling summary lives on an output item, so take it straight from the
-    # chain (or from the caller / the current system block) instead of metadata.
-    stored_summary = (get_stored_context_summary(messages) or {}).get('summary')
-    previous_summary = (
-        checkpoint_summary or stored_summary or previous_summary or existing_conversation_summary(system_messages)
-    )
+    # Take the summary from the checkpoint (or from the caller / the current
+    # system block) instead of metadata.
+    previous_summary = checkpoint_summary or previous_summary or existing_conversation_summary(system_messages)
     system_prompt = system_prompt or (get_content_from_message(system_messages[0]) if system_messages else '')
     token_threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], metadata)
     # The tool loop knows the provider's real prompt size, which the local
@@ -302,107 +299,52 @@ def _build_context_usage(tokens: int, threshold: int) -> dict:
 
 
 def _apply_latest_summary_checkpoint(messages: list[dict]) -> tuple[list[dict], str | None]:
-    summary = None
-    summary_idx = None
-
-    for idx, message in enumerate(messages):
+    for idx in range(len(messages) - 1, -1, -1):
+        message = messages[idx]
         value = message.get('contextSummary') or message.get('context_summary')
         if isinstance(value, str) and value.strip():
-            summary = value
-            summary_idx = idx
+            return messages[idx:], value
 
-    if summary_idx is None:
-        return messages, None
-    return messages[summary_idx:], summary
+        marker = next(
+            (
+                item
+                for item in reversed(message.get('output') or [])
+                if item.get('type') == 'open_webui:context_compaction'
+            ),
+            None,
+        )
+        if not marker:
+            continue
+
+        # A tool-loop checkpoint can retain output from an earlier reply.
+        for cut_idx in range(idx, -1, -1):
+            output = messages[cut_idx].get('output') or []
+            start = next(
+                (
+                    position
+                    for position, item in enumerate(output)
+                    if item.get('type') == 'function_call' and item.get('call_id') == marker['call_id']
+                ),
+                None,
+            )
+            if start is not None:
+                while start and output[start - 1].get('type') != 'function_call_output':
+                    start -= 1
+                return [
+                    *messages[max(0, cut_idx - 1) : cut_idx],
+                    {
+                        **messages[cut_idx],
+                        'output': [
+                            item for item in output[start:] if item.get('type') != 'open_webui:context_compaction'
+                        ],
+                    },
+                    *messages[cut_idx + 1 :],
+                ], marker['summary']
+
+    return messages, None
 
 
 CONVERSATION_SUMMARY_MARKER = '[CONVERSATION SUMMARY]'
-
-CONTEXT_SUMMARY_KEY = 'context_summary'
-
-
-def _summary_block(summary: str) -> str:
-    return f'{CONVERSATION_SUMMARY_MARKER}\n{summary}'
-
-
-def _replace_summary_text(text: str, block: str, previous_block: str | None) -> str:
-    # Replace the block produced by the previous summary so summaries never stack.
-    if previous_block and previous_block in text:
-        return text.replace(previous_block, block, 1)
-    return f'{text}\n{block}' if text else block
-
-
-def _content_with_summary(content: Any, block: str, previous_block: str | None) -> Any:
-    if isinstance(content, list):
-        items = [dict(item) if isinstance(item, dict) else item for item in content]
-        for index, item in enumerate(items):
-            if isinstance(item, dict) and item.get('type') == 'text':
-                items[index] = {**item, 'text': _replace_summary_text(item.get('text', ''), block, previous_block)}
-                return items
-        items.append({'type': 'text', 'text': block})
-        return items
-    return _replace_summary_text(content if isinstance(content, str) else '', block, previous_block)
-
-
-def set_conversation_summary(
-    messages: list[dict], summary: str | None, previous_summary: str | None = None
-) -> list[dict]:
-    """Return ``messages`` with a single rolling ``[CONVERSATION SUMMARY]`` block
-    in the leading system message.
-
-    ``previous_summary`` (when given) is replaced in place, so a second
-    compaction within the same request overwrites the first summary instead of
-    appending a duplicate block.
-    """
-    if not summary:
-        return messages
-    block = _summary_block(summary)
-    previous_block = _summary_block(previous_summary) if previous_summary else None
-    if messages and messages[0].get('role') == 'system':
-        system = messages[0]
-        return [
-            {**system, 'content': _content_with_summary(system.get('content'), block, previous_block)},
-            *messages[1:],
-        ]
-    return [{'role': 'system', 'content': block}, *messages]
-
-
-def mark_output_item(output: list, summary: str, anchor_call_id: str | None) -> bool:
-    """Store the rolling summary on the output item that produced the cut anchor.
-
-    The field sits next to ``type`` and the item's own ``call_id`` is what replay
-    anchors on. Nothing is stored when the anchor is absent, so a stale or wrong
-    anchor can never be persisted (which would cut the replayed history wrongly).
-    """
-    if not anchor_call_id:
-        return False
-    for item in reversed(output or []):
-        if isinstance(item, dict) and item.get('call_id') == anchor_call_id:
-            item[CONTEXT_SUMMARY_KEY] = summary
-            return True
-    log.warning('Context compaction anchor %s not found in output; summary not stored', anchor_call_id)
-    return False
-
-
-def get_stored_context_summary(messages: list[dict]) -> dict | None:
-    """Newest stored tool-loop compaction as ``{'summary', 'call_id'}``, or None.
-
-    Only the ``context_summary`` field on a message's output items is read: that
-    is the single source of truth for the mid-turn summary. The upstream message
-    level ``contextSummary`` checkpoint is a separate mechanism handled by
-    ``_apply_latest_summary_checkpoint``.
-    """
-    stored = None
-    for message in messages:
-        output = message.get('output')
-        if isinstance(output, list):
-            for item in output:
-                if not isinstance(item, dict):
-                    continue
-                value = item.get(CONTEXT_SUMMARY_KEY)
-                if isinstance(value, str) and value.strip():
-                    stored = {'summary': value, 'call_id': item.get('call_id')}
-    return stored
 
 
 def existing_conversation_summary(messages: list[dict]) -> str | None:
@@ -420,64 +362,14 @@ def existing_conversation_summary(messages: list[dict]) -> str | None:
     return summary
 
 
-def first_tool_call_id(messages: list[dict]) -> str | None:
-    """Call id of the first retained tool block in a message list."""
-    for message in messages:
-        if message.get('role') in {'system', 'user'}:
-            continue
-        if message.get('role') == 'tool' and message.get('tool_call_id'):
-            return message['tool_call_id']
-        for tool_call in message.get('tool_calls') or []:
-            if tool_call.get('id'):
-                return tool_call['id']
-    return None
-
-
-def _anchor_drop_count(messages: list[dict], call_id: str) -> int | None:
-    """Count messages before the block produced by ``call_id``."""
-    count = 0
-    for message in messages:
-        if message.get('role') == 'assistant' and any(
-            tool_call.get('id') == call_id for tool_call in (message.get('tool_calls') or [])
-        ):
-            return count
-        if message.get('role') == 'tool' and message.get('tool_call_id') == call_id:
-            return count
-        count += 1
-    return None
-
-
-def apply_stored_context_summary(processed_messages: list[dict], stored: dict | None) -> tuple[list[dict], bool]:
-    """Re-apply a stored cut, anchored on the stored tool-call id, and re-pin the
-    task message the run is working towards. Returns the messages unchanged with
-    ``False`` when there is no anchor or the anchor is not in the messages
-    (e.g. a newer checkpoint already summarized the anchor away)."""
-    call_id = (stored or {}).get('call_id')
-    if not call_id:
-        return processed_messages, False
-    leading_system = 1 if processed_messages and processed_messages[0].get('role') == 'system' else 0
-    system_messages = processed_messages[:leading_system]
-    countable = processed_messages[leading_system:]
-    drop = _anchor_drop_count(countable, call_id)
-    if not drop or drop >= len(countable):
-        return processed_messages, False
-    recent = countable[drop:]
-    task_message = next((message for message in reversed(countable[:drop]) if message.get('role') == 'user'), None)
-    if task_message is not None and not any(message is task_message for message in recent):
-        recent = [task_message, *recent]
-    return [*system_messages, *recent], True
-
-
 def _exceeds_token_threshold(messages: list[dict], system_prompt: str, summary: str | None, threshold: int) -> bool:
     if threshold <= 0:
         return False
 
-    # Expanded tool histories include fresh results and rebuilt prompts absent from prior usage.
-    if not any(message.get('role') == 'tool' for message in messages):
-        for idx in range(len(messages) - 1, -1, -1):
-            usage = messages[idx].get('usage') or (messages[idx].get('info') or {}).get('usage')
-            if isinstance(usage, dict) and (tokens := _usage_token_count(usage)):
-                return tokens + _estimate_messages_tokens(messages[idx + 1 :]) > threshold
+    for idx in range(len(messages) - 1, -1, -1):
+        usage = messages[idx].get('usage') or (messages[idx].get('info') or {}).get('usage')
+        if isinstance(usage, dict) and (tokens := _usage_token_count(usage)):
+            return tokens + _estimate_messages_tokens(messages[idx + 1 :]) > threshold
 
     estimated = _estimate_tokens(system_prompt) + _estimate_tokens(summary or '') + _estimate_messages_tokens(messages)
     return estimated > threshold
@@ -487,6 +379,10 @@ def _find_compaction_boundary(messages: list[dict], retention_percentage: int = 
     retention_percentage = _clamp_retention_percentage(retention_percentage)
     keep_count = max(2, len(messages) * retention_percentage // 100)
     target = max(1, len(messages) - keep_count)
+
+    def _last_boundary_at_or_before(boundaries: list[int]) -> int:
+        return next((idx for idx in reversed(boundaries) if idx <= target), 0)
+
     if any(message.get('role') == 'tool' for message in messages):
         # Only tool blocks produced after the task message (the current run) are
         # valid cuts: their anchor always lives in the current output and the
@@ -498,9 +394,16 @@ def _find_compaction_boundary(messages: list[dict], retention_percentage: int = 
             for idx, message in enumerate(messages)
             if idx > last_user and message.get('role') == 'assistant' and message.get('tool_calls')
         ][1:]
-    else:
-        boundaries = [idx for idx, message in enumerate(messages) if message.get('role') == 'user'][1:]
-    return next((idx for idx in reversed(boundaries) if idx <= target), 0)
+        mid_turn = _last_boundary_at_or_before(boundaries)
+        if mid_turn:
+            return mid_turn
+        # No mid-turn cut fits the retention window (e.g. the current turn has
+        # too few tool blocks): fall back to the last whole-turn boundary below
+        # so the run still compacts. Turn-level cuts carry no tool-call anchor,
+        # so callers must not emit a mid-turn output marker for them.
+    return _last_boundary_at_or_before(
+        [idx for idx, message in enumerate(messages) if message.get('role') == 'user'][1:]
+    )
 
 
 # Fields a chat completion accepts; the rest of what Open WebUI stores per

@@ -90,6 +90,7 @@ class InterfaceSettings(BaseModel):
     insertFollowUpPrompt: bool | None = None
     regenerateMenu: bool | None = None
     enableMessageQueue: bool | None = None
+    combineQueuedMessages: bool | None = None
     largeTextAsFile: bool | None = None
     copyFormatted: bool | None = None
     collapseCodeBlocks: bool | None = None
@@ -816,6 +817,10 @@ class UsersTable:
                 return None
             for key, value in updated.items():
                 setattr(user, key, value)
+            if 'email' in updated:
+                from open_webui.models.auths import Auth
+
+                await session.execute(update(Auth).where(Auth.id == id).values(email=updated['email']))
             await session.commit()
             return UserModel.model_validate(user)
 
