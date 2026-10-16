@@ -29,6 +29,9 @@
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
 	const i18n = getContext<Writable<i18nType>>('i18n');
+	const markdown = getContext<{ allowRemoteContent: boolean; document?: boolean } | undefined>(
+		'markdown'
+	);
 
 	export let id = '';
 	export let edit = true;
@@ -398,7 +401,7 @@
 			}
 		} else if (
 			(lang === 'vega' || lang === 'vega-lite') &&
-			(token?.raw ?? '').slice(-4).includes('```')
+			(markdown?.document || (token?.raw ?? '').slice(-4).includes('```'))
 		) {
 			try {
 				renderHTML = await renderVegaVisualization(code, lang);
@@ -514,7 +517,7 @@
 							>
 								{$i18n.t('Running')}
 							</div>
-						{:else if run}
+						{:else if run && markdown?.allowRemoteContent !== false}
 							<button
 								class="run-code-button flex h-6 shrink-0 items-center justify-center gap-1.5 rounded-lg px-2.5 text-xs font-normal text-gray-600 transition hover:bg-gray-100 hover:text-gray-900 disabled:opacity-60 dark:text-gray-400 dark:hover:bg-gray-850 dark:hover:text-white"
 								on:click={async () => {

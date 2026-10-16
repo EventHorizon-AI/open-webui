@@ -137,7 +137,7 @@ export const visiblePinnedModels = derived([pinnedModels, models], ([$pinnedMode
 
 export const audioQueue = writable<AudioQueue | null>(null);
 export const chatRequestQueues: Writable<
-	Record<string, { id: string; prompt: string; files: any[] }[]>
+	Record<string, { id: string; prompt: string; files: any[]; error?: string }[]>
 > = writable({});
 
 export const chatContextUsage: Writable<any> = writable(null);
@@ -311,6 +311,7 @@ type Settings = {
 	hapticFeedback?: boolean;
 	responseAutoCopy?: any;
 	richTextInput?: boolean;
+	showFormattingToolbar?: boolean;
 	params?: any;
 	userLocation?: any;
 	webSearch?: any;
@@ -416,6 +417,7 @@ type Config = {
 	default_prompt_suggestions: PromptSuggestion[] | null;
 	default_prompt_suggestions_i18n?: Record<string, { suggestion_prompts: PromptSuggestion[] }>;
 	features: {
+		enable_encrypted_channels?: boolean;
 		slim?: boolean;
 		auth: boolean;
 		auth_trusted_header: boolean;

@@ -250,8 +250,10 @@
 		}
 
 		saveSettings({
-			imageCompressionSize: imageCompressionSize,
-			fontFamily
+			...(isDefaultSetting('imageCompressionSize') ? {} : { imageCompressionSize }),
+			...(isDefaultSetting('fontFamily') && fontFamily === defaultFontFamily()
+				? {}
+				: { fontFamily })
 		});
 	};
 
