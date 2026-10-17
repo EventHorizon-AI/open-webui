@@ -44,6 +44,7 @@
 	import Collapsible from '$lib/components/common/Collapsible.svelte';
 	import ToolCallDisplay from '$lib/components/common/ToolCallDisplay.svelte';
 	import ReasoningDisplay from '$lib/components/common/ReasoningDisplay.svelte';
+	import { deriveReasoningPreview } from '$lib/components/common/reasoningBlocks';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Download from '$lib/components/icons/Download.svelte';
 	import ConsecutiveDetailsGroup from './ConsecutiveDetailsGroup.svelte';
@@ -225,10 +226,11 @@
 	// The live preview of the newest reasoning block a detail group holds,
 	// rendered as a plain text line right below the group. The filtered token
 	// dropped its reasoning entries, so this reads the raw token at the same
-	// index (`displayTokens` maps `rawDisplayTokens` one-to-one). Empty once that
-	// block is done, so the line disappears with it. While the block is still
-	// streaming but has no preview yet (its first line is not complete), it falls
-	// back to "Thinking...".
+	// index (`displayTokens` maps `rawDisplayTokens` one-to-one). The preview is
+	// the title derived from that block's first line. Empty once that block is
+	// done, so the line disappears with it. While the block is still streaming
+	// but has no preview yet (its first line is not complete), it falls back to
+	// "Thinking...".
 	const getGroupReasoningPreview = (rawToken: any): string => {
 		if (rawToken?.type !== 'detail_group') {
 			return '';
@@ -237,7 +239,11 @@
 		for (let i = items.length - 1; i >= 0; i--) {
 			const item = items[i];
 			if (item?.attributes?.type === 'reasoning' && item?.attributes?.done !== 'true') {
-				return item.summary || $i18n.t('Thinking...');
+				return (
+					deriveReasoningPreview(item.attributes?.id ?? '', item.text ?? '') ||
+					item.summary ||
+					$i18n.t('Thinking...')
+				);
 			}
 		}
 		return '';

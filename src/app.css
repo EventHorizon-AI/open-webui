@@ -197,6 +197,22 @@ textarea::-webkit-scrollbar-corner {
 	@apply text-gray-600 dark:text-gray-400;
 }
 
+/* Each reasoning block is wrapped in its own element, so the gap between blocks
+   is set here rather than by a utility: the prose paragraph margins above are
+   unlayered and would override a Tailwind `mt-*` utility. Elements inside a block
+   (a title paragraph followed by a list, say) keep their own prose rhythm. */
+.reasoning-block > :first-child {
+	margin-top: 0;
+}
+
+.reasoning-block > :last-child {
+	margin-bottom: 0;
+}
+
+.reasoning-block + .reasoning-block {
+	margin-top: 0.5rem;
+}
+
 .markdown a {
 	@apply underline;
 }

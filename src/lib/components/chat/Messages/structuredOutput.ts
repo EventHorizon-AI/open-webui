@@ -1,5 +1,7 @@
 import { encode } from 'html-entities';
 
+import { deriveReasoningPreview } from '$lib/components/common/reasoningBlocks';
+
 export type OutputContentPart = {
 	type?: string;
 	text?: unknown;
@@ -255,162 +257,19 @@ function buildToolCallToken(item: OutputItem, toolOutputByCallId: Record<string,
 	};
 }
 
-function stripMarkdownInline(text: string): string {
-	return text
-		.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1')
-		.replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
-		.replace(/`{1,3}([^`]*)`{1,3}/g, '$1')
-		.replace(/\*\*(.+?)\*\*/g, '$1')
-		.replace(/~~(.+?)~~/g, '$1')
-		.replace(/\s+/g, ' ')
-		.trim();
-}
-
-// Reasoning is streamed as markdown and split into blocks by blank lines. The
-// preview always follows the newest block: as soon as the current block's first
-// line is complete (terminated by a newline) it replaces the previous block's
-// preview, but it does not update character by character within a line. Until the
-// current block has a usable line the last completed block is shown instead.
-// The preview is what `summary` carries for the whole lifetime of the item; the
-// duration text shown once a reasoning block finishes is rendered separately.
-type ReasoningPreviewState = {
-	length: number;
-	tail: string;
-	pending: string;
-	current: string[];
-	lastCompleted: string[] | null;
-	inFence: boolean;
-	fenceMarker: string;
-};
-
-const REASONING_PREVIEW_TAIL = 32;
-const REASONING_PREVIEW_CACHE_LIMIT = 100;
-
-const reasoningPreviewStates = new Map<string, ReasoningPreviewState>();
-
-function createReasoningPreviewState(): ReasoningPreviewState {
-	return {
-		length: 0,
-		tail: '',
-		pending: '',
-		current: [],
-		lastCompleted: null,
-		inFence: false,
-		fenceMarker: ''
-	};
-}
-
-function formatReasoningPreviewBlock(block: string[] | null): string {
-	if (!block?.length) {
-		return '';
-	}
-
-	let firstLine = '';
-	for (const line of block) {
-		const candidate = line.trim();
-		if (candidate && !/^(```|~~~)/.test(candidate)) {
-			firstLine = candidate;
-			break;
-		}
-	}
-	if (!firstLine) {
-		return '';
-	}
-
-	return stripMarkdownInline(
-		firstLine
-			.replace(/^#{1,6}\s+/, '')
-			.replace(/^>\s?/, '')
-			.replace(/^\s*([-*+]|\d+[.)])\s+/, '')
-			.replace(/^\[[ xX]\]\s*/, '')
-	);
-}
-
-// The model only appends tokens while reasoning, so only the new suffix has to be
-// scanned; the block state is kept per item. The overlap tail cheaply detects
-// edits/regenerations that invalidate it, without comparing the whole text.
-function processReasoningPreview(state: ReasoningPreviewState, markdown: string): string {
-	if (
-		markdown.length < state.length ||
-		markdown.slice(state.length - state.tail.length, state.length) !== state.tail
-	) {
-		Object.assign(state, createReasoningPreviewState());
-	}
-
-	const buffer = state.pending + markdown.slice(state.length);
-	const lines = buffer.split('\n');
-	state.pending = lines.pop() ?? '';
-
-	for (const line of lines) {
-		const trimmed = line.trim();
-		const fenceMatch = /^(```|~~~)/.exec(trimmed);
-
-		if (fenceMatch) {
-			if (!state.inFence) {
-				state.inFence = true;
-				state.fenceMarker = fenceMatch[1];
-			} else if (trimmed.startsWith(state.fenceMarker)) {
-				state.inFence = false;
-				state.fenceMarker = '';
-			}
-		}
-
-		if (!state.inFence && trimmed === '') {
-			if (state.current.some((l) => l.trim())) {
-				state.lastCompleted = state.current;
-			}
-			state.current = [];
-			continue;
-		}
-
-		state.current.push(line);
-	}
-
-	state.length = markdown.length;
-	state.tail = markdown.slice(-REASONING_PREVIEW_TAIL);
-
-	// Prefer the block currently being streamed so the preview tracks the newest
-	// reasoning. `current` only holds complete lines (a trailing partial line
-	// stays in `pending`), so this updates once per line rather than per token.
-	return (
-		formatReasoningPreviewBlock(state.current) || formatReasoningPreviewBlock(state.lastCompleted)
-	);
-}
-
-function getReasoningPreview(cacheId: string, markdown: string): string {
-	if (!markdown) {
-		return '';
-	}
-
-	if (!cacheId) {
-		return processReasoningPreview(createReasoningPreviewState(), markdown);
-	}
-
-	let state = reasoningPreviewStates.get(cacheId);
-	if (!state) {
-		state = createReasoningPreviewState();
-		reasoningPreviewStates.set(cacheId, state);
-		if (reasoningPreviewStates.size > REASONING_PREVIEW_CACHE_LIMIT) {
-			const oldest = reasoningPreviewStates.keys().next().value;
-			if (oldest !== undefined) {
-				reasoningPreviewStates.delete(oldest);
-			}
-		}
-	}
-
-	return processReasoningPreview(state, markdown);
-}
-
+// Reasoning is streamed as markdown; its live preview shows the title derived
+// from the trailing block's first line. The preview is what `summary` carries
+// for the whole lifetime of the item; the duration text shown once a reasoning
+// block finishes is rendered separately.
 function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 	const duration = item.duration ?? '';
 	const isDone = isDoneStatus(item.status) || item.duration !== undefined || !isLastItem;
 	const reasoningText = getReasoningText(item);
 	const cacheId = item.id ?? item.call_id ?? '';
-	// `summary` always carries the newest block's preview line, even once the block
-	// is done; `done` marks the state and consumers render the duration from
-	// `attributes.duration` themselves. The preview state is kept cached so a
-	// finished block is not re-scanned on every render.
-	const preview = getReasoningPreview(cacheId, reasoningText);
+	// The preview state is cached so a finished block is not re-scanned on every
+	// render; `done` marks the state and consumers render the duration from
+	// `attributes.duration` themselves.
+	const preview = deriveReasoningPreview(cacheId, reasoningText);
 
 	return {
 		summary: preview,
