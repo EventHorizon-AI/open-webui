@@ -14,7 +14,6 @@
 
 	import ChevronUp from '../icons/ChevronUp.svelte';
 	import ChevronDown from '../icons/ChevronDown.svelte';
-	import Spinner from './Spinner.svelte';
 	import CodeBlock from '../chat/Messages/CodeBlock.svelte';
 	import Markdown from '../chat/Messages/Markdown.svelte';
 	import Image from './Image.svelte';
@@ -71,13 +70,6 @@
 	};
 
 	const collapsibleId = uuidv4();
-
-	// Whether a leading status icon is currently shown (code-interpreter still
-	// streaming). The icon swaps to the expand chevron on hover. Reasoning keeps
-	// its leading icon but never moves the expand chevron to the front.
-	$: hasLeadingIcon = !!(attributes?.done && attributes?.done !== 'true' && !messageDone);
-	$: isReasoning = attributes?.type === 'reasoning';
-	$: leadingArrow = hasLeadingIcon && !isReasoning;
 </script>
 
 <div {id} class={className}>
@@ -97,26 +89,6 @@
 					: ''}
 			"
 			>
-				{#if hasLeadingIcon}
-					<div class="relative flex size-4 shrink-0 items-center justify-center self-center">
-						<div class="flex {leadingArrow ? 'group-hover/collapsible:invisible' : ''}">
-							<Spinner className="size-4" />
-						</div>
-
-						{#if leadingArrow && !disabled}
-							<div
-								class="absolute inset-0 hidden items-center justify-center group-hover/collapsible:flex"
-							>
-								{#if open}
-									<ChevronUp strokeWidth={chevronStrokeWidth} className={chevronClassName} />
-								{:else}
-									<ChevronDown strokeWidth={chevronStrokeWidth} className={chevronClassName} />
-								{/if}
-							</div>
-						{/if}
-					</div>
-				{/if}
-
 				<div class="flex-1 min-w-0 line-clamp-1">
 					{#if attributes?.type === 'reasoning'}
 						{#if attributes?.done === 'true' || messageDone}
@@ -154,7 +126,7 @@
 					{/if}
 				</div>
 
-				{#if !disabled && !leadingArrow}
+				{#if !disabled}
 					<div class="flex self-center translate-y-[1px]">
 						{#if open}
 							<ChevronUp strokeWidth={chevronStrokeWidth} className={chevronClassName} />

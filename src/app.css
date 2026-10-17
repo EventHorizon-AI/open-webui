@@ -197,6 +197,41 @@ textarea::-webkit-scrollbar-corner {
 	@apply text-gray-600 dark:text-gray-400;
 }
 
+/* Summary titles and bodies are plain elements, not markdown nodes, so their
+   spacing is declared here: `.markdown-prose`'s prose paragraph margins are
+   unlayered and would override a Tailwind margin utility on them. The title
+   keeps a tight 0.25rem from its body; the body carries no paragraph margin.
+   The first/last-child resets below still trim a block's outer edges. */
+.reasoning-block .reasoning-title {
+	/* Breaks-enabled markdown rendered `**{title}**\n{body}` as one paragraph
+	   with a <br>: the title sat on the line above the body with no paragraph
+	   margin at all. Keep that compact stack now that the two are separate
+	   elements. The explicit weight mirrors the bold title's
+	   `prose-strong:font-medium`, which `prose-p:font-normal` would otherwise
+	   override (typography styles are unlayered; utilities lose to them). */
+	margin: 0;
+	font-weight: 500;
+}
+
+.reasoning-block .reasoning-body {
+	margin: 0;
+}
+
+/* Each reasoning block is wrapped in its own element, so the gap between blocks
+   is set here rather than by a utility: the prose paragraph margins above are
+   unlayered and would override a Tailwind `mt-*` utility. */
+.reasoning-block > :first-child {
+	margin-top: 0;
+}
+
+.reasoning-block > :last-child {
+	margin-bottom: 0;
+}
+
+.reasoning-block + .reasoning-block {
+	margin-top: 0.5rem;
+}
+
 .markdown a {
 	@apply underline;
 }
