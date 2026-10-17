@@ -11,6 +11,8 @@
 	import { indentUnit } from '@codemirror/language';
 	import { oneDark } from '@codemirror/theme-one-dark';
 
+	import { settings } from '$lib/stores';
+
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 
 	const i18n = getContext('i18n');
@@ -96,7 +98,7 @@
 		outputItem?: any;
 	}
 
-	function buildDisplayItems(items: any[]): DisplayItem[] {
+	function buildDisplayItems(items: any[], hideReasoning: boolean): DisplayItem[] {
 		const result: DisplayItem[] = [];
 		const outputByCallId: Record<string, { item: any; index: number }> = {};
 
@@ -112,7 +114,12 @@
 			if (t === 'message') {
 				result.push({ type: 'message', indices: [i], item });
 			} else if (t === 'reasoning') {
-				result.push({ type: 'reasoning', indices: [i], item });
+				// "Show reasoning summary only" hides finished reasoning from the
+				// message, so it is left out of the visual editor too. It stays in
+				// `output` (and in the JSON editor): hiding must not drop data.
+				if (!hideReasoning) {
+					result.push({ type: 'reasoning', indices: [i], item });
+				}
 			} else if (t === 'function_call') {
 				const paired = outputByCallId[item.call_id];
 				result.push({
@@ -132,7 +139,14 @@
 		return result;
 	}
 
-	$: displayItems = buildDisplayItems(output);
+	// "Show reasoning summary only" drops finished reasoning from the message, so
+	// once "show reasoning after completion" is off the visual editor follows and
+	// leaves the reasoning rows out entirely. The JSON editor is unaffected.
+	$: hideReasoning =
+		($settings?.reasoningPreviewOnly ?? false) &&
+		!($settings?.keepReasoningAfterCompletion ?? false);
+
+	$: displayItems = buildDisplayItems(output, hideReasoning);
 
 	// --- Helpers ---
 
