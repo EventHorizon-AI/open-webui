@@ -97,6 +97,14 @@
 
 	$: isReasoningVariant = variant === 'reasoning';
 
+	// "Show reasoning summary only" is read from the settings here instead of
+	// being passed in: in that mode the group's reasoning is previewed instead of
+	// rendered, so it must not keep the header live on its own. A detail group
+	// then follows its own unfinished tool calls and settles as soon as none is
+	// left. The reasoning-style header is only used by a process group, which
+	// renders done, so the setting leaves it alone.
+	$: liveOnActiveToolCalls = !isReasoningVariant && ($settings?.reasoningPreviewOnly ?? false);
+
 	function parseJSONString(str: string) {
 		try {
 			return parseJSONString(JSON.parse(str));
@@ -153,15 +161,24 @@
 	$: pendingToolTokens = tokens.filter(
 		(t) => t?.attributes?.type === 'tool_calls' && t?.attributes?.status === 'pending'
 	);
+	// A tool call counts as unfinished until its result (or a terminal status)
+	// lands: awaiting approval, preparing and executing all count as active.
+	const isActiveToolCall = (token: (typeof tokens)[number]) => {
+		const attributes = token?.attributes;
+		return (
+			attributes?.type === 'tool_calls' &&
+			attributes.status !== 'rejected' &&
+			attributes.status !== 'failed' &&
+			attributes.status !== 'incomplete' &&
+			attributes.done !== 'true'
+		);
+	};
+
+	$: hasActiveToolCalls = tokens.some(isActiveToolCall);
 	$: hasActiveDetails = tokens.some((token) => {
 		const attributes = token?.attributes;
 		if (attributes?.type === 'tool_calls') {
-			return (
-				attributes.status !== 'rejected' &&
-				attributes.status !== 'failed' &&
-				attributes.status !== 'incomplete' &&
-				attributes.done !== 'true'
-			);
+			return isActiveToolCall(token);
 		}
 		return !messageDone && attributes?.done && attributes.done !== 'true';
 	});
@@ -259,13 +276,20 @@
 
 	// One condition drives both the icon and the text of the header so they can
 	// never disagree (the spinner used to also check `hasActiveDetails` while
-	// the text only looked at `groupOpen`).
-	$: groupLive = groupOpen || hasActiveDetails;
+	// the text only looked at `groupOpen`). With "show reasoning summary only"
+	// the reasoning is previewed instead of rendered, so it must not keep the
+	// header live: there the header follows the group's unfinished tool calls
+	// and stops spinning as soon as none is left.
+	$: groupLive = liveOnActiveToolCalls ? hasActiveToolCalls : groupOpen || hasActiveDetails;
 
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
 	// Once it is closed it settles to "Explored" regardless of the last tool
-	// call status, which may have completed while the group kept streaming.
-	$: prefixText = groupOpen ? $i18n.t('Exploring') : $i18n.t('Explored');
+	// call status, which may have completed while the group kept streaming. It is
+	// the same in "show reasoning summary only" mode, where the header follows
+	// the unfinished tool calls instead of `groupOpen`.
+	$: prefixText = (liveOnActiveToolCalls ? hasActiveToolCalls : groupOpen)
+		? $i18n.t('Exploring')
+		: $i18n.t('Explored');
 
 	// Whether the header leads with a status icon. A reasoning group shows none
 	// until it starts, in which case the expand chevron stays on the right.
@@ -299,7 +323,7 @@
 				{#if hasLeadingIcon}
 					<div class="relative flex size-4 shrink-0 items-center justify-center self-center">
 						<div class="flex group-hover/groupheader:invisible">
-							{#if groupOpen || hasActiveDetails}
+							{#if groupLive}
 								<Spinner className="size-4" />
 							{:else if hasRejected}
 								<div class="text-red-400 dark:text-red-500">
