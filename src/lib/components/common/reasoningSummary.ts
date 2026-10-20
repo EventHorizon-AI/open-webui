@@ -104,15 +104,203 @@ const TITLE_MIN_CHARS = 2;
 // ---------------------------------------------------------------------------
 // Title scoring
 //
-// Candidates compete on score; the constants below are the whole tuning
-// surface. Position breaks ties, it never overrules what the phrase says.
+// A candidate competes on the dot product of its feature vector and a weight
+// table. The vector is a re-parameterisation of the linear scorer this file
+// used to carry by hand: every term of that scorer is exactly one feature, so
+// the tables below are a drop-in replacement, not a different model. Position
+// breaks ties, it never overrules what the phrase says.
+//
+// The weights were fitted with GRPO (`ReasoningSummary/`, λ_KL = 10, β = 0.1,
+// run `runs/20261021-0043/lam_10`) over the candidate pools of the same corpus,
+// and verified candidate-by-candidate against the hand-tuned scorer: the
+// feature form reproduces it exactly (`w0 · x`, worst error 2.84e-14 on 36,173
+// candidates), and the frozen table's argmax on every corpus pool matches the
+// λ10 offline evaluation. The values are the JSON literals verbatim — no
+// rounding — so a candidate that sat on a floor keeps its exact ordering.
+// `pen_telegraphic` is the one deliberate override (−18, fitted −12).
 // ---------------------------------------------------------------------------
-
-/** Points a content word adds to a title's specificity. */
-const TITLE_SCORE_CONTENT_WORD = 5;
 
 /** Content words past this cap no longer add specificity: a run-on is not a topic. */
 const TITLE_SCORE_CONTENT_WORD_CAP = 6;
+
+/** How much of a soft penalty survives in the fallback layer. */
+const TITLE_FALLBACK_PENALTY_FACTOR = 0.5;
+
+/** A hedged opener makes an otherwise usable fallback phrase less certain. */
+const TITLE_FALLBACK_LOW_CONFIDENCE_PENALTY = 2;
+
+/** One candidate's metadata: exactly what the scorer reads. */
+type TitleCandidateMeta = {
+	title: string;
+	source: TitleSource;
+	sentence: number;
+	compressed: boolean;
+	markup: boolean;
+	labelMerge: boolean;
+	listMerge: boolean;
+	codeLabel: boolean;
+};
+
+/**
+ * Feature order, one per term of the hand-tuned scorer. Every feature is 0 when
+ * its term is inactive, so a vector can be read as "which terms fired".
+ */
+const TITLE_FEATURE_NAMES = [
+	// position prior: one-hot over the twelve sources
+	'src_opening',
+	'src_opening_clause',
+	'src_intent',
+	'src_asker',
+	'src_second',
+	'src_later',
+	'src_clause',
+	'src_quote',
+	'src_task',
+	'src_fixup',
+	'src_synthesis',
+	'src_definition',
+	// continuous position decay for non-opening candidates past sentence 1
+	'pos_decay',
+	// sentence centrality, masked to the sources that compete on it
+	'centrality_masked',
+	// specificity aggregate: capped IDF sum, capped word count, IDF loss term
+	'spec_idf_sum_capped',
+	'spec_content_word_count_capped',
+	'spec_idf_loss',
+	// a definition is scored as a flat two-content-word bonus
+	'spec_definition',
+	// rewards
+	'title_ends_on_content_word',
+	'intent_quality',
+	'topics_handoff',
+	// continuous run-on penalty (already a point value)
+	'run_on_units',
+	// penalty predicates (0/1)
+	'pen_marker_only',
+	'pen_code',
+	'pen_formula_fragment',
+	'pen_numeric_run',
+	'pen_weak_label',
+	'pen_frame',
+	'pen_process_opener',
+	'pen_process_opener_en',
+	'pen_meta_cognition',
+	'pen_plan_filler',
+	'pen_adverb',
+	'pen_framing',
+	'pen_hedge_opener',
+	'pen_evaluative_tail',
+	'pen_question_tail',
+	'pen_connective_opener',
+	'pen_meta_sentence',
+	'pen_step_plan',
+	'pen_dangling_end',
+	'pen_telegraphic',
+	'pen_synthesis',
+	'pen_markup',
+	'pen_label_merge',
+	'pen_list_merge',
+	'pen_code_label',
+	'pen_single_word',
+	'pen_whole_block_intent',
+	// fallback layer only: hedged opener on an otherwise usable phrase
+	'fb_low_confidence'
+] as const;
+
+type TitleFeatureName = (typeof TITLE_FEATURE_NAMES)[number];
+type TitleFeatures = Record<TitleFeatureName, number>;
+
+/**
+ * The ordinary layer's weights, frozen from `weights_final.json` of the λ_KL = 10
+ * GRPO run. Values are copied verbatim (no rounding): a candidate a fraction of
+ * a point from the floor must keep the ordering it was trained on.
+ */
+const TITLE_SCORE_WEIGHTS: Record<TitleFeatureName, number> = {
+	src_opening: 24.350479523212822,
+	src_opening_clause: 2.355978405272777,
+	src_intent: 20.55160022914217,
+	src_asker: 18.428437167365782,
+	src_second: 10.902788305767297,
+	src_later: 5.708066313949306,
+	src_clause: 2.692161982841677,
+	src_quote: 8.512914949006843,
+	src_task: 7.262186517486676,
+	src_fixup: 4.0,
+	src_synthesis: 18.274793196911062,
+	src_definition: 22.0,
+	pos_decay: -1.0651149141636573,
+	centrality_masked: 6.961123635131294,
+	spec_idf_sum_capped: 5.761906099240256,
+	spec_content_word_count_capped: 0.8707031985716448,
+	spec_idf_loss: 4.1339614760453545,
+	spec_definition: 10.0,
+	title_ends_on_content_word: 7.0746243999396485,
+	intent_quality: 6.623031226030875,
+	topics_handoff: 12.0,
+	run_on_units: -0.9241588082660063,
+	pen_marker_only: -100.0,
+	pen_code: -32.0,
+	pen_formula_fragment: -29.42772318687172,
+	pen_numeric_run: -21.626159257608997,
+	pen_weak_label: -14.0,
+	pen_frame: -11.74418969579531,
+	pen_process_opener: -20.43594649201676,
+	pen_process_opener_en: -12.207602324674808,
+	pen_meta_cognition: -6.036764874617417,
+	pen_plan_filler: -13.781983279339613,
+	pen_adverb: -4.853269141253481,
+	pen_framing: -21.825382901552143,
+	pen_hedge_opener: -13.987408088926182,
+	pen_evaluative_tail: -12.865808246887925,
+	pen_question_tail: -7.91548973965356,
+	pen_connective_opener: -27.572439656049983,
+	pen_meta_sentence: -30.0,
+	pen_step_plan: -17.347461489203628,
+	pen_dangling_end: -21.81880178509012,
+	// Deliberate override of the fitted value (−12): a compressed title reads as
+	// a note even when the phrase itself is good.
+	pen_telegraphic: -18,
+	pen_synthesis: -8.725206803088916,
+	pen_markup: -40.0,
+	pen_label_merge: -20.479939652738388,
+	pen_list_merge: -12.496444199912434,
+	pen_code_label: -16.0,
+	pen_single_word: -9.337088164678137,
+	pen_whole_block_intent: -100.0,
+	fb_low_confidence: -0.4608259940740133
+};
+
+/**
+ * The penalties that describe *how* a phrase reads (a calculation step, a frame,
+ * a process beat, the meta verb). They are the ones the fallback layer
+ * discounts: in a formula-heavy block every candidate carries at least one, and
+ * they are not hard rejections.
+ */
+const TITLE_FEATURE_SOFT: ReadonlySet<TitleFeatureName> = new Set<TitleFeatureName>([
+	'pen_formula_fragment',
+	'pen_numeric_run',
+	'pen_frame',
+	'pen_process_opener',
+	'pen_process_opener_en',
+	'pen_meta_cognition'
+]);
+
+/**
+ * The fallback layer, derived mechanically from the ordinary table instead of
+ * being fitted on its own: the ordinary score already paid each soft penalty in
+ * full, so the fallback keeps only the surviving share
+ * (`w · TITLE_FALLBACK_PENALTY_FACTOR`), and a hedged opener costs the fixed
+ * extra below. With the hand-tuned table as input this reproduces the old
+ * `score − softPenalty · 0.5 − lowconfidence · 2` to 1e-9 per candidate.
+ */
+const TITLE_FALLBACK_WEIGHTS: Record<TitleFeatureName, number> = (() => {
+	const weights: Record<TitleFeatureName, number> = { ...TITLE_SCORE_WEIGHTS };
+	for (const name of TITLE_FEATURE_SOFT) {
+		weights[name] = weights[name] * TITLE_FALLBACK_PENALTY_FACTOR;
+	}
+	weights.fb_low_confidence = weights.fb_low_confidence - TITLE_FALLBACK_LOW_CONFIDENCE_PENALTY;
+	return weights;
+})();
 
 /**
  * Session-level content-word weights: `idf = ln((N + 1) / (df + 1)) + 1` over
@@ -145,11 +333,11 @@ const contentIdfCache = new Map<string, ContentIdf>();
 const TITLE_IDF_WEIGHT_FLOOR = 0.6;
 
 /**
- * The specificity term never loses more than this many units (points are five
- * times this): IDF redistributes weight, it does not sink a title that already
- * carried its content.
+ * The specificity term never loses more than this many units (the learned
+ * weight is ~5.8x this): IDF redistributes weight, it does not sink a title
+ * that already carried its content. Rescaled with the learned weight table.
  */
-const TITLE_IDF_MAX_DISCOUNT = 0.5;
+const TITLE_IDF_MAX_DISCOUNT = 0.8;
 
 /**
  * Content-word IDF over the blocks one title may see: every block of a finished
@@ -200,44 +388,8 @@ function buildContentIdf(blocks: readonly string[]): ContentIdf {
 	return idf;
 }
 
-/**
- * A title's specificity: each content word contributes its session weight, the
- * six-word cap still applies, and the total loss against the plain count is
- * bounded.
- */
-function titleContentSpecificity(terms: readonly string[], idf: ContentIdf): number {
-	let weighted = 0;
-	for (const term of terms) {
-		weighted += idf.weights.get(term) ?? 1;
-	}
-
-	const baseline = Math.min(terms.length, TITLE_SCORE_CONTENT_WORD_CAP);
-	const weightedCapped = Math.min(weighted, TITLE_SCORE_CONTENT_WORD_CAP);
-	// Weights are at most 1, so the loss is bounded and cannot sink a title
-	// position already ranked.
-	return weightedCapped + Math.max(0, baseline - weightedCapped - TITLE_IDF_MAX_DISCOUNT);
-}
-
-/** A title that ends on a content word reads as a phrase; one that ends in glue does not. */
-const TITLE_SCORE_HEAD_CONTENT_BONUS = 8;
-
-/** A closing handoff ("I'll report back to the user") names the block's takeaway. */
-const TITLE_SCORE_HANDOFF_BONUS = 12;
-
-/** An intent phrase of full quality ("let me check…" -> "check…"). */
-const TITLE_SCORE_INTENT_QUALITY_BONUS = 4;
-
 /** A statement of intent reads at full quality from this many tokens. */
 const TITLE_INTENT_QUALITY_TOKENS = 3;
-
-/**
- * Points a sentence earns for carrying the block's content. Centrality is a
- * relative signal (0 for an even share, 1 for the block's most central
- * sentence). The bonus is paid to the sources position would otherwise
- * suppress, so it only has to separate two later candidates that the scorer
- * already rates the same; it is deliberately smaller than the opening prior.
- */
-const TITLE_SCORE_SENTENCE_CENTRALITY = 4;
 
 type TitleSource =
 	| 'opening'
@@ -254,88 +406,20 @@ type TitleSource =
 	| 'definition';
 
 /**
- * Position prior: where a candidate sits in the block. The gaps are small by
- * design — position breaks ties, it never overrules what the phrase says.
- */
-const TITLE_POSITION_PRIOR: Record<TitleSource, number> = {
-	// Lowering this prior was measured and reverted: several converged titles
-	// sat within a point of a later candidate, and the drop alone flipped them.
-	// A central sentence earns its own bonus, paid only to sources position
-	// would otherwise suppress, so the two signals never double-count.
-	opening: 22,
-	'opening-clause': 6,
-	intent: 18,
-	asker: 17,
-	second: 8,
-	later: 8,
-	clause: 6,
-	quote: 10,
-	task: 10,
-	fixup: 4,
-	// Composed, not taken as written: it sits below the block's own opening and
-	// pays the synthesis penalty, so it only wins when clearly better.
-	synthesis: 17,
-	// "Define A(k) = …" names the symbol the block is about. The definition is
-	// composed from the verb and its object, so it sits with the block's own
-	// opening instead of below it: in a formula-heavy block it is the only
-	// phrase that names a topic rather than a calculation step. Only the
-	// fallback layer collects it.
-	definition: 22
-};
-
-// Penalties, not vetoes: every predicate that would reject a title outright is
-// a row here. Large values never read as a topic; small ones are merely weaker
-// than an alternative.
-const TITLE_PENALTY_MARKER_ONLY = 100;
-const TITLE_PENALTY_CODE = 32;
-const TITLE_PENALTY_FORMULA = 26;
-const TITLE_PENALTY_NUMERIC_RUN = 18;
-const TITLE_PENALTY_WEAK_LABEL = 14;
-const TITLE_PENALTY_FRAME = 14;
-const TITLE_PENALTY_PROCESS_OPENER = 18;
-const TITLE_PENALTY_PROCESS_OPENER_ENGLISH = 10;
-/**
  * A title that opens on cognition itself ("Reconsider whether…") describes the
  * reasoning beat. The process-opener penalty covers the general case; this is
  * the extra cost of the meta verb, which would otherwise tie a concrete phrase.
  */
-const TITLE_PENALTY_META_COGNITION = 8;
 const TITLE_META_COGNITION_OPENER_RE = /^(?:think|reconsider|ponder|wonder|reflect|muse)\b/iu;
-const TITLE_PENALTY_PLAN_FILLER = 16;
-const TITLE_PENALTY_ADVERB = 8;
-const TITLE_PENALTY_FRAMING = 24;
-const TITLE_PENALTY_HEDGE_OPENER = 14;
-const TITLE_PENALTY_EVALUATIVE_TAIL = 12;
-const TITLE_PENALTY_QUESTION_TAIL = 10;
-const TITLE_PENALTY_CONNECTIVE_OPENER = 24;
-const TITLE_PENALTY_META_SENTENCE = 30;
-const TITLE_PENALTY_STEP_PLAN = 16;
-const TITLE_PENALTY_LABEL_MERGE = 20;
-const TITLE_PENALTY_LIST_MERGE = 12;
-const TITLE_PENALTY_DANGLING_END = 18;
-/**
- * A synthesized verb phrase is derived instead of taken from the lead: it is
- * grammatical, but the block's own words read more faithfully, so it has to be
- * clearly better to title.
- */
-const TITLE_PENALTY_SYNTHESIS = 10;
+
 /** A later sentence is weaker than an earlier one; the penalty is capped so it never dominates. */
 const TITLE_POSITION_SENTENCE_DECAY = 1.5;
 const TITLE_POSITION_SENTENCE_DECAY_CAP = 9;
-/** Dropping function words to fit is a fallback; a thinned title is telegraphic. */
-const TITLE_PENALTY_TELEGRAPHIC = 12;
-/** A one-word English title ("Recount", "Analyze") is a note, not a topic. */
-const TITLE_PENALTY_SINGLE_WORD = 6;
-/** A lead that only labels the code block behind it ("例如，定义一个宏：") says nothing. */
-const TITLE_PENALTY_CODE_LABEL = 16;
-/** Markup from an embedded heading or label is not a topic. */
-const TITLE_PENALTY_MARKUP = 40;
+
 /** A run-on is not more specific than a phrase. */
 const TITLE_PENALTY_RUN_ON_WORD = 5;
 const TITLE_PENALTY_RUN_ON_WIDTH = 0.5;
 const TITLE_PENALTY_RUN_ON_MAX = 25;
-/** An intent sentence that is the whole block says nothing about the block. */
-const TITLE_PENALTY_WHOLE_BLOCK_INTENT = 100;
 
 /** A score below this is not a title: the block reads without one. */
 const TITLE_SCORE_FLOOR = 20;
@@ -364,11 +448,6 @@ const TITLE_SCORE_FLOOR = 20;
 /** Half the ordinary floor: a fallback title has to be a phrase, not noise. */
 const TITLE_SCORE_FLOOR_FALLBACK = TITLE_SCORE_FLOOR / 2;
 
-/** How much of a soft penalty survives in the fallback layer. */
-const TITLE_FALLBACK_PENALTY_FACTOR = 0.5;
-
-/** A hedged opener makes an otherwise usable fallback phrase less certain. */
-const TITLE_FALLBACK_LOW_CONFIDENCE_PENALTY = 2;
 const TITLE_FALLBACK_LOW_CONFIDENCE_RE =
 	/^(?:maybe|perhaps|probably|possibly|sort of|kind of|i think|i guess|it seems|it looks)\b/iu;
 
@@ -390,13 +469,6 @@ const TITLE_FALLBACK_ASIDE_RE =
 const TITLE_FALLBACK_FORMULA_STATEMENT_RE =
 	/^\p{L}[\p{L}\p{N}_]*(?:\s*\([^)]*\))?\s*(?:=|:=|≈|≠|≤|≥|<|>)/u;
 
-/**
- * A definition title is a verb plus a symbol ("Define A(k)", "设 F(k)"). The
- * symbol is not an English content word, so the phrase earns the specificity of
- * two content words instead of being penalized as a weak label.
- */
-const TITLE_SCORE_DEFINITION_SPECIFICITY = TITLE_SCORE_CONTENT_WORD * 2;
-
 // ---------------------------------------------------------------------------
 // Title diversity across blocks (S4)
 //
@@ -407,8 +479,13 @@ const TITLE_SCORE_DEFINITION_SPECIFICITY = TITLE_SCORE_CONTENT_WORD * 2;
 /** Cosine above which two titles read as the same topic. */
 const TITLE_DIVERSITY_SIMILARITY = 0.6;
 
-/** Full penalty at cosine 1; an identical title is discounted by this much. */
-const TITLE_PENALTY_DIVERSITY = 12;
+/**
+ * Full penalty at cosine 1; an identical title is discounted by this much.
+ * Rescaled x~1.6 when scoring moved to the learned weight table (the learned
+ * priors sit ~1.6x above the hand-set ones, so fixed tie-break points scale
+ * with the score scale).
+ */
+const TITLE_PENALTY_DIVERSITY = 19;
 
 /**
  * A diverse candidate must beat the base winner's adjusted score by this much
@@ -416,7 +493,7 @@ const TITLE_PENALTY_DIVERSITY = 12;
  * ahead from being traded for a marginal diversity gain; a real tie still
  * yields, because an identical title's penalty is larger than the margin.
  */
-const TITLE_DIVERSITY_MARGIN = 3;
+const TITLE_DIVERSITY_MARGIN = 5;
 
 /** A title's content-word bag, used only for the diversity comparison. */
 type TitleBag = {
@@ -558,11 +635,14 @@ const TITLE_CONTINUATION_OPENER_RE = new RegExp(
 	'iu'
 );
 
-/** A candidate title that names the previous topic; the full anchor bonus. */
-const TITLE_SCORE_CONTINUATION = 2;
+/**
+ * A candidate title that names the previous topic; the full anchor bonus.
+ * Rescaled with the learned weight table (was 2 at the hand-set scale).
+ */
+const TITLE_SCORE_CONTINUATION = 3.2;
 
 /** Only the source sentence shares the previous topic; half the bonus. */
-const TITLE_SCORE_CONTINUATION_SOURCE = 1;
+const TITLE_SCORE_CONTINUATION_SOURCE = 1.6;
 
 const EMPTY_TITLE_TERMS: ReadonlySet<string> = new Set<string>();
 
@@ -587,9 +667,9 @@ function opensWithContinuation(blockText: string): boolean {
 }
 
 /**
- * The anchor bonus is at most two points — below the ordinary position gaps —
- * and abstains when the previous block has no title. A source-sentence match
- * earns half, so a pronoun-only phrase can still be preferred.
+ * The anchor bonus sits below the ordinary position gaps and abstains when
+ * the previous block has no title. A source-sentence match earns half, so a
+ * pronoun-only phrase can still be preferred.
  */
 function titleContinuationBonus(
 	title: string,
@@ -4671,80 +4751,126 @@ function isCentralSentence(text: string): boolean {
 	);
 }
 
-// The ordinary and fallback score of one candidate. `fallbackScore` discounts
-// only the soft penalties; the hard ones are shared.
+// The ordinary and fallback score of one candidate. Both are one dot product
+// over the same feature vector; the fallback table only discounts the soft
+// penalties and adds the hedged-opener cost.
 type TitleScore = { score: number; fallbackScore: number };
 
-// The score of one candidate. Pure: everything it reads comes in as an argument,
-// so a candidate can be re-scored without touching the block. `centrality` is
-// already masked to sentences that read as topics; `contentIdf` is neutral for
-// one block.
-function scoreTitleCandidate(
-	candidate: {
-		title: string;
-		source: TitleSource;
-		sentence: number;
-		compressed: boolean;
-		markup: boolean;
-		labelMerge: boolean;
-		listMerge: boolean;
-		codeLabel: boolean;
-	},
+/** A zeroed feature vector for one candidate. */
+function emptyTitleFeatures(): TitleFeatures {
+	const features = {} as TitleFeatures;
+	for (const name of TITLE_FEATURE_NAMES) {
+		features[name] = 0;
+	}
+	return features;
+}
+
+/** One dot product over the features that fired (most of the vector is 0). */
+function dotTitleFeatures(
+	features: TitleFeatures,
+	weights: Readonly<Record<TitleFeatureName, number>>
+): number {
+	let total = 0;
+	for (const name of TITLE_FEATURE_NAMES) {
+		const value = features[name];
+		if (value !== 0) {
+			total += value * weights[name];
+		}
+	}
+	return total;
+}
+
+/**
+ * The feature vector of one candidate: every term the hand-tuned scorer read, in
+ * `TITLE_FEATURE_NAMES` order.
+ *
+ * Two places need care, because the old scorer was not a plain sum:
+ *
+ * 1. `pen_numeric_run` is exclusive of `pen_formula_fragment`: the branch was an
+ *    `if / else if`, so a title that is both pays one penalty, not two. The
+ *    feature keeps that precedence so the map stays linear.
+ * 2. `spec_content_word_count_capped` is the upper bound the IDF loss is
+ *    measured against; it is carried as a feature of its own (with its fitted
+ *    weight) instead of being folded into `spec_idf_loss`.
+ *
+ * Ported 1:1 from the GRPO feature extractor (`ReasoningSummary/features.md`),
+ * which reproduced the hand scorer to 2.84e-14 over 36,173 candidates.
+ */
+function extractTitleFeatures(
+	candidate: TitleCandidateMeta,
 	sentenceCount: number,
 	sentenceCentrality: readonly number[] = [],
 	contentIdf: ContentIdf = NEUTRAL_CONTENT_IDF
-): TitleScore {
+): TitleFeatures {
 	const title = candidate.title.trim();
+	const features = emptyTitleFeatures();
 	if (!title) {
-		return { score: Number.NEGATIVE_INFINITY, fallbackScore: Number.NEGATIVE_INFINITY };
+		return features;
 	}
+
 	const definition = candidate.source === 'definition';
 	const contentTerms = titleContentWordTerms(title);
 	// A definition names its symbol even when the symbol is not a word: it is
 	// scored as two content words, and the weak-label penalty is not applied.
 	const contentWords = definition ? Math.max(2, contentTerms.length) : contentTerms.length;
 
-	let score = TITLE_POSITION_PRIOR[candidate.source];
+	const sourceKey = `src_${candidate.source.replace(/-/g, '_')}` as TitleFeatureName;
+	if (sourceKey in features) {
+		features[sourceKey] = 1;
+	}
+
 	if (candidate.source !== 'opening' && candidate.sentence > 1) {
-		score -= Math.min(
+		features.pos_decay = Math.min(
 			TITLE_POSITION_SENTENCE_DECAY_CAP,
 			(candidate.sentence - 1) * TITLE_POSITION_SENTENCE_DECAY
 		);
 	}
 	if (TITLE_CENTRALITY_SOURCES.has(candidate.source)) {
-		score += TITLE_SCORE_SENTENCE_CENTRALITY * (sentenceCentrality[candidate.sentence] ?? 0);
-	}
-	score += definition
-		? TITLE_SCORE_DEFINITION_SPECIFICITY
-		: titleContentSpecificity(contentTerms, contentIdf) * TITLE_SCORE_CONTENT_WORD;
-	if (titleEndsOnContentWord(title)) {
-		score += TITLE_SCORE_HEAD_CONTENT_BONUS;
-	}
-	if (candidate.source === 'intent' && countReasoningTokens(title) >= TITLE_INTENT_QUALITY_TOKENS) {
-		score += TITLE_SCORE_INTENT_QUALITY_BONUS;
-	}
-	if (candidate.sentence === sentenceCount - 1 && TOPIC_HANDOFF_RE.test(title)) {
-		score += TITLE_SCORE_HANDOFF_BONUS;
+		features.centrality_masked = sentenceCentrality[candidate.sentence] ?? 0;
 	}
 
-	let penalty = 0;
-	// Penalties for how a phrase reads (a calculation step, a frame, a process
-	// beat) are the ones the fallback layer halves: in a formula-heavy block
-	// every candidate carries at least one, and they are not hard rejections.
-	let softPenalty = 0;
+	if (definition) {
+		features.spec_definition = 1;
+	} else {
+		let weighted = 0;
+		for (const term of contentTerms) {
+			weighted += contentIdf.weights.get(term) ?? 1;
+		}
+		const baseline = Math.min(contentTerms.length, TITLE_SCORE_CONTENT_WORD_CAP);
+		const capped = Math.min(weighted, TITLE_SCORE_CONTENT_WORD_CAP);
+		// Weighted at most 1 per word, so the loss is bounded and cannot sink a
+		// title position already ranked.
+		features.spec_idf_sum_capped = capped;
+		features.spec_content_word_count_capped = baseline;
+		features.spec_idf_loss = Math.max(0, baseline - capped - TITLE_IDF_MAX_DISCOUNT);
+	}
+
+	if (titleEndsOnContentWord(title)) {
+		features.title_ends_on_content_word = 1;
+	}
+	if (candidate.source === 'intent' && countReasoningTokens(title) >= TITLE_INTENT_QUALITY_TOKENS) {
+		features.intent_quality = 1;
+	}
+	if (candidate.sentence === sentenceCount - 1 && TOPIC_HANDOFF_RE.test(title)) {
+		features.topics_handoff = 1;
+	}
+
+	features.run_on_units = titleRunOnPenalty(title);
+
 	if (isDiscourseMarkerOnly(title)) {
-		penalty += TITLE_PENALTY_MARKER_ONLY;
+		features.pen_marker_only = 1;
 	}
 	if (isCodeLikeTitle(title)) {
-		penalty += TITLE_PENALTY_CODE;
+		features.pen_code = 1;
 	}
-	if (isFormulaFragmentTitle(title)) {
-		softPenalty += TITLE_PENALTY_FORMULA;
+	const formulaFragment = isFormulaFragmentTitle(title);
+	if (formulaFragment) {
+		features.pen_formula_fragment = 1;
 	} else if (formulaMarks(title) >= 2 && candidate.source !== 'intent') {
-		softPenalty += TITLE_PENALTY_NUMERIC_RUN;
+		features.pen_numeric_run = 1;
 	}
 	if (contentWords < 2) {
-		penalty += TITLE_PENALTY_WEAK_LABEL;
+		features.pen_weak_label = 1;
 	}
 	if (
 		FRAME_TITLE_RE.test(title) ||
@@ -4756,81 +4882,100 @@ function scoreTitleCandidate(
 		GENERIC_TASK_TITLE_RE.test(title) ||
 		FORMULA_CONDITION_TITLE_RE.test(title)
 	) {
-		softPenalty += TITLE_PENALTY_FRAME;
+		features.pen_frame = 1;
 	}
 	if (TOPIC_PROCESS_CORE_RE.test(title)) {
-		softPenalty += CJK_RUN_RE.test(title)
-			? TITLE_PENALTY_PROCESS_OPENER
-			: TITLE_PENALTY_PROCESS_OPENER_ENGLISH;
+		if (CJK_RUN_RE.test(title)) {
+			features.pen_process_opener = 1;
+		} else {
+			features.pen_process_opener_en = 1;
+		}
 	}
 	if (!CJK_RUN_RE.test(title) && TITLE_META_COGNITION_OPENER_RE.test(title)) {
-		softPenalty += TITLE_PENALTY_META_COGNITION;
+		features.pen_meta_cognition = 1;
 	}
 	if (TOPIC_PLAN_FILLER_RE.test(title)) {
-		penalty += TITLE_PENALTY_PLAN_FILLER;
+		features.pen_plan_filler = 1;
 	}
 	if (TOPIC_ADVERB_RE.test(title)) {
-		penalty += TITLE_PENALTY_ADVERB;
+		features.pen_adverb = 1;
 	}
 	if (CHINESE_FRAMING_RE.test(title) || TITLE_FRAMING_OPENER_RE.test(title)) {
-		penalty += TITLE_PENALTY_FRAMING;
+		features.pen_framing = 1;
 	}
 	if (TITLE_HEDGE_OPENER_RE.test(title)) {
-		penalty += TITLE_PENALTY_HEDGE_OPENER;
+		features.pen_hedge_opener = 1;
 	}
 	if (TITLE_EVALUATIVE_TAIL_RE.test(title)) {
-		penalty += TITLE_PENALTY_EVALUATIVE_TAIL;
+		features.pen_evaluative_tail = 1;
 	}
 	if (TITLE_QUESTION_TAIL_RE.test(title)) {
-		penalty += TITLE_PENALTY_QUESTION_TAIL;
+		features.pen_question_tail = 1;
 	}
 	if (TITLE_CONNECTIVE_OPENER_RE.test(title) || TITLE_CONNECTIVE_OPENER_ENGLISH_RE.test(title)) {
-		penalty += TITLE_PENALTY_CONNECTIVE_OPENER;
+		features.pen_connective_opener = 1;
 	}
 	if (TITLE_META_SENTENCE_RE.test(title)) {
-		penalty += TITLE_PENALTY_META_SENTENCE;
+		features.pen_meta_sentence = 1;
 	}
 	if (TITLE_STEP_PLAN_RE.test(title)) {
-		penalty += TITLE_PENALTY_STEP_PLAN;
+		features.pen_step_plan = 1;
 	}
 	if (TITLE_DANGLING_END_RE.test(title)) {
-		penalty += TITLE_PENALTY_DANGLING_END;
+		features.pen_dangling_end = 1;
 	}
 	if (candidate.compressed) {
-		penalty += TITLE_PENALTY_TELEGRAPHIC;
+		features.pen_telegraphic = 1;
 	}
 	if (candidate.source === 'synthesis') {
-		penalty += TITLE_PENALTY_SYNTHESIS;
+		features.pen_synthesis = 1;
 	}
 	if (candidate.markup) {
-		penalty += TITLE_PENALTY_MARKUP;
+		features.pen_markup = 1;
 	}
 	if (candidate.labelMerge) {
-		penalty += TITLE_PENALTY_LABEL_MERGE;
+		features.pen_label_merge = 1;
 	}
 	if (candidate.listMerge) {
-		penalty += TITLE_PENALTY_LIST_MERGE;
+		features.pen_list_merge = 1;
 	}
 	if (candidate.codeLabel) {
-		penalty += TITLE_PENALTY_CODE_LABEL;
+		features.pen_code_label = 1;
 	}
 	// A one-word English title is a notes-column entry, not a topic. The weak
 	// label penalty already covers framing words; this covers a concrete but
 	// bare verb ("Recount").
 	if (!CJK_RUN_RE.test(title) && contentWords === 1) {
-		penalty += TITLE_PENALTY_SINGLE_WORD;
+		features.pen_single_word = 1;
 	}
 	if (candidate.source === 'intent' && candidate.sentence === 0 && sentenceCount === 1) {
-		penalty += TITLE_PENALTY_WHOLE_BLOCK_INTENT;
+		features.pen_whole_block_intent = 1;
 	}
-	penalty += titleRunOnPenalty(title);
+	if (TITLE_FALLBACK_LOW_CONFIDENCE_RE.test(title)) {
+		features.fb_low_confidence = 1;
+	}
 
-	const fallbackPenalty =
-		penalty +
-		softPenalty * TITLE_FALLBACK_PENALTY_FACTOR +
-		(TITLE_FALLBACK_LOW_CONFIDENCE_RE.test(title) ? TITLE_FALLBACK_LOW_CONFIDENCE_PENALTY : 0);
+	return features;
+}
 
-	return { score: score - penalty - softPenalty, fallbackScore: score - fallbackPenalty };
+// The score of one candidate. Pure: everything it reads comes in as an argument,
+// so a candidate can be re-scored without touching the block. `centrality` is
+// already masked to sentences that read as topics; `contentIdf` is neutral for
+// one block.
+function scoreTitleCandidate(
+	candidate: TitleCandidateMeta,
+	sentenceCount: number,
+	sentenceCentrality: readonly number[] = [],
+	contentIdf: ContentIdf = NEUTRAL_CONTENT_IDF
+): TitleScore {
+	if (!candidate.title.trim()) {
+		return { score: Number.NEGATIVE_INFINITY, fallbackScore: Number.NEGATIVE_INFINITY };
+	}
+	const features = extractTitleFeatures(candidate, sentenceCount, sentenceCentrality, contentIdf);
+	return {
+		score: dotTitleFeatures(features, TITLE_SCORE_WEIGHTS),
+		fallbackScore: dotTitleFeatures(features, TITLE_FALLBACK_WEIGHTS)
+	};
 }
 
 // End indices of the clause separators inside a sentence span. Chinese commas
