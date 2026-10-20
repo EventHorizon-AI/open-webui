@@ -16,6 +16,11 @@
  * - fallback layer: a block whose pool is all below the floor re-chooses with
  *   the soft math/frame penalties halved, and a definition sentence ("Define
  *   A(k) = …") is composed as verb + symbol;
+ * - symbolic templates: a formula-dense prose block whose natural pool is all
+ *   calculation fragments gets one composed title from what the block does
+ *   ("Solve for the positive roots of H(t)", "求解 H(t) 的正根"); it is built
+ *   with the fallback pool and is eligible only after every natural candidate
+ *   has failed;
  * - forward expansion: a prose block still without a title after the fallback
  *   and definitions keeps reading — it absorbs 200 more tokens to the next
  *   blank line, re-derives the title over the whole region, and repeats up to
@@ -159,6 +164,8 @@ const TITLE_FEATURE_NAMES = [
 	'src_fixup',
 	'src_synthesis',
 	'src_definition',
+	// a title composed from the block's own work (the symbolic template layer)
+	'src_template',
 	// continuous position decay for non-opening candidates past sentence 1
 	'pos_decay',
 	// sentence centrality, masked to the sources that compete on it
@@ -197,6 +204,7 @@ const TITLE_FEATURE_NAMES = [
 	'pen_dangling_end',
 	'pen_telegraphic',
 	'pen_synthesis',
+	'pen_template',
 	'pen_markup',
 	'pen_label_merge',
 	'pen_list_merge',
@@ -213,7 +221,12 @@ type TitleFeatures = Record<TitleFeatureName, number>;
 /**
  * The ordinary layer's weights, frozen from `weights_final.json` of the λ_KL = 10
  * GRPO run. Values are copied verbatim (no rounding): a candidate a fraction of
- * a point from the floor must keep the ordering it was trained on.
+ * a point from the floor must keep the ordering it was trained on. The two
+ * template terms (`src_template`, `pen_template`) come from Phase B, which fitted
+ * that pair alone with the other 50 dimensions frozen (`ReasoningSummary/runs/
+ * 20261021-0456`, β = 0.1, λ_KL ∈ {0, 0.1, 1}, 400 iterations each): validation
+ * selects the initialization, so 8 / −6 are the fitted values, not a leftover
+ * guess. The note at `src_template` records what the fit can and cannot see.
  */
 const TITLE_SCORE_WEIGHTS: Record<TitleFeatureName, number> = {
 	src_opening: 24.350479523212822,
@@ -261,6 +274,18 @@ const TITLE_SCORE_WEIGHTS: Record<TitleFeatureName, number> = {
 	// a note even when the phrase itself is good.
 	pen_telegraphic: -18,
 	pen_synthesis: -8.725206803088916,
+	// A composed template is a fallback voice: it says what the block does, not
+	// what the block says. Phase B fitted the pair by GRPO with the other 50
+	// weights pinned (`ReasoningSummary/runs/20261021-0456`, β = 0.1, λ_KL ∈
+	// {0, 0.1, 1}, 400 iterations): held-out expected reward peaks at this pair
+	// and falls monotonically as `src_template` leaves it (0.074415 here,
+	// 0.073099 at the λ = 0 end point), so the prior is reproduced, not replaced.
+	// Two things the fit makes visible: `pen_template` has no gradient at all (no
+	// rule sets it), and both terms only ever fire together, so only their sum
+	// is identifiable. The pair decides *whether* the layer speaks: a template
+	// clears the fallback floor by 8.97 (with an object) or 15.08 (without).
+	src_template: 8,
+	pen_template: -6,
 	pen_markup: -40.0,
 	pen_label_merge: -20.479939652738388,
 	pen_list_merge: -12.496444199912434,
@@ -284,6 +309,14 @@ const TITLE_FEATURE_SOFT: ReadonlySet<TitleFeatureName> = new Set<TitleFeatureNa
 	'pen_process_opener_en',
 	'pen_meta_cognition'
 ]);
+
+// `pen_template` is deliberately absent from the soft set: the fallback layer
+// halves the penalties that describe *how* a raw phrase reads, but the template
+// discount is the composition prior itself. Halving it would make the fallback
+// score of a template depend on the layer that chose it, so the same title would
+// shift rank between the ordinary and fallback pools. It keeps its full −6 in
+// both layers; only `src_*` priors and this penalty survive unchanged, exactly
+// like an unrelated source prior.
 
 /**
  * The fallback layer, derived mechanically from the ordinary table instead of
@@ -403,7 +436,8 @@ type TitleSource =
 	| 'task'
 	| 'fixup'
 	| 'synthesis'
-	| 'definition';
+	| 'definition'
+	| 'template';
 
 /**
  * A title that opens on cognition itself ("Reconsider whether…") describes the
@@ -4809,10 +4843,16 @@ function extractTitleFeatures(
 	}
 
 	const definition = candidate.source === 'definition';
+	// A template names its work and, when it has one, its object. The object can
+	// be a letter (`H(t)`), which the content-word counter does not see, so a
+	// composed title is read as at least two content words — the same treatment
+	// a definition gets for its symbol.
+	const template = candidate.source === 'template';
+	const composed = definition || template;
 	const contentTerms = titleContentWordTerms(title);
 	// A definition names its symbol even when the symbol is not a word: it is
 	// scored as two content words, and the weak-label penalty is not applied.
-	const contentWords = definition ? Math.max(2, contentTerms.length) : contentTerms.length;
+	const contentWords = composed ? Math.max(2, contentTerms.length) : contentTerms.length;
 
 	const sourceKey = `src_${candidate.source.replace(/-/g, '_')}` as TitleFeatureName;
 	if (sourceKey in features) {
@@ -4829,7 +4869,12 @@ function extractTitleFeatures(
 		features.centrality_masked = sentenceCentrality[candidate.sentence] ?? 0;
 	}
 
-	if (definition) {
+	if (composed) {
+		// A composed title (a definition or a template) is scored as a flat
+		// two-content-word bonus: its object may be a symbol rather than a word,
+		// which the IDF sum cannot count. Templates are additionally gated to
+		// the fallback layer, so this bonus only decides whether one clears the
+		// fallback floor, never whether it outranks a natural phrase.
 		features.spec_definition = 1;
 	} else {
 		let weighted = 0;
@@ -4866,7 +4911,14 @@ function extractTitleFeatures(
 	const formulaFragment = isFormulaFragmentTitle(title);
 	if (formulaFragment) {
 		features.pen_formula_fragment = 1;
-	} else if (formulaMarks(title) >= 2 && candidate.source !== 'intent') {
+	} else if (
+		formulaMarks(title) >= 2 &&
+		candidate.source !== 'intent' &&
+		// A template is composed from the block's work, so a symbol inside it
+		// ("Narrow the root of Q4 numerically") is the object the title names,
+		// not a numeric run. Same exemption as a stated intent.
+		candidate.source !== 'template'
+	) {
 		features.pen_numeric_run = 1;
 	}
 	if (contentWords < 2) {
@@ -5969,6 +6021,417 @@ function enhanceCandidate(
 	};
 }
 
+// ---------------------------------------------------------------------------
+// Symbolic title templates
+//
+// The last title layer for a formula-dense block: a derivation block whose every
+// sentence is a calculation has no natural candidate left after the formula and
+// numeric-run penalties, so it used to render bare or merge into its neighbour.
+// A template names the work instead of quoting it — "Solve for the positive
+// roots of H(t)", "求解 H(t) 的正根" — by classifying the block's own signals
+// (roots / simplify / factor / substitute / sign / derivative / bisect) and
+// naming the symbol the formulas act on.
+//
+// Three rules keep the layer honest:
+// - it only speaks for a prose block whose sentences are formula sentences
+//   (`TITLE_TEMPLATE_FORMULA_SENTENCE_SHARE`); a list, fence or table block is
+//   structural and never reaches this pass;
+// - the language follows the block (CJK share over non-space characters), so a
+//   Chinese derivation gets a Chinese template;
+// - it is a fallback-layer candidate: composed when the ordinary pool has
+//   already failed, scored with the same feature table under the hand-set prior
+//   (`src_template` / `pen_template`), and eligible only while no natural
+//   candidate clears the fallback floor. The prior alone cannot promise that —
+//   specificity points would let a clean template phrase outscore a marginal
+//   natural one — so the "only when the natural pool is all below the floor"
+//   rule is explicit in `chooseBestCandidate`.
+// ---------------------------------------------------------------------------
+
+type TitleTemplateCategory =
+	| 'solve'
+	| 'simplify'
+	| 'factor'
+	| 'evaluate'
+	| 'sign'
+	| 'transform'
+	| 'narrow'
+	| 'derive';
+
+/** Share of sentences carrying a formula mark at which a block is formula-dense. */
+const TITLE_TEMPLATE_FORMULA_SENTENCE_SHARE = 0.5;
+
+/** One sentence is a lead, not a derivation: a template needs two. */
+const TITLE_TEMPLATE_MIN_SENTENCES = 2;
+
+/** A signal below this says too little to pick a category; `derive` takes over. */
+const TITLE_TEMPLATE_MIN_SIGNAL = 1.5;
+
+/** Categories within this margin of the best are a tie: the table order wins. */
+const TITLE_TEMPLATE_TIE_MARGIN = 0.5;
+
+/** The same signal repeated more often is not a different task. */
+const TITLE_TEMPLATE_SIGNAL_MATCH_CAP = 3;
+
+/** CJK share of non-space characters above which the block speaks Chinese. */
+const TITLE_TEMPLATE_CJK_SHARE = 0.3;
+
+/** An object that runs longer is an expression, not a symbol. */
+const TITLE_TEMPLATE_OBJECT_MAX_LENGTH = 12;
+
+/** Frequency a bare symbol needs before it can stand for the block's object. */
+const TITLE_TEMPLATE_OBJECT_MIN_COUNT = 2;
+
+/**
+ * The block's signals, strongest first on a tie. English is matched on word
+ * boundaries, Chinese as substrings (a Han word has no boundary to test).
+ */
+const TITLE_TEMPLATE_SIGNALS: ReadonlyArray<{
+	category: Exclude<TitleTemplateCategory, 'derive'>;
+	pattern: RegExp;
+	weight: number;
+}> = [
+	// solve
+	{ category: 'solve', pattern: /\bsolv(?:e|es|ed|ing)\b/giu, weight: 3 },
+	{ category: 'solve', pattern: /\b(?:positive|negative|real|complex)\s+roots?\b/giu, weight: 3 },
+	{ category: 'solve', pattern: /\broots?\b/giu, weight: 1.5 },
+	{ category: 'solve', pattern: /求根|求解|解方程/gu, weight: 3 },
+	{ category: 'solve', pattern: /正根|负根|实根|复根|零点/gu, weight: 3 },
+	{ category: 'solve', pattern: /(?:的|方程)根/gu, weight: 2 },
+	// simplify
+	{ category: 'simplify', pattern: /\bsimplif(?:y|ies|ied|ying)\b/giu, weight: 3 },
+	{ category: 'simplify', pattern: /\bexpand(?:s|ed|ing)?\b/giu, weight: 2 },
+	{ category: 'simplify', pattern: /化简/gu, weight: 3 },
+	{ category: 'simplify', pattern: /展开/gu, weight: 2 },
+	{ category: 'simplify', pattern: /约去/gu, weight: 2 },
+	// factor
+	{ category: 'factor', pattern: /\bfactor(?:s|ed|ing|ization|ize|ise)?\b/giu, weight: 3 },
+	{ category: 'factor', pattern: /因式分解|提出公因子|公因式|因式/gu, weight: 3 },
+	// evaluate
+	{ category: 'evaluate', pattern: /\bplug(?:s|ged|ging)?\b/giu, weight: 2 },
+	{ category: 'evaluate', pattern: /\bsubstitut(?:e|es|ed|ing|ion)\b/giu, weight: 3 },
+	{ category: 'evaluate', pattern: /\bevaluat(?:e|es|ed|ing)\s+at\b/giu, weight: 3 },
+	{ category: 'evaluate', pattern: /\bevaluat(?:e|es|ed|ing)\b/giu, weight: 2 },
+	{ category: 'evaluate', pattern: /代入/gu, weight: 3 },
+	{ category: 'evaluate', pattern: /求值/gu, weight: 3 },
+	// sign
+	{ category: 'sign', pattern: /\bsigns?\b/giu, weight: 2 },
+	{ category: 'sign', pattern: /\bpositive\b/giu, weight: 1 },
+	{ category: 'sign', pattern: /\bnegative\b/giu, weight: 1 },
+	{ category: 'sign', pattern: /正负|符号/gu, weight: 2 },
+	{ category: 'sign', pattern: /不等式/gu, weight: 3 },
+	{ category: 'sign', pattern: /大于|小于|不小于|不大于/gu, weight: 2 },
+	// transform
+	{
+		category: 'transform',
+		pattern: /\bderivatives?\b|\bdifferentiat(?:e|es|ed|ing|ion)\b/giu,
+		weight: 3
+	},
+	{
+		category: 'transform',
+		pattern: /\bintegrals?\b|\bintegrat(?:e|es|ed|ing|ion)\b/giu,
+		weight: 3
+	},
+	{ category: 'transform', pattern: /求导|导数|微分/gu, weight: 3 },
+	{ category: 'transform', pattern: /积分/gu, weight: 3 },
+	{ category: 'transform', pattern: /傅里叶|\bfourier\b/giu, weight: 3 },
+	{ category: 'transform', pattern: /\btransforms?\b|\btransformation\b/giu, weight: 2 },
+	{ category: 'transform', pattern: /变换/gu, weight: 2 },
+	// narrow
+	{ category: 'narrow', pattern: /\bbisect(?:s|ed|ing|ion)?\b/giu, weight: 3 },
+	{ category: 'narrow', pattern: /\bnarrow(?:s|ed|ing)?\b/giu, weight: 2 },
+	{ category: 'narrow', pattern: /二分/gu, weight: 3 },
+	{ category: 'narrow', pattern: /缩到|缩小/gu, weight: 2 },
+	{ category: 'narrow', pattern: /区间/gu, weight: 1.5 },
+	{ category: 'narrow', pattern: /\bnumeric(?:al|ally)?\b/giu, weight: 1.5 },
+	{ category: 'narrow', pattern: /数值/gu, weight: 1.5 }
+];
+
+/** Table order: equal or near-equal categories resolve to the earlier one. */
+const TITLE_TEMPLATE_CATEGORY_ORDER: ReadonlyArray<Exclude<TitleTemplateCategory, 'derive'>> = [
+	'solve',
+	'simplify',
+	'factor',
+	'evaluate',
+	'sign',
+	'transform',
+	'narrow'
+];
+
+type TitleTemplateForms = { withObject: string; withoutObject: string };
+
+/**
+ * The templates. `{obj}` is a symbol the block works on; without a usable
+ * symbol the sentence-initial form still names the work ("Solve for the
+ * positive roots" reads better than "Solve for the positive roots of").
+ * Chinese keeps a space around the symbol, matching the title spacing rules;
+ * English is written as a normal sentence.
+ */
+const TITLE_TEMPLATE_FORMS: Record<
+	Exclude<TitleTemplateCategory, 'transform'>,
+	{ zh: TitleTemplateForms; en: TitleTemplateForms }
+> = {
+	solve: {
+		zh: { withObject: '求解 {obj} 的正根', withoutObject: '求解方程的正根' },
+		en: {
+			withObject: 'Solve for the positive roots of {obj}',
+			withoutObject: 'Solve for the positive roots'
+		}
+	},
+	simplify: {
+		zh: { withObject: '化简 {obj}', withoutObject: '化简表达式' },
+		en: { withObject: 'Simplify {obj}', withoutObject: 'Simplify the expression' }
+	},
+	factor: {
+		zh: { withObject: '分解 {obj}', withoutObject: '因式分解' },
+		en: { withObject: 'Factor {obj}', withoutObject: 'Factor the expression' }
+	},
+	evaluate: {
+		zh: { withObject: '代入求 {obj}', withoutObject: '代入求值' },
+		en: { withObject: 'Substitute and evaluate {obj}', withoutObject: 'Substitute and evaluate' }
+	},
+	sign: {
+		zh: { withObject: '验证 {obj} 的符号', withoutObject: '比较不等式' },
+		en: { withObject: 'Check the sign of {obj}', withoutObject: 'Compare the inequality' }
+	},
+	narrow: {
+		zh: { withObject: '数值逼近 {obj} 的根', withoutObject: '缩小根的范围' },
+		en: {
+			withObject: 'Narrow the root of {obj} numerically',
+			withoutObject: "Narrow the root's range"
+		}
+	},
+	derive: {
+		zh: { withObject: '推导中间表达式', withoutObject: '推导中间表达式' },
+		en: {
+			withObject: 'Deriving intermediate expressions',
+			withoutObject: 'Deriving intermediate expressions'
+		}
+	}
+};
+
+/**
+ * A transform names a different verb per word: differentiate, integrate, or the
+ * generic transform. Choosing by the earliest signal keeps "integral of the
+ * derivative" on the integral it opens with.
+ */
+const TITLE_TEMPLATE_TRANSFORM_FORMS: Record<
+	'derivative' | 'integral' | 'transform',
+	{ zh: TitleTemplateForms; en: TitleTemplateForms }
+> = {
+	derivative: {
+		zh: { withObject: '对 {obj} 求导', withoutObject: '求导计算' },
+		en: {
+			withObject: 'Differentiate {obj}',
+			withoutObject: 'Differentiate the expression'
+		}
+	},
+	integral: {
+		zh: { withObject: '对 {obj} 积分', withoutObject: '积分计算' },
+		en: { withObject: 'Integrate {obj}', withoutObject: 'Integrate the expression' }
+	},
+	transform: {
+		zh: { withObject: '变换 {obj}', withoutObject: '变换表达式' },
+		en: { withObject: 'Transform {obj}', withoutObject: 'Transform the expression' }
+	}
+};
+
+const TITLE_TEMPLATE_DERIVATIVE_RE = /\bderivatives?\b|\bdifferentiat|求导|导数|微分/iu;
+const TITLE_TEMPLATE_INTEGRAL_RE = /\bintegrals?\b|\bintegrat|积分/iu;
+
+/** A function-shaped symbol: `H(t)`, `F(k)`, `A(0)`. */
+const TITLE_TEMPLATE_FUNCTION_OBJECT_RE =
+	/(?<![\p{L}\p{N}_])([A-Za-z])\s*\(\s*([A-Za-z]\d*|\d+)\s*\)/gu;
+
+/** A bare symbol: `k`, `Q4`, `σ1`. */
+const TITLE_TEMPLATE_SYMBOL_RE = /(?<![\p{L}\p{N}_])([A-Za-zσλμθφ]\d*)(?![\p{L}\p{N}_])/gu;
+
+/** Letters that are English words before they are symbols. */
+const TITLE_TEMPLATE_NON_SYMBOLS = new Set(['a', 'A', 'i', 'I']);
+
+function templateSpeaksChinese(text: string): boolean {
+	let cjk = 0;
+	let visible = 0;
+	for (const char of text) {
+		if (/\s/u.test(char)) {
+			continue;
+		}
+		visible++;
+		if (CJK_RUN_RE.test(char)) {
+			cjk++;
+		}
+	}
+	return visible > 0 && cjk / visible > TITLE_TEMPLATE_CJK_SHARE;
+}
+
+/**
+ * The block's category: signals are counted (capped per signal) and the highest
+ * total wins. Near-ties resolve by table order, and no signal at all falls back
+ * to `derive`: a dense block still names the work it does.
+ */
+function templateCategoryFor(text: string): {
+	category: TitleTemplateCategory;
+	verb?: 'derivative' | 'integral' | 'transform';
+} {
+	const scores = new Map<TitleTemplateCategory, number>();
+	for (const { category, pattern, weight } of TITLE_TEMPLATE_SIGNALS) {
+		let matches = 0;
+		for (const _ of text.matchAll(pattern)) {
+			matches++;
+			if (matches >= TITLE_TEMPLATE_SIGNAL_MATCH_CAP) {
+				break;
+			}
+		}
+		if (matches) {
+			scores.set(category, (scores.get(category) ?? 0) + weight * matches);
+		}
+	}
+
+	let best: TitleTemplateCategory = 'derive';
+	let bestScore = 0;
+	for (const category of TITLE_TEMPLATE_CATEGORY_ORDER) {
+		const score = scores.get(category) ?? 0;
+		// Near-equal scores are a tie, so the earlier category in the table keeps
+		// the win; a clear lead replaces it.
+		if (score > bestScore + TITLE_TEMPLATE_TIE_MARGIN) {
+			best = category;
+			bestScore = score;
+		}
+	}
+	if (bestScore < TITLE_TEMPLATE_MIN_SIGNAL) {
+		return { category: 'derive' };
+	}
+	if (best !== 'transform') {
+		return { category: best };
+	}
+
+	const derivativeAt = text.search(TITLE_TEMPLATE_DERIVATIVE_RE);
+	const integralAt = text.search(TITLE_TEMPLATE_INTEGRAL_RE);
+	if (derivativeAt !== -1 && (integralAt === -1 || derivativeAt <= integralAt)) {
+		return { category: 'transform', verb: 'derivative' };
+	}
+	if (integralAt !== -1) {
+		return { category: 'transform', verb: 'integral' };
+	}
+	return { category: 'transform', verb: 'transform' };
+}
+
+/** A symbol is usable as an object only if it stays a symbol. */
+function templateObjectIsUsable(object: string): boolean {
+	const stripped = object.replace(/^["'“”‘’]+|["'“”‘’]+$/gu, '').trim();
+	return (
+		!!stripped &&
+		Array.from(stripped).length <= TITLE_TEMPLATE_OBJECT_MAX_LENGTH &&
+		!/[=\s]/u.test(stripped)
+	);
+}
+
+/**
+ * The object the block's formulas act on. The first function-shaped symbol is
+ * the block's own LHS ("H(t) = …"); without one, the most frequent bare symbol
+ * stands in ("Q4", "k"). A letter that is an English word is never a symbol.
+ */
+function templateObjectFor(text: string): string | null {
+	for (const match of text.matchAll(TITLE_TEMPLATE_FUNCTION_OBJECT_RE)) {
+		const object = `${match[1]}(${match[2]})`;
+		if (templateObjectIsUsable(object)) {
+			return object;
+		}
+	}
+
+	const counts = new Map<string, { count: number; first: number }>();
+	for (const match of text.matchAll(TITLE_TEMPLATE_SYMBOL_RE)) {
+		const symbol = match[1];
+		if (TITLE_TEMPLATE_NON_SYMBOLS.has(symbol)) {
+			continue;
+		}
+		const existing = counts.get(symbol);
+		if (existing) {
+			existing.count++;
+		} else {
+			counts.set(symbol, { count: 1, first: match.index ?? 0 });
+		}
+	}
+
+	let best: string | null = null;
+	let bestCount = TITLE_TEMPLATE_OBJECT_MIN_COUNT - 1;
+	let bestFirst = Number.POSITIVE_INFINITY;
+	for (const [symbol, { count, first }] of counts) {
+		if (count > bestCount || (count === bestCount && first < bestFirst)) {
+			best = symbol;
+			bestCount = count;
+			bestFirst = first;
+		}
+	}
+	return best && templateObjectIsUsable(best) ? best : null;
+}
+
+/** The composed title for a formula-dense block, or null when it cannot form one. */
+function templateTitleFor(blockText: string): string | null {
+	const { category, verb } = templateCategoryFor(blockText);
+	const forms =
+		category === 'transform'
+			? TITLE_TEMPLATE_TRANSFORM_FORMS[verb ?? 'transform']
+			: TITLE_TEMPLATE_FORMS[category];
+	const language = templateSpeaksChinese(blockText) ? 'zh' : 'en';
+	const object = category === 'derive' ? null : templateObjectFor(blockText);
+	const form = language === 'zh' ? forms.zh : forms.en;
+	const title = object ? form.withObject.replace('{obj}', object) : form.withoutObject;
+	if (
+		Array.from(title).length < TITLE_MIN_CHARS ||
+		displayWidth(title) > REASONING_SUMMARY_TITLE_MAX_WIDTH
+	) {
+		return null;
+	}
+	return title;
+}
+
+/**
+ * Template candidates for a block, at most one. The block has to be prose (the
+ * structural shapes were returned before the pool is collected) and formula
+ * dense: at least half of its sentences carry a formula mark. Both tests read
+ * signals the module already has, so the layer adds one O(block) pass and no new
+ * tokenizer.
+ */
+function collectTemplateCandidates(
+	blockText: string,
+	sentences: readonly SentenceSpan[],
+	sentenceCount: number,
+	centrality: readonly number[],
+	contentIdf: ContentIdf
+): EnhancedCandidate[] {
+	if (sentences.length < TITLE_TEMPLATE_MIN_SENTENCES) {
+		return [];
+	}
+
+	const firstLine = blockText.split('\n', 1)[0].trim();
+	if (LIST_ITEM_RE.test(firstLine) || /^(?:```|~~~)/u.test(firstLine) || /^\|/u.test(firstLine)) {
+		return [];
+	}
+
+	const formulaSentences = sentences.filter((sentence) => formulaMarks(sentence.text) > 0).length;
+	if (formulaSentences / sentences.length < TITLE_TEMPLATE_FORMULA_SENTENCE_SHARE) {
+		return [];
+	}
+
+	const title = templateTitleFor(blockText);
+	if (!title) {
+		return [];
+	}
+
+	// The template names the whole block, so it consumes nothing: the body keeps
+	// the original lines, like a definition title.
+	const candidate = enhanceCandidate(
+		{ title, consumed: 0, abridged: true },
+		'template',
+		0,
+		false,
+		sentenceCount,
+		centrality,
+		contentIdf
+	);
+	return candidate ? [candidate] : [];
+}
+
 // The candidate pool. Every sentence, clause prefix, long quote and label task
 // enters; none is pre-filtered for being a beat. Position only labels a
 // candidate — the score decides. Structural titles are returned before this pass.
@@ -6193,6 +6656,11 @@ function collectTitleCandidates(
 		}
 	}
 
+	// A formula-dense block's own sentences are all calculation fragments. The
+	// template layer is tried by the fallback pass below, which is the only
+	// layer that may take it; the ordinary pool never uses one, so building it
+	// here would cost every well-titled block for nothing.
+
 	return [...byTitle.values()];
 }
 
@@ -6379,6 +6847,12 @@ function isFallbackTitleAllowed(candidate: EnhancedCandidate): boolean {
 	if (candidate.source === 'definition') {
 		return true;
 	}
+	// A template is composed from a closed table and shaped at composition, and
+	// its object can be a symbol ("Simplify H(t)"): it is a phrase by
+	// construction, so the word counts do not apply to it either.
+	if (candidate.source === 'template') {
+		return true;
+	}
 	if (isWeakLabelTitle(title)) {
 		return false;
 	}
@@ -6411,11 +6885,30 @@ function chooseBestCandidate(
 	margin = 0,
 	fallback = false
 ): TitleCandidate {
+	// A template speaks only in the fallback layer, and only when the natural
+	// pool is silent: it is the block's last voice, not a competitor. The prior
+	// alone cannot promise this (a clean template phrase collects enough
+	// specificity to pass a marginal natural one), so the eligibility is
+	// explicit — the same kind of rule as the lone-intent test below. The
+	// ordinary layer never takes a template: a natural opening still wins there
+	// even when its score is only a little above the floor.
+	const naturalTitles = candidates.some(
+		(candidate) =>
+			candidate.source !== 'template' &&
+			// A discourse marker is not a title: the final pass drops it, so it
+			// must not keep the template out either.
+			!isDiscourseMarkerOnly(candidate.title) &&
+			isTitlingCandidate(candidate, text, fallback)
+	);
+	const pool = fallback
+		? candidates.filter((candidate) => !(naturalTitles && candidate.source === 'template'))
+		: candidates.filter((candidate) => candidate.source !== 'template');
+
 	let baseBest: EnhancedCandidate | null = null;
 	let diverseBest: EnhancedCandidate | null = null;
 	let diverseBestAdjusted = Number.NEGATIVE_INFINITY;
 	let baseBestAdjusted = Number.NEGATIVE_INFINITY;
-	for (const candidate of candidates) {
+	for (const candidate of pool) {
 		if (!isTitlingCandidate(candidate, text, fallback)) {
 			continue;
 		}
@@ -6681,13 +7174,24 @@ function findTitleCandidate(
 
 	// No candidate cleared the ordinary floor. Re-score the pool that was just
 	// built under the fallback layer (the fallback score is computed with the
-	// ordinary one, so no sentence is collected twice) and add the definitions
-	// the ordinary synthesis does not reach. A block that still has nothing
+	// ordinary one, so no sentence is collected twice), add the definitions the
+	// ordinary synthesis does not reach, and compose the block's symbolic
+	// template if the block is formula dense. A block that still has nothing
 	// usable here renders without a title.
+	const fallbackSentences = splitSentences(blockText);
 	const fallbackPool = new Map<string, EnhancedCandidate>();
 	for (const entry of [
 		...candidates,
-		...collectDefinitionCandidates(blockText, splitSentences(blockText), contentIdf)
+		...collectDefinitionCandidates(blockText, fallbackSentences, contentIdf),
+		...collectTemplateCandidates(
+			blockText,
+			fallbackSentences,
+			fallbackSentences.length,
+			// A template is never a centrality source, so the masked sentence
+			// graph is not computed for it.
+			[],
+			contentIdf
+		)
 	]) {
 		entry.score = entry.fallbackScore;
 		const key = entry.title.toLowerCase();
