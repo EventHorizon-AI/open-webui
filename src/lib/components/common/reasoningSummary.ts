@@ -3,35 +3,19 @@
  *
  * A reasoning stream is cut into blocks at blank lines once a block reaches
  * `REASONING_SUMMARY_TOKEN_TARGET` tokens; the trailing line is withheld until
- * it completes. Titles are derived per block by pure JS (no model call). A
- * summary carries its title and body as separate fields; the rendering side
- * assembles them (a bold title line above the body), so the builder no longer
- * prepends `**{title}**` to the body. A block may render titleless.
+ * it completes. Titles are derived per block by pure JS (no model call) and
+ * carried as their own field, so the renderer draws a bold title line above the
+ * body; a block may render titleless.
  *
  * Mechanisms:
- * - token analysis: `Intl.Segmenter` words for CJK and English, no model call;
- * - structural titles: headings, bold labels, quotes and label tasks pass through;
- * - candidate pool + scoring: every sentence, clause, quote and task competes;
+ * - candidates: structural titles pass through; sentences, clause prefixes,
+ *   quotes and label tasks compete in a scored pool;
  * - verb-phrase synthesis: 状语 + 动词 + 宾语 when both edges are certain;
- * - fallback layer: a block whose pool is all below the floor re-chooses with
- *   the soft math/frame penalties halved, and a definition sentence ("Define
- *   A(k) = …") is composed as verb + symbol;
- * - symbolic templates: a formula-dense prose block whose natural pool is all
- *   calculation fragments gets one composed title from what the block does
- *   ("Solve for the positive roots of H(t)", "求解 H(t) 的正根"); it is built
- *   with the fallback pool and is eligible only after every natural candidate
- *   has failed;
- * - forward expansion: a prose block still without a title after the fallback
- *   and definitions keeps reading — it absorbs 200 more tokens to the next
- *   blank line, re-derives the title over the whole region, and repeats up to
- *   three stages; a window that never titles rewinds to the base block, so the
- *   merge layer below still applies unchanged;
- * - titleless merge: a prose block still without a title after expansion joins
- *   the previous titled summary while that summary is still held, so its body
- *   never appears as a bare paragraph between titles;
- * - block TextRank centrality and session-level IDF for specificity;
- * - MMR title diversity, repaired once across blocks when not streaming;
- * - extractive body: central, conclusion-bearing, non-repeated sentences;
+ * - fallback: halved soft penalties and definition titles;
+ * - symbolic templates: name the work of a formula-dense block, eligible only
+ *   after every natural candidate failed;
+ * - forward expansion or merge into the previous summary while it is held;
+ * - TextRank centrality, session IDF, MMR title diversity, extractive body;
  * - streaming invariant: a returned summary and its title are never rewritten.
  */
 
@@ -48,31 +32,26 @@ export const REASONING_SUMMARY_TOKEN_LIMIT = 40;
 export const REASONING_SUMMARY_MERGE_TOKEN_LIMIT = 20;
 
 /**
- * Body tokens a titleless block may add to a previous titled summary. One
- * block's visible body is cut at `REASONING_SUMMARY_TOKEN_LIMIT`, so a block
- * contributes at most that much to the merged region: two full blocks fill the
- * pool, and the next titleless block starts on its own again. This keeps the
- * merged draft (and its re-extracted body) bounded while still letting a
- * consecutive pair of formula blocks ride under one title.
+ * Body tokens a titleless block may add to a previous titled summary: a block's
+ * visible body is cut at `REASONING_SUMMARY_TOKEN_LIMIT`, so two full blocks
+ * fill this pool and the next titleless block starts on its own, while a
+ * consecutive pair of formula blocks can still ride under one title.
  */
 export const REASONING_SUMMARY_MERGE_POOL_TOKEN_LIMIT = 80;
 
 /**
- * Extra tokens a titleless prose block absorbs from the text behind it before
- * the title is tried again. The block itself is cut at
- * `REASONING_SUMMARY_TOKEN_TARGET`; expansion counts from zero, so this is the
- * added budget, not the region's size. The region closes at the next blank line
- * after the budget is reached, exactly like a base block, so a paragraph
- * boundary is never cut through.
+ * Extra tokens a titleless prose block absorbs before its title is tried again;
+ * expansion counts from zero, so this is the added budget, not the region size.
+ * The region still closes at the next blank line after the budget, like a base
+ * block, so a paragraph boundary is never cut through.
  */
 export const REASONING_SUMMARY_EXPAND_TOKEN_TARGET = 200;
 
 /**
- * Total extra tokens expansion may absorb before the block gives up and takes
- * the ordinary titleless path: three stages of 200. The window is bounded so a
- * run of formula lines cannot keep one summary open indefinitely. A stage closes
- * at a blank line, so the absorbed region can pass the cap by the last block it
- * takes (it never cuts a paragraph in half).
+ * Total extra tokens expansion may absorb (three stages of 200) before the block
+ * takes the ordinary titleless path. The cap keeps a run of formula lines from
+ * holding one summary open, and a stage closes at a blank line, so the region
+ * can pass it by its last block but never cuts a paragraph.
  */
 export const REASONING_SUMMARY_EXPAND_TOKEN_LIMIT = 600;
 
@@ -88,18 +67,13 @@ export const REASONING_SUMMARY_TITLE_TOKEN_TARGET = 6;
 
 /**
  * A title never runs past the sentence it starts in, or past a clause dash or
- * colon: a full stop, sentence end or wrist of one of these that already has
- * this many tokens behind it ends the title, even though the regular token
- * target has not been reached yet.
+ * colon: a terminator with this many tokens behind it ends the title early.
  */
 const TITLE_SENTENCE_TOKEN_MIN = 3;
 
 /**
- * Width at which a title is cut, in half-width display units: roughly 40
- * Chinese characters or 80 English ones. A long, comma-less lead — "The
- * function should first split the input sentence into individual words while
- * keeping every piece of punctuation attached…" — is where this fires in
- * practice.
+ * Width at which a title is cut, in half-width display units: roughly 40 Chinese
+ * characters or 80 English ones, which a long comma-less lead reaches first.
  */
 export const REASONING_SUMMARY_TITLE_MAX_WIDTH = 80;
 
@@ -110,18 +84,15 @@ const TITLE_MIN_CHARS = 2;
 // Title scoring
 //
 // A candidate competes on the dot product of its feature vector and a weight
-// table. The vector is a re-parameterisation of the linear scorer this file
-// used to carry by hand: every term of that scorer is exactly one feature, so
-// the tables below are a drop-in replacement, not a different model. Position
-// breaks ties, it never overrules what the phrase says.
+// table; every feature is one term of the hand-tuned scorer this replaces, and
+// position breaks ties but never overrules what the phrase says.
 //
 // The weights were fitted with GRPO (`ReasoningSummary/`, λ_KL = 10, β = 0.1,
-// run `runs/20261021-0043/lam_10`) over the candidate pools of the same corpus,
-// and verified candidate-by-candidate against the hand-tuned scorer: the
-// feature form reproduces it exactly (`w0 · x`, worst error 2.84e-14 on 36,173
-// candidates), and the frozen table's argmax on every corpus pool matches the
-// λ10 offline evaluation. The values are the JSON literals verbatim — no
-// rounding — so a candidate that sat on a floor keeps its exact ordering.
+// run `runs/20261021-0043/lam_10`) over the same corpus pools and verified
+// candidate-by-candidate against the hand-tuned scorer: `w0 · x` reproduces it
+// with a worst error of 2.84e-14 on 36,173 candidates, and the frozen table's
+// argmax matches the λ10 evaluation on every pool. Values are the JSON literals
+// verbatim — no rounding — so a candidate on a floor keeps its ordering.
 // `pen_telegraphic` is the one deliberate override (−18, fitted −12).
 // ---------------------------------------------------------------------------
 
@@ -219,14 +190,12 @@ type TitleFeatureName = (typeof TITLE_FEATURE_NAMES)[number];
 type TitleFeatures = Record<TitleFeatureName, number>;
 
 /**
- * The ordinary layer's weights, frozen from `weights_final.json` of the λ_KL = 10
- * GRPO run. Values are copied verbatim (no rounding): a candidate a fraction of
- * a point from the floor must keep the ordering it was trained on. The two
- * template terms (`src_template`, `pen_template`) come from Phase B, which fitted
- * that pair alone with the other 50 dimensions frozen (`ReasoningSummary/runs/
- * 20261021-0456`, β = 0.1, λ_KL ∈ {0, 0.1, 1}, 400 iterations each): validation
- * selects the initialization, so 8 / −6 are the fitted values, not a leftover
- * guess. The note at `src_template` records what the fit can and cannot see.
+ * The ordinary layer's weights, frozen from `weights_final.json` of the λ_KL =
+ * 10 GRPO run and copied verbatim (no rounding), so a candidate near a floor
+ * keeps the ordering it was trained on. The two template terms come from Phase
+ * B, which fitted that pair alone with the other 50 frozen (`ReasoningSummary/
+ * runs/20261021-0456`, β = 0.1, λ_KL ∈ {0, 0.1, 1}, 400 iterations each):
+ * validation picks the initialization, so 8 / −6 are fitted values, not guesses.
  */
 const TITLE_SCORE_WEIGHTS: Record<TitleFeatureName, number> = {
 	src_opening: 24.350479523212822,
@@ -276,14 +245,12 @@ const TITLE_SCORE_WEIGHTS: Record<TitleFeatureName, number> = {
 	pen_synthesis: -8.725206803088916,
 	// A composed template is a fallback voice: it says what the block does, not
 	// what the block says. Phase B fitted the pair by GRPO with the other 50
-	// weights pinned (`ReasoningSummary/runs/20261021-0456`, β = 0.1, λ_KL ∈
-	// {0, 0.1, 1}, 400 iterations): held-out expected reward peaks at this pair
-	// and falls monotonically as `src_template` leaves it (0.074415 here,
-	// 0.073099 at the λ = 0 end point), so the prior is reproduced, not replaced.
-	// Two things the fit makes visible: `pen_template` has no gradient at all (no
-	// rule sets it), and both terms only ever fire together, so only their sum
-	// is identifiable. The pair decides *whether* the layer speaks: a template
-	// clears the fallback floor by 8.97 (with an object) or 15.08 (without).
+	// weights pinned; held-out reward peaks here and falls monotonically as
+	// `src_template` leaves it (0.074415 vs 0.073099 at the λ = 0 end point), so
+	// the prior is reproduced, not replaced. `pen_template` has no gradient and
+	// both terms only fire together, so only their sum is identifiable. The pair
+	// decides *whether* the layer speaks: a template clears the fallback floor by
+	// 8.97 (with an object) or 15.08 (without).
 	src_template: 8,
 	pen_template: -6,
 	pen_markup: -40.0,
@@ -297,9 +264,8 @@ const TITLE_SCORE_WEIGHTS: Record<TitleFeatureName, number> = {
 
 /**
  * The penalties that describe *how* a phrase reads (a calculation step, a frame,
- * a process beat, the meta verb). They are the ones the fallback layer
- * discounts: in a formula-heavy block every candidate carries at least one, and
- * they are not hard rejections.
+ * a process beat, the meta verb). A formula-heavy block's candidates all carry
+ * one, and they are not hard rejections, so the fallback layer discounts them.
  */
 const TITLE_FEATURE_SOFT: ReadonlySet<TitleFeatureName> = new Set<TitleFeatureName>([
 	'pen_formula_fragment',
@@ -310,21 +276,17 @@ const TITLE_FEATURE_SOFT: ReadonlySet<TitleFeatureName> = new Set<TitleFeatureNa
 	'pen_meta_cognition'
 ]);
 
-// `pen_template` is deliberately absent from the soft set: the fallback layer
-// halves the penalties that describe *how* a raw phrase reads, but the template
-// discount is the composition prior itself. Halving it would make the fallback
-// score of a template depend on the layer that chose it, so the same title would
-// shift rank between the ordinary and fallback pools. It keeps its full −6 in
-// both layers; only `src_*` priors and this penalty survive unchanged, exactly
-// like an unrelated source prior.
+// `pen_template` stays out of the soft set: the template discount is the
+// composition prior itself, and halving it would make a template's fallback
+// score depend on the layer that chose it, shifting its rank between the two
+// pools. It keeps its full −6 in both layers, like an unrelated source prior.
 
 /**
- * The fallback layer, derived mechanically from the ordinary table instead of
- * being fitted on its own: the ordinary score already paid each soft penalty in
- * full, so the fallback keeps only the surviving share
- * (`w · TITLE_FALLBACK_PENALTY_FACTOR`), and a hedged opener costs the fixed
- * extra below. With the hand-tuned table as input this reproduces the old
- * `score − softPenalty · 0.5 − lowconfidence · 2` to 1e-9 per candidate.
+ * The fallback layer, derived from the ordinary table rather than fitted: the
+ * ordinary score paid each soft penalty in full, so the fallback keeps
+ * `w · TITLE_FALLBACK_PENALTY_FACTOR`, and a hedged opener pays the fixed extra
+ * below. It reproduces the old `score − softPenalty · 0.5 − lowconfidence · 2`
+ * to 1e-9 per candidate.
  */
 const TITLE_FALLBACK_WEIGHTS: Record<TitleFeatureName, number> = (() => {
 	const weights: Record<TitleFeatureName, number> = { ...TITLE_SCORE_WEIGHTS };
@@ -337,9 +299,8 @@ const TITLE_FALLBACK_WEIGHTS: Record<TitleFeatureName, number> = (() => {
 
 /**
  * Session-level content-word weights: `idf = ln((N + 1) / (df + 1)) + 1` over
- * blocks, divided by the vocabulary mean and clamped to [floor, 1]. Only a
- * repeated term loses weight, so the score scale never grows. S3 reuses the
- * same corpus.
+ * blocks, divided by the vocabulary mean and clamped to [floor, 1], so only a
+ * repeated term loses weight and the score scale never grows.
  */
 type ContentIdf = {
 	/** Weight per content term, at most 1; a term absent here is neutral. */
@@ -349,9 +310,9 @@ type ContentIdf = {
 };
 
 /**
- * No usable spread yet: with one block, or two sharing a term, a term in every
- * block says nothing about whether it is generic. Both cases keep the plain
- * word count (a shared constant also keeps the streaming preview off the cache).
+ * One block, or two sharing a term, has no usable spread: a term in every block
+ * says nothing about whether it is generic. Both keep the plain word count (a
+ * shared constant also keeps the streaming preview off the cache).
  */
 const NEUTRAL_CONTENT_IDF: ContentIdf = { weights: new Map(), mean: 1 };
 
@@ -359,24 +320,22 @@ const CONTENT_IDF_CACHE_LIMIT = 64;
 const contentIdfCache = new Map<string, ContentIdf>();
 
 /**
- * A shared word keeps at least this share of its unit. The floor keeps one very
- * common word from swallowing a phrase's specificity; the total movement is
- * bounded again by `TITLE_IDF_MAX_DISCOUNT`.
+ * A shared word keeps at least this share of its unit; total movement is bounded
+ * again by `TITLE_IDF_MAX_DISCOUNT`.
  */
 const TITLE_IDF_WEIGHT_FLOOR = 0.6;
 
 /**
- * The specificity term never loses more than this many units (the learned
- * weight is ~5.8x this): IDF redistributes weight, it does not sink a title
- * that already carried its content. Rescaled with the learned weight table.
+ * The specificity term loses at most this many units (the learned weight is
+ * ~5.8x this): IDF redistributes weight, it does not sink a title that already
+ * carried its content. Rescaled with the learned table.
  */
 const TITLE_IDF_MAX_DISCOUNT = 0.8;
 
 /**
- * Content-word IDF over the blocks one title may see: every block of a finished
- * reasoning, or the prefix up to the current block while streaming. The prefix
- * keeps the invariant: later blocks cannot change a returned title. Cached by
- * corpus shape, since prefixes repeat across streaming calls.
+ * Content-word IDF over the blocks one title may see: the whole reasoning, or
+ * the prefix up to the current block while streaming, so later blocks can never
+ * change a returned title. Cached by corpus shape.
  */
 function buildContentIdf(blocks: readonly string[]): ContentIdf {
 	if (blocks.length < 3) {
@@ -463,20 +422,17 @@ const TITLE_SCORE_FLOOR = 20;
 //
 // A formula-heavy block (a derivation, an asymptotic argument, a recomputation)
 // often has no candidate above the ordinary floor: every sentence carries math,
-// so the formula/numeric-run/frame penalties sink all of them. The block then
-// rendered as bare body lines between titled summaries, which reads like a
-// paragraph the summary forgot. A weaker title is better than that: it still
-// names the beat, and the body below it stays verbatim.
+// so the formula/numeric-run/frame penalties sink all of them. A weaker title is
+// better than bare body lines between summaries: it still names the beat, and
+// the body below stays verbatim.
 //
-// The fallback re-chooses from the pool the ordinary pass already built: the
-// fallback score is computed alongside the ordinary one, so no sentence is
-// collected twice. Only the penalties that describe *how* a phrase reads (a
-// calculation step, a frame, a process beat) are halved; the hard rejections
-// that make a phrase no title at all (marker-only, code, numeric fragments,
-// fewer than two content words) are never discounted. `definition` candidates
-// carry their own shape validation and are the one exception to the content-word
-// count: "Define A(k)" names a symbol, so it is a topic even though it is one
-// English word.
+// The fallback re-chooses from the pool the ordinary pass built (the fallback
+// score is computed alongside the ordinary one), so no sentence is collected
+// twice. Only the penalties that describe *how* a phrase reads are halved; the
+// hard rejections (marker-only, code, numeric fragments, fewer than two content
+// words) are never discounted. `definition` candidates carry their own shape
+// validation and are the one exception to the content-word count: "Define A(k)"
+// names a symbol, so it is a topic even though it is one English word.
 // ---------------------------------------------------------------------------
 
 /** Half the ordinary floor: a fallback title has to be a phrase, not noise. */
@@ -495,16 +451,16 @@ const TITLE_FALLBACK_ASIDE_RE =
 
 /**
  * A title that *is* an equation ("G(t) = (t − 2√2)·H(t) positive roots") still
- * reads as a formula fragment on the title line, even after the formula penalty
- * is halved. The fallback rejects that shape and lets the block merge instead.
- * An equation embedded in a sentence is fine: only a symbol or a function call
- * followed directly by a relation operator is rejected.
+ * reads as a formula fragment after the halved penalty, so the fallback rejects
+ * that shape and lets the block merge; an equation inside a sentence is fine.
+ * Only a symbol or function call followed directly by a relation operator is
+ * rejected.
  */
 const TITLE_FALLBACK_FORMULA_STATEMENT_RE =
 	/^\p{L}[\p{L}\p{N}_]*(?:\s*\([^)]*\))?\s*(?:=|:=|≈|≠|≤|≥|<|>)/u;
 
 // ---------------------------------------------------------------------------
-// Title diversity across blocks (S4)
+// Title diversity across blocks
 //
 // A title is chosen against the titles already final in this call. The penalty
 // only reorders the pool, so it never creates or removes a title line.
@@ -515,17 +471,16 @@ const TITLE_DIVERSITY_SIMILARITY = 0.6;
 
 /**
  * Full penalty at cosine 1; an identical title is discounted by this much.
- * Rescaled x~1.6 when scoring moved to the learned weight table (the learned
- * priors sit ~1.6x above the hand-set ones, so fixed tie-break points scale
- * with the score scale).
+ * Rescaled x~1.6 with the learned weight table, whose priors sit ~1.6x above the
+ * hand-set ones, so fixed tie-break points keep their score-scale weight.
  */
 const TITLE_PENALTY_DIVERSITY = 19;
 
 /**
  * A diverse candidate must beat the base winner's adjusted score by this much
- * before it replaces it. The margin keeps a converged title that is genuinely
- * ahead from being traded for a marginal diversity gain; a real tie still
- * yields, because an identical title's penalty is larger than the margin.
+ * before it replaces it, so a converged title that is genuinely ahead is not
+ * traded for a marginal gain; an identical title's penalty is larger than the
+ * margin, so a real tie still yields.
  */
 const TITLE_DIVERSITY_MARGIN = 5;
 
@@ -559,7 +514,7 @@ function titleBagSimilarity(a: TitleBag, b: TitleBag): number {
  * Penalty against the chosen titles:
  * `max over p [ sim > threshold ? D · (sim − threshold) / (1 − threshold) : 0 ]`,
  * with `sim` the cosine of the content-word bags. `chosen` holds earlier blocks
- * only, so a streaming call can never rewrite an earlier title.
+ * only, so streaming can never rewrite an earlier title.
  */
 function titleDiversityPenalty(
 	terms: ReadonlySet<string>,
@@ -588,11 +543,11 @@ function titleDiversityPenalty(
 }
 
 // ---------------------------------------------------------------------------
-// Continuation anchor (S4)
+// Continuation anchor
 //
 // A block opening on a pronoun or connective ("So…", "这…") usually continues
-// the previous block. A candidate sharing a content word with the previous
-// title earns a small bonus, so the thread is kept instead of drifting.
+// the previous block: a candidate sharing a content word with the previous title
+// earns a small bonus, so the thread is kept instead of drifting.
 // ---------------------------------------------------------------------------
 
 // Chinese openers are whole words at the sentence start, so they need no
@@ -917,9 +872,8 @@ export function countReasoningTokens(text: string): number {
 
 /**
  * Cuts `text` at a token boundary so it holds at most `tokenLimit` tokens,
- * appending an ellipsis when anything was dropped. The last partial piece keeps
- * the characters that fit, so a single long run is never reduced to just the
- * ellipsis.
+ * appending an ellipsis when anything was dropped; the last piece keeps the
+ * characters that fit, so a long run is never reduced to just the ellipsis.
  */
 export function truncateReasoningTokens(
 	text: string,
@@ -957,10 +911,9 @@ export type ReasoningSummary = {
 
 /**
  * Whether `text` already reads as summary markdown: a bold `**{title}**` line
- * followed by its body. Such text is displayed as written instead of being run
- * through the summary builder again. This check is about reasoning text that
- * already carries rendered titles (an old chat, another model's output); the
- * builder itself returns the title and body separately.
+ * followed by its body, displayed as written instead of being rebuilt. This is
+ * for reasoning that already carries rendered titles (an old chat, another
+ * model's output); the builder returns title and body separately.
  */
 export function isReasoningSummaryMarkdown(text: string): boolean {
 	const lines = text.split(/\r?\n/);
@@ -1005,16 +958,14 @@ type TitleCandidate = {
 /**
  * A prose candidate with its score. `source`/`sentence` carry the position
  * prior; `compressed` records that function words were deleted to fit (the
- * telegraphic fallback), and `markup` that the candidate started on an
- * embedded heading or label line rather than in prose.
+ * telegraphic fallback), and `markup` that it started on a heading or label.
  */
 type EnhancedCandidate = TitleCandidate & {
 	score: number;
 	/**
-	 * The same candidate under the fallback layer (soft math/frame penalties
-	 * halved). Computed with the ordinary score in one pass, so a titleless
-	 * block can re-choose from the pool it already built instead of collecting
-	 * every sentence again.
+	 * The same candidate under the fallback layer (soft penalties halved),
+	 * computed with the ordinary score in one pass so a titleless block can
+	 * re-choose from the pool it already built.
 	 */
 	fallbackScore: number;
 	source: TitleSource;
@@ -1169,12 +1120,45 @@ const TITLE_LEAD_MARKERS: ReadonlyArray<TitleLeadMarker> = [
 	{ text: '还' }
 ];
 
-type PreparedLeadMarker = { marker: TitleLeadMarker; words: string[] };
+type LeadMarkerFamily = 'beat' | 'latin' | 'han';
+
+// How a marker family ends and repeats. The scan below is one loop; the family
+// decides the boundary, so the table needs no per-entry logic:
+// - `beat`: interjections; punctuation closes them and a run of the same beat
+//   ("嗯嗯", "hmm hmm") is consumed as one marker;
+// - `latin`: ASCII words ending at the word boundary, so "so" cannot eat
+//   "source" and "well" cannot eat "well-formed";
+// - `han`: bare Chinese words, whose segment is the boundary.
+type LeadMarkerFamilyRule = {
+	/** Punctuation or the end of the text must follow the marker. */
+	closedBoundary: boolean;
+	/** The marker repeats without punctuation as one beat. */
+	repeatedBeat: boolean;
+};
+
+const LEAD_MARKER_FAMILIES: Record<LeadMarkerFamily, LeadMarkerFamilyRule> = {
+	beat: { closedBoundary: true, repeatedBeat: true },
+	latin: { closedBoundary: true, repeatedBeat: false },
+	han: { closedBoundary: false, repeatedBeat: false }
+};
+
+type PreparedLeadMarker = { marker: TitleLeadMarker; words: string[]; family: LeadMarkerFamily };
+
+function leadMarkerFamily(marker: TitleLeadMarker): LeadMarkerFamily {
+	if (marker.interjection) {
+		return 'beat';
+	}
+	return /^[A-Za-z0-9]/u.test(marker.text) ? 'latin' : 'han';
+}
 
 // Longest first, so "明白了" wins over "明白", "好的" over "好" and "need to"
 // over "need". A marker is matched by its own word segments.
 const TITLE_LEAD_MARKERS_BY_LENGTH: ReadonlyArray<PreparedLeadMarker> = TITLE_LEAD_MARKERS.map(
-	(marker) => ({ marker, words: wordSegments(marker.text).map((part) => part.word) })
+	(marker) => ({
+		marker,
+		words: wordSegments(marker.text).map((part) => part.word),
+		family: leadMarkerFamily(marker)
+	})
 ).sort((a, b) => b.words.length - a.words.length || b.marker.text.length - a.marker.text.length);
 
 // Buckets by the marker's first word: only a marker starting with that word can
@@ -1211,9 +1195,70 @@ function isRepeatedToken(token: string, unit: string): boolean {
 	return token.toLowerCase() === unit.toLowerCase().repeat(token.length / unit.length);
 }
 
-// Matches a marker at the very start of `text` against its word segments. A
-// Latin marker is case-insensitive; its boundary is the segment after it, so
-// "so" cannot eat "source" and "well" cannot eat "well-formed".
+// One marker at the start of `words`: its words must match in order,
+// case-insensitively and without punctuation between them. A one-word interjection
+// may itself be the first repeated beat ("嗯嗯"), which the run scan below folds.
+function matchLeadMarkerWords(
+	text: string,
+	words: readonly WordSegment[],
+	entry: PreparedLeadMarker
+): { lastMatched: number; firstRepeated: boolean } | null {
+	let firstRepeated = false;
+	for (let i = 0; i < entry.words.length; i++) {
+		const word = words[i];
+		if (
+			i === 0 &&
+			entry.family === 'beat' &&
+			entry.words.length === 1 &&
+			isRepeatedToken(word.word, entry.words[0])
+		) {
+			firstRepeated = true;
+			continue;
+		}
+		if (word.word.toLowerCase() !== entry.words[i].toLowerCase()) {
+			return null;
+		}
+		if (i > 0 && !isWhitespaceGap(text, words[i - 1], word)) {
+			return null;
+		}
+	}
+	return { lastMatched: entry.words.length - 1, firstRepeated };
+}
+
+// An interjection can repeat without punctuation ("嗯嗯，", "hmm hmm"): the run is
+// one beat, so the marker is consumed as a whole. Repeats separated by
+// punctuation are picked up by the strip loop instead.
+function extendLeadMarkerBeat(
+	text: string,
+	words: readonly WordSegment[],
+	entry: PreparedLeadMarker,
+	lastMatched: number
+): number {
+	for (;;) {
+		const start = lastMatched + 1;
+		const end = start + entry.words.length;
+		if (end > words.length) {
+			return lastMatched;
+		}
+		for (let i = 0; i < entry.words.length; i++) {
+			const word = words[start + i];
+			const previous = words[start + i - 1];
+			if (
+				word.word.toLowerCase() !== entry.words[i].toLowerCase() ||
+				(previous && !isWhitespaceGap(text, previous, word))
+			) {
+				return lastMatched;
+			}
+		}
+		lastMatched = end - 1;
+	}
+}
+
+function leadMarkerClosesAt(rule: LeadMarkerFamilyRule, next: string): boolean {
+	return !rule.closedBoundary || next === '' || TITLE_LEAD_MARKER_PUNCT_RE.test(next);
+}
+
+// Matches a marker at the very start of `text` against its word segments.
 function matchTitleLeadMarker(text: string): { marker: TitleLeadMarker; length: number } | null {
 	const words = wordSegments(text);
 	if (!words.length || words[0].start !== 0) {
@@ -1225,78 +1270,20 @@ function matchTitleLeadMarker(text: string): { marker: TitleLeadMarker; length: 
 		if (words.length < entry.words.length) {
 			continue;
 		}
-
-		let matched = true;
-		let firstRepeated = false;
-		for (let i = 0; i < entry.words.length; i++) {
-			const word = words[i];
-			if (
-				i === 0 &&
-				entry.marker.interjection &&
-				entry.words.length === 1 &&
-				isRepeatedToken(word.word, entry.words[0])
-			) {
-				firstRepeated = true;
-				continue;
-			}
-			if (word.word.toLowerCase() !== entry.words[i].toLowerCase()) {
-				matched = false;
-				break;
-			}
-			if (i > 0 && !isWhitespaceGap(text, words[i - 1], word)) {
-				matched = false;
-				break;
-			}
-		}
-		if (!matched) {
+		const match = matchLeadMarkerWords(text, words, entry);
+		if (!match) {
 			continue;
 		}
 
-		// An interjection can repeat without punctuation ("嗯嗯，", "hmm hmm"):
-		// the run is one beat, so the marker is consumed as a whole. Repeats
-		// separated by punctuation are picked up by the strip loop instead.
-		let lastMatched = entry.words.length - 1;
-		if (entry.marker.interjection && !firstRepeated) {
-			for (;;) {
-				const start = lastMatched + 1;
-				const end = start + entry.words.length;
-				if (end > words.length) {
-					break;
-				}
-				let same = true;
-				for (let i = 0; i < entry.words.length; i++) {
-					const word = words[start + i];
-					const previous = words[start + i - 1];
-					if (
-						word.word.toLowerCase() !== entry.words[i].toLowerCase() ||
-						(previous && !isWhitespaceGap(text, previous, word))
-					) {
-						same = false;
-						break;
-					}
-				}
-				if (!same) {
-					break;
-				}
-				lastMatched = end - 1;
-			}
-		}
-
+		const rule = LEAD_MARKER_FAMILIES[entry.family];
+		const lastMatched =
+			rule.repeatedBeat && !match.firstRepeated
+				? extendLeadMarkerBeat(text, words, entry, match.lastMatched)
+				: match.lastMatched;
 		const length = words[lastMatched].end;
-		const next = text[length] ?? '';
-		// An ASCII marker ends at a word boundary and at punctuation or space
-		// ("so" must not eat "source", "well" must not eat "well-formed").
-		if (
-			/^[A-Za-z0-9]/u.test(entry.marker.text) &&
-			next !== '' &&
-			!TITLE_LEAD_MARKER_PUNCT_RE.test(next)
-		) {
-			continue;
+		if (leadMarkerClosesAt(rule, text[length] ?? '')) {
+			return { marker: entry.marker, length };
 		}
-		if (entry.marker.interjection && next !== '' && !TITLE_LEAD_MARKER_PUNCT_RE.test(next)) {
-			continue;
-		}
-		return { marker: entry.marker, length };
 	}
 	return null;
 }
@@ -1781,99 +1768,140 @@ function framePieceIs(
 	return !previous || isWhitespaceGap(text, previous, piece);
 }
 
-// The end of a Chinese asker frame at the start of `text`, or null. Grammar:
-// [subject] [time] verb [suffix] [pronoun] [的|地] [是] [,] — every piece is a
-// whole word segment.
+// The cleft and the trailing copula run: [的|地|是] each, in this order.
+const CHINESE_ASKER_FRAME_TAILS: ReadonlyArray<string> = ['的', '地', '是'];
+
+// Every shape of the verb frame: subject and time are optional, tried subject
+// first and with-time before without. The order is the match order.
+const CHINESE_ASKER_FRAME_SHAPES: ReadonlyArray<{ subject: boolean; time: boolean }> = [
+	{ subject: true, time: true },
+	{ subject: true, time: false },
+	{ subject: false, time: true },
+	{ subject: false, time: false }
+];
+
+// A frame piece that is exactly `word` and separated from the piece before it.
+function framePieceAt(
+	pieces: FramePiece[],
+	index: number,
+	word: string,
+	text: string,
+	previous?: FramePiece
+): boolean {
+	const piece = pieces[index];
+	return piece?.text === word && (!previous || isWhitespaceGap(text, previous, piece));
+}
+
+// The problem named as a noun: 用户的问题是X -> X.
+function matchAskerNounFrame(pieces: FramePiece[], text: string): number | null {
+	if (!framePieceIs(pieces, 0, CHINESE_ASKER_SUBJECTS, text)) {
+		return null;
+	}
+	let previous = pieces[0];
+	let index = 1;
+	if (framePieceAt(pieces, index, '的', text, previous)) {
+		previous = pieces[index];
+		index++;
+	}
+	if (!framePieceIs(pieces, index, CHINESE_ASKER_NOUNS, text, previous)) {
+		return null;
+	}
+	previous = pieces[index];
+	index++;
+	if (!framePieceIs(pieces, index, CHINESE_ASKER_COPULAS, text, previous)) {
+		return null;
+	}
+	return consumeFrameComma(text, pieces[index].end);
+}
+
+// The verb a piece starts with; a merged verb+action ("想用", "想把") counts only
+// when its tail is an action, so 想法 stays a noun.
+function askerVerbText(piece: FramePiece): string | undefined {
+	return CHINESE_ASKER_VERB_PREFIXES.find(
+		(verb) =>
+			piece.text.startsWith(verb) &&
+			(piece.text === verb || CHINESE_ASKER_VERB_TAILS.has(piece.text.slice(verb.length)))
+	);
+}
+
+// [subject] [time] verb [suffix] [pronoun] [的|地|是] [,]
+function matchAskerVerbFrame(pieces: FramePiece[], text: string): number | null {
+	for (const shape of CHINESE_ASKER_FRAME_SHAPES) {
+		let index = 0;
+		let previous: FramePiece | undefined;
+		if (shape.subject) {
+			if (!framePieceIs(pieces, index, CHINESE_ASKER_SUBJECTS, text)) {
+				continue;
+			}
+			previous = pieces[index++];
+		}
+		if (shape.time) {
+			if (!framePieceIs(pieces, index, CHINESE_ASKER_TIMES, text, previous)) {
+				continue;
+			}
+			previous = pieces[index++];
+		}
+
+		const verbPiece = pieces[index];
+		if (!verbPiece || (previous && !isWhitespaceGap(text, previous, verbPiece))) {
+			continue;
+		}
+		const verbText = askerVerbText(verbPiece);
+		if (!verbText) {
+			continue;
+		}
+		index++;
+
+		// The rest of a merged verb+action segment ("想用", "想把") is where
+		// the object starts: the frame ends inside that segment.
+		if (verbPiece.text !== verbText) {
+			return consumeFrameComma(text, verbPiece.start + verbText.length);
+		}
+
+		// 想知道 / 想了解 / 想问 keeps the verb it usually takes.
+		if (
+			(verbText === '想' || verbText === '想要') &&
+			framePieceIs(pieces, index, CHINESE_ASKER_VERB_SUFFIXES, text, verbPiece)
+		) {
+			index++;
+		}
+
+		let tail = pieces[index - 1];
+		if (framePieceIs(pieces, index, CHINESE_ASKER_COMPLEMENT_PRONOUNS, text, tail)) {
+			tail = pieces[index];
+			index++;
+		}
+		for (const part of CHINESE_ASKER_FRAME_TAILS) {
+			if (framePieceAt(pieces, index, part, text, tail)) {
+				tail = pieces[index];
+				index++;
+			}
+		}
+		return consumeFrameComma(text, tail.end);
+	}
+	return null;
+}
+
+// The Chinese frame families, tried in order: the noun frame first, then the
+// verb shapes. Every piece is a whole word segment, so a verb cannot fire
+// inside 问题 or 说明.
+const CHINESE_ASKER_FRAMES: ReadonlyArray<(pieces: FramePiece[], text: string) => number | null> = [
+	matchAskerNounFrame,
+	matchAskerVerbFrame
+];
+
+// The end of a Chinese asker frame at the start of `text`, or null.
 function matchChineseAskerFrame(text: string): number | null {
 	const pieces = framePieces(text);
 	if (!pieces.length) {
 		return null;
 	}
-
-	// The question named as a noun: 用户的问题是X -> X.
-	if (framePieceIs(pieces, 0, CHINESE_ASKER_SUBJECTS, text)) {
-		let previousPiece = pieces[0];
-		let index = 1;
-		if (pieces[index]?.text === '的' && isWhitespaceGap(text, previousPiece, pieces[index])) {
-			previousPiece = pieces[index];
-			index++;
-		}
-		if (framePieceIs(pieces, index, CHINESE_ASKER_NOUNS, text, previousPiece)) {
-			previousPiece = pieces[index];
-			index++;
-			if (framePieceIs(pieces, index, CHINESE_ASKER_COPULAS, text, previousPiece)) {
-				index++;
-				return consumeFrameComma(text, pieces[index - 1].end);
-			}
+	for (const frame of CHINESE_ASKER_FRAMES) {
+		const end = frame(pieces, text);
+		if (end !== null) {
+			return end;
 		}
 	}
-
-	for (const withSubject of [true, false]) {
-		for (const withTime of [true, false]) {
-			let index = 0;
-			let previousPiece: FramePiece | undefined;
-			if (withSubject) {
-				if (!framePieceIs(pieces, index, CHINESE_ASKER_SUBJECTS, text)) {
-					continue;
-				}
-				previousPiece = pieces[index];
-				index++;
-			}
-			if (withTime) {
-				if (!framePieceIs(pieces, index, CHINESE_ASKER_TIMES, text, previousPiece)) {
-					continue;
-				}
-				previousPiece = pieces[index];
-				index++;
-			}
-			const verbPiece = pieces[index];
-			const previousBeforeVerb = index > 0 ? pieces[index - 1] : undefined;
-			const verbText = verbPiece
-				? CHINESE_ASKER_VERB_PREFIXES.find(
-						(verb) =>
-							verbPiece.text.startsWith(verb) &&
-							(verbPiece.text === verb ||
-								CHINESE_ASKER_VERB_TAILS.has(verbPiece.text.slice(verb.length)))
-					)
-				: undefined;
-			if (
-				!verbText ||
-				(previousBeforeVerb && !isWhitespaceGap(text, previousBeforeVerb, verbPiece))
-			) {
-				continue;
-			}
-
-			index++;
-			// The rest of a merged verb+action segment ("想用", "想把") is where
-			// the object starts: the frame ends inside that segment.
-			if (verbPiece.text !== verbText) {
-				return consumeFrameComma(text, verbPiece.start + verbText.length);
-			}
-
-			// 想知道 / 想了解 / 想问 keeps the verb it usually takes.
-			if (
-				(verbText === '想' || verbText === '想要') &&
-				framePieceIs(pieces, index, CHINESE_ASKER_VERB_SUFFIXES, text, verbPiece)
-			) {
-				index++;
-			}
-
-			let previous = pieces[index - 1];
-			if (framePieceIs(pieces, index, CHINESE_ASKER_COMPLEMENT_PRONOUNS, text, previous)) {
-				previous = pieces[index];
-				index++;
-			}
-			for (const part of ['的', '地', '是']) {
-				if (pieces[index]?.text === part && isWhitespaceGap(text, previous, pieces[index])) {
-					previous = pieces[index];
-					index++;
-				}
-			}
-
-			return consumeFrameComma(text, previous.end);
-		}
-	}
-
 	return null;
 }
 
@@ -2012,6 +2040,75 @@ function isSubtractionDash(before: string, after: string): boolean {
 	);
 }
 
+// A title cut is a pair of offsets: the title ends at `titleEnd`, the source is
+// consumed through `consumed` (a step marker's own length is consumed too).
+type TitleCut = { titleEnd: number; consumed: number };
+
+// Sentence punctuation ends a lead after a short phrase; a clause separator
+// needs the full title target. A lookup keeps the per-character test flat.
+const TITLE_SOFT_CUT_CHARS: ReadonlySet<string> = new Set([
+	'.',
+	'。',
+	'!',
+	'！',
+	'?',
+	'？',
+	':',
+	'：',
+	'-',
+	'–',
+	'—'
+]);
+
+// A step marker inside the lead ("Jar A = 28 marbles Step 2: Calculate…")
+// begins the next step, not the title.
+function stepMarkerCut(text: string, i: number): TitleCut | null {
+	const char = text[i];
+	if (char !== 's' && char !== 'S') {
+		return null;
+	}
+	if (i > 0 && !/\s/.test(text[i - 1] ?? '')) {
+		return null;
+	}
+	if (countReasoningTokens(text.slice(0, i)) < TITLE_SENTENCE_TOKEN_MIN) {
+		return null;
+	}
+	const step = /^step\s*\d+\s*[:.)、]?\s*/iu.exec(text.slice(i));
+	return step ? { titleEnd: i, consumed: i + step[0].length } : null;
+}
+
+// The cut one boundary position offers, or null to walk on. A Chinese comma is
+// a sentence boundary on its own; an ASCII comma that only follows a verb or
+// two is a list separator; a subtraction dash is not clause punctuation; every
+// other boundary still has to reach its token target.
+function titleCutAt(text: string, i: number): TitleCut | null {
+	const char = text[i];
+	if (!isTitleBoundary(text, i)) {
+		return null;
+	}
+	if (char === '，') {
+		return { titleEnd: i, consumed: i + 1 };
+	}
+	if (char === ',' && titleContentWordCount(text.slice(0, i)) < 2) {
+		return null;
+	}
+	if (
+		(char === '-' || char === '–' || char === '—') &&
+		/\s/u.test(text[i - 1] ?? '') &&
+		/\s/u.test(text[i + 1] ?? '')
+	) {
+		const before = /(\S+)\s*$/u.exec(text.slice(0, i))?.[1] ?? '';
+		const after = /^\s*(\S+)/u.exec(text.slice(i + 1))?.[1] ?? '';
+		if (isSubtractionDash(before, after)) {
+			return null;
+		}
+	}
+	const target = TITLE_SOFT_CUT_CHARS.has(char)
+		? TITLE_SENTENCE_TOKEN_MIN
+		: REASONING_SUMMARY_TITLE_TOKEN_TARGET;
+	return countReasoningTokens(text.slice(0, i)) >= target ? { titleEnd: i, consumed: i + 1 } : null;
+}
+
 // A title is a lead: count tokens the way blocks are cut, and once the target is
 // reached cut at the next punctuation. The cut-off part is dropped; punctuation
 // inside math or inline code does not end a title.
@@ -2042,69 +2139,13 @@ function cutTitleAtPunctuation(text: string): { title: string; consumed: number 
 			continue;
 		}
 
-		// A step marker inside the lead ("Jar A = 28 marbles Step 2:
-		// Calculate…") begins the next step, not the title.
-		if (
-			(char === 's' || char === 'S') &&
-			(i === 0 || /\s/.test(text[i - 1] ?? '')) &&
-			countReasoningTokens(text.slice(0, i)) >= TITLE_SENTENCE_TOKEN_MIN
-		) {
-			const step = /^step\s*\d+\s*[:.)、]?\s*/iu.exec(text.slice(i));
-			if (step) {
-				return { title: text.slice(0, i).trimEnd(), consumed: i + step[0].length };
-			}
+		const step = stepMarkerCut(text, i);
+		if (step) {
+			return { title: text.slice(0, step.titleEnd).trimEnd(), consumed: step.consumed };
 		}
-
-		if (!isTitleBoundary(text, i)) {
-			continue;
-		}
-
-		// A Chinese comma is a sentence boundary in its own right: a title never
-		// continues into the clause behind it.
-		if (char === '，') {
-			return { title: text.slice(0, i), consumed: i + 1 };
-		}
-
-		// An ASCII comma that only follows a verb or two ("read, parse, and
-		// merge…") separates list items, not the title phrase: walking on keeps
-		// the cut from titling the block with a lone "Read".
-		if (char === ',' && titleContentWordCount(text.slice(0, i)) < 2) {
-			continue;
-		}
-
-		// A subtraction dash does not end the title ("t - 2√2", "(x - k)"):
-		// the cut continues past it the way the punctuation pass keeps it.
-		if (
-			(char === '-' || char === '–' || char === '—') &&
-			/\s/u.test(text[i - 1] ?? '') &&
-			/\s/u.test(text[i + 1] ?? '')
-		) {
-			const before = /(\S+)\s*$/u.exec(text.slice(0, i))?.[1] ?? '';
-			const after = /^\s*(\S+)/u.exec(text.slice(i + 1))?.[1] ?? '';
-			if (isSubtractionDash(before, after)) {
-				continue;
-			}
-		}
-
-		// A full stop ends a sentence, a sentence end is one too, and a spaced
-		// dash or a colon separates a subtitle or label from its body: once the
-		// part before it already reads, the title stops there instead of running
-		// into the next one.
-		const soft =
-			text[i] === '.' ||
-			text[i] === '。' ||
-			text[i] === '!' ||
-			text[i] === '！' ||
-			text[i] === '?' ||
-			text[i] === '？' ||
-			text[i] === ':' ||
-			text[i] === '：' ||
-			text[i] === '-' ||
-			text[i] === '–' ||
-			text[i] === '—';
-		const target = soft ? TITLE_SENTENCE_TOKEN_MIN : REASONING_SUMMARY_TITLE_TOKEN_TARGET;
-		if (countReasoningTokens(text.slice(0, i)) >= target) {
-			return { title: text.slice(0, i), consumed: i + 1 };
+		const cut = titleCutAt(text, i);
+		if (cut) {
+			return { title: text.slice(0, cut.titleEnd), consumed: cut.consumed };
 		}
 	}
 
@@ -2257,8 +2298,8 @@ function stripMathDelimiters(text: string): string {
 // ---------------------------------------------------------------------------
 // English function words
 //
-// A closed-class table consulted at word-segment level. Context rules are
-// word-sequence predicates, not regex lookarounds embedded in the table.
+// A closed-class table consulted at word-segment level; context rules are
+// word-sequence predicates, not lookarounds embedded in the table.
 // ---------------------------------------------------------------------------
 
 type EnglishFunctionKind =
@@ -2874,6 +2915,69 @@ function stripTitlePunctuation(title: string): string {
 		.trim();
 }
 
+// The longest prefix of `title` whose display width fits the cap.
+function titleWidthWindow(title: string, limit: number): string {
+	let window = '';
+	let width = 0;
+	for (const char of title) {
+		const nextWidth = width + charWidth(char);
+		if (nextWidth > limit) {
+			break;
+		}
+		window += char;
+		width = nextWidth;
+	}
+	return window;
+}
+
+// The last clause separator inside the window, or -1.
+function lastTitleBreak(window: string): number {
+	for (let i = window.length - 1; i >= 0; i--) {
+		if (TITLE_BREAK_RE.test(window[i])) {
+			return i;
+		}
+	}
+	return -1;
+}
+
+// A window that runs into a relative clause reads better ending on the noun
+// phrase: the clause is dropped whole where it starts, so the clipped title is
+// still a complete phrase and needs no ellipsis. Only a single plain clause can
+// end there; a prefix that already carries sentence punctuation must not leave
+// its tail dangling.
+function relativeClausePrefix(window: string): string | null {
+	let relativeAt = -1;
+	for (const match of window.matchAll(/[\s,]+(?:that|which|who)\s/giu)) {
+		if (match.index !== undefined && window.length - (match.index + match[0].length) >= 20) {
+			relativeAt = match.index;
+		}
+	}
+	if (relativeAt < 0) {
+		return null;
+	}
+	const prefix = window.slice(0, relativeAt).trim();
+	if (
+		prefix.split(/\s+/).length >= 3 &&
+		displayWidth(prefix) >= 16 &&
+		!/[.!?;:。！？；：]/u.test(prefix)
+	) {
+		return prefix;
+	}
+	return null;
+}
+
+// The trailing glue of a width cut: separators and a dangling connector
+// ("…individual words while") are dropped like the dangling endings of a
+// Chinese title.
+function trimTitleCut(window: string): string {
+	return window
+		.replace(TITLE_TRAILING_SEPARATORS_RE, '')
+		.replace(
+			/[\s,]+(?:and|or|but|while|when|if|that|which|because|so|then|than|to|of|in|on|at|for|with|from|by|as)\s*$/iu,
+			''
+		);
+}
+
 // Fits a title to the display-width cap, breaking at the last word space or
 // clause separator so the cut never lands inside a word.
 function fitTitleWidth(title: string): string {
@@ -2881,49 +2985,16 @@ function fitTitleWidth(title: string): string {
 		return title;
 	}
 
-	let window = '';
-	let width = 0;
-	for (const char of title) {
-		const nextWidth = width + charWidth(char);
-		if (nextWidth > REASONING_SUMMARY_TITLE_MAX_WIDTH) {
-			break;
-		}
-		window += char;
-		width = nextWidth;
+	const window = titleWidthWindow(title, REASONING_SUMMARY_TITLE_MAX_WIDTH);
+	const relative = relativeClausePrefix(window);
+	if (relative) {
+		return relative;
 	}
 
-	let breakAt = -1;
-	for (let i = window.length - 1; i >= 0; i--) {
-		if (TITLE_BREAK_RE.test(window[i])) {
-			breakAt = i;
-			break;
-		}
-	}
-
-	// A window that runs into a relative clause reads better ending on the noun
-	// phrase: the clause is dropped whole where it starts, so the clipped title
-	// is still a complete phrase and needs no ellipsis.
-	let relativeAt = -1;
-	for (const match of window.matchAll(/[\s,]+(?:that|which|who)\s/giu)) {
-		if (match.index !== undefined && window.length - (match.index + match[0].length) >= 20) {
-			relativeAt = match.index;
-		}
-	}
-	if (relativeAt >= 0) {
-		const prefix = window.slice(0, relativeAt).trim();
-		// Only a single plain clause can end on the noun phrase; a prefix that
-		// already carries sentence punctuation must not leave its tail dangling.
-		if (
-			prefix.split(/\s+/).length >= 3 &&
-			displayWidth(prefix) >= 16 &&
-			!/[.!?;:。！？；：]/u.test(prefix)
-		) {
-			return prefix;
-		}
-	}
-
+	const breakAt = lastTitleBreak(window);
+	let cutWindow = window;
 	if (breakAt + 1 >= window.length / 2) {
-		window = window.slice(0, breakAt + 1);
+		cutWindow = window.slice(0, breakAt + 1);
 	} else {
 		// No usable separator: back up to the last whole word. The words come from
 		// the full title, where the cut has not split the last word yet.
@@ -2931,19 +3002,11 @@ function fitTitleWidth(title: string): string {
 			.filter((part) => part.end <= window.length)
 			.at(-1);
 		if (lastWord && lastWord.end >= window.length / 2) {
-			window = window.slice(0, lastWord.end);
+			cutWindow = window.slice(0, lastWord.end);
 		}
 	}
 
-	const cut = window
-		.replace(TITLE_TRAILING_SEPARATORS_RE, '')
-		// A cut can land anywhere, so a trailing connector ("...individual words
-		// while") is dropped like the dangling endings of a Chinese title.
-		.replace(
-			/[\s,]+(?:and|or|but|while|when|if|that|which|because|so|then|than|to|of|in|on|at|for|with|from|by|as)\s*$/iu,
-			''
-		);
-
+	const cut = trimTitleCut(cutWindow);
 	return cut ? `${cut}…` : title;
 }
 
@@ -3259,16 +3322,12 @@ function isAbbreviationDot(text: string, i: number): boolean {
 	return ABBREVIATION_DOT_RE.test(text.slice(0, i + 1));
 }
 
-// The reasoning's sentences are the documents of the IDF corpus. In Chinese a
-// comma closes a clause sentence too: the reasoning often runs several topics
-// together with 「，」, and later clauses must be considered on their own.
+// Sentences are the IDF documents; a Chinese comma also closes a clause, so
+// later clauses are considered on their own.
 /**
- * Sentence splitting honors open quotes: a quoted passage's punctuation is
- * its own, so an unclosed quote mark suspends every terminator until its
- * closer ("We can include "反过来，……取到。" to be rigorous." is one
- * sentence, not four fragments glued at the quote's internal commas).
- * Straight quotes toggle; the marks here reuse the title pairing table's
- * input convention minus the apostrophe, which never opens prose.
+ * An unclosed quote suspends every terminator until its closer ("We can include
+ * "反过来，……取到。" to be rigorous." is one sentence), so quoted punctuation is
+ * its own. Straight quotes toggle; the apostrophe never opens prose.
  */
 const SENTENCE_SPLIT_QUOTE_CLOSES: ReadonlyMap<string, string> = new Map([
 	['“', '”'],
@@ -3277,83 +3336,120 @@ const SENTENCE_SPLIT_QUOTE_CLOSES: ReadonlyMap<string, string> = new Map([
 	['"', '"']
 ]);
 
-function splitSentences(text: string): SentenceSpan[] {
-	const sentences: SentenceSpan[] = [];
-	const endChars = CJK_RUN_RE.test(text) ? `${SENTENCE_END_CHARS}，` : SENTENCE_END_CHARS;
-	let start = 0;
-	/** Closer of the quote currently open, or null when no quote is open. */
-	let quoteClose: string | null = null;
+// Loads one span, trimmed, so every offset still points into `text`.
+function pushSentenceSpan(
+	sentences: SentenceSpan[],
+	text: string,
+	start: number,
+	end: number
+): void {
+	const raw = text.slice(start, end);
+	const lead = raw.length - raw.trimStart().length;
+	const trimmed = raw.trim();
+	if (trimmed) {
+		sentences.push({ start: start + lead, end: start + lead + trimmed.length, text: trimmed });
+	}
+}
 
-	const push = (end: number) => {
-		const raw = text.slice(start, end);
-		const lead = raw.length - raw.trimStart().length;
-		const trimmed = raw.trim();
-		if (trimmed) {
-			sentences.push({ start: start + lead, end: start + lead + trimmed.length, text: trimmed });
+// The end of a sentence that starts at `i`, or null when the character is no
+// terminator. A run of closing marks belongs to the sentence ("好了。”"), and a
+// dot ends one only at a word end — not after a digit, not an abbreviation.
+function endsSentenceAt(text: string, i: number, endChars: string): number | null {
+	const char = text[i];
+	if (endChars.includes(char)) {
+		let end = i + 1;
+		while (end < text.length && SENTENCE_CLOSE_CHARS.includes(text[end])) {
+			end++;
 		}
-		start = end;
-	};
+		return end;
+	}
+	if (char !== '.') {
+		return null;
+	}
+	const prev = text[i - 1] ?? '';
+	const next = text[i + 1] ?? '';
+	if (/\d/.test(prev) || isAbbreviationDot(text, i) || (next !== '' && !/\s/.test(next))) {
+		return null;
+	}
+	return i + 1;
+}
 
-	for (let i = 0; i < text.length; i++) {
-		const char = text[i];
+// A terminator sitting right behind the closer ("…体系？" the connectives ask)
+// makes the quoted unit the sentence's end: break after the closer. A quote
+// closed mid-clause (…取到" to be rigorous.) has none, so the sentence keeps
+// running and the tail stays with its sentence.
+function quoteClosesSentence(text: string, i: number, endChars: string): boolean {
+	const prev = text[i - 1] ?? '';
+	return endChars.includes(prev) || prev === '.';
+}
 
-		if (quoteClose) {
-			// Inside an open quote only its closer acts (a newline ends the
-			// sentence and abandons the quote, so a stray open mark cannot
-			// poison the lines after it).
-			if (char === quoteClose) {
-				// A terminator sitting right behind the closer ("…体系？" the
-				// connectives ask) makes the quoted unit the sentence's end:
-				// break after the closer, like the unguarded split did. A quote
-				// closed mid-clause (…取到" to be rigorous.) has none, so the
-				// sentence keeps running and the tail stays with its sentence.
-				const prev = text[i - 1] ?? '';
-				if (endChars.includes(prev) || prev === '.') {
-					push(i + 1);
-				}
-				quoteClose = null;
-				continue;
+// The sentence scanner's moving state: the text being cut, the terminators it
+// honors, the quote currently open and the span being loaded.
+type SentenceScan = {
+	text: string;
+	endChars: string;
+	quoteClose: string | null;
+	start: number;
+	sentences: SentenceSpan[];
+};
+
+function closeSentenceAt(scan: SentenceScan, end: number): void {
+	pushSentenceSpan(scan.sentences, scan.text, scan.start, end);
+	scan.start = end;
+}
+
+// One unit of the scan — the quote state machine and the push decision — and
+// the index the loop continues from. Inside an open quote only its closer acts:
+// a newline ends the sentence and abandons the quote, so a stray open mark
+// cannot poison the lines after it.
+function scanSentenceAt(scan: SentenceScan, i: number): number {
+	const char = scan.text[i];
+	if (scan.quoteClose) {
+		if (char === scan.quoteClose) {
+			if (quoteClosesSentence(scan.text, i, scan.endChars)) {
+				closeSentenceAt(scan, i + 1);
 			}
-			if (char === '\n') {
-				quoteClose = null;
-				push(i + 1);
-				continue;
-			}
-			continue;
+			scan.quoteClose = null;
+			return i;
 		}
-		const quotePair = SENTENCE_SPLIT_QUOTE_CLOSES.get(char);
-		if (quotePair) {
-			quoteClose = quotePair;
-			continue;
+		if (char !== '\n') {
+			return i;
 		}
-
-		if (endChars.includes(char)) {
-			let end = i + 1;
-			while (end < text.length && SENTENCE_CLOSE_CHARS.includes(text[end])) {
-				end++;
-			}
-			push(end);
-			i = end - 1;
-			continue;
-		}
-
-		if (char === '\n') {
-			push(i + 1);
-			continue;
-		}
-
-		if (char === '.') {
-			const prev = text[i - 1] ?? '';
-			const next = text[i + 1] ?? '';
-			if (!/\d/.test(prev) && !isAbbreviationDot(text, i) && (next === '' || /\s/.test(next))) {
-				push(i + 1);
-			}
-		}
+		scan.quoteClose = null;
+		closeSentenceAt(scan, i + 1);
+		return i;
 	}
 
-	push(text.length);
+	const quotePair = SENTENCE_SPLIT_QUOTE_CLOSES.get(char);
+	if (quotePair) {
+		scan.quoteClose = quotePair;
+		return i;
+	}
+	if (char === '\n') {
+		closeSentenceAt(scan, i + 1);
+		return i;
+	}
+	const end = endsSentenceAt(scan.text, i, scan.endChars);
+	if (end === null) {
+		return i;
+	}
+	closeSentenceAt(scan, end);
+	return end - 1;
+}
 
-	return sentences;
+function splitSentences(text: string): SentenceSpan[] {
+	const scan: SentenceScan = {
+		text,
+		endChars: CJK_RUN_RE.test(text) ? `${SENTENCE_END_CHARS}，` : SENTENCE_END_CHARS,
+		quoteClose: null,
+		start: 0,
+		sentences: []
+	};
+	for (let i = 0; i < text.length; i++) {
+		i = scanSentenceAt(scan, i);
+	}
+	closeSentenceAt(scan, text.length);
+	return scan.sentences;
 }
 
 // Function words deleted from a Chinese lead: particles, pronouns, prepositions,
@@ -3779,6 +3875,43 @@ function matchChineseFunctionPhrase(
 	return null;
 }
 
+// A measure word after a numeral stays with it; only the simple "一" form is
+// dropped whole ("一只" -> nothing). `null` means an ordinary function word.
+function measureWordHandling(
+	source: string,
+	token: WordSegment,
+	match: ChineseFunctionMatch
+): 'trim-one' | 'keep' | null {
+	if (!CHINESE_MEASURE_WORDS.has(match.word)) {
+		return null;
+	}
+	const prevChar = source[token.start - 1] ?? '';
+	if (!CHINESE_NUMERAL_RE.test(prevChar)) {
+		return null;
+	}
+	const beforeNumeral = source[token.start - 2] ?? '';
+	const after = source[match.end] ?? '';
+	if (
+		prevChar === '一' &&
+		!CHINESE_NUMERAL_RE.test(beforeNumeral) &&
+		beforeNumeral !== '第' &&
+		!CHINESE_NUMERAL_RE.test(after)
+	) {
+		return 'trim-one';
+	}
+	return 'keep';
+}
+
+// Words whose neighbouring segment makes them content: 另外一个 / 第一个 keep 一个.
+function chineseFunctionKeptBefore(
+	words: readonly WordSegment[],
+	index: number,
+	match: ChineseFunctionMatch
+): boolean {
+	const keepBefore = CHINESE_FUNCTION_WORD_KEEP_PREV.get(match.word);
+	return Boolean(keepBefore && index > 0 && keepBefore.has(words[index - 1].word));
+}
+
 // Deletes function words by walking word segments, so a particle is only matched
 // as a word of its own. A word between Latin or digit runs leaves a space, so the
 // runs never glue ("Python的pygame库" -> "Python pygame 库"). Math is verbatim.
@@ -3811,44 +3944,18 @@ function stripChineseFunctionWords(source: string): string {
 			continue;
 		}
 
-		const prevChar = source[token.start - 1] ?? '';
-
-		// A measure word after a numeral stays with it; only the simple "一"
-		// form is dropped whole.
-		if (CHINESE_MEASURE_WORDS.has(match.word) && CHINESE_NUMERAL_RE.test(prevChar)) {
-			const beforeNumeral = source[token.start - 2] ?? '';
-			const after = source[match.end] ?? '';
-			if (
-				prevChar === '一' &&
-				!CHINESE_NUMERAL_RE.test(beforeNumeral) &&
-				beforeNumeral !== '第' &&
-				!CHINESE_NUMERAL_RE.test(after)
-			) {
-				if (out.endsWith('一')) {
-					out = out.slice(0, -1);
-				}
-				cursor = match.end;
-				index += match.count;
-				continue;
+		const measure = measureWordHandling(source, token, match);
+		if (measure === 'keep' || chineseFunctionKeptBefore(words, index, match)) {
+			out += source.slice(token.start, match.end);
+		} else if (measure === null) {
+			// The word is dropped; a word between Latin or digit runs leaves a
+			// space, so the runs never glue.
+			const next = source[match.end] ?? '';
+			if (/[A-Za-z0-9]/.test(out[out.length - 1] ?? '') && /[A-Za-z0-9]/.test(next)) {
+				out += ' ';
 			}
-
-			out += source.slice(token.start, match.end);
-			cursor = match.end;
-			index += match.count;
-			continue;
-		}
-
-		const keepBefore = CHINESE_FUNCTION_WORD_KEEP_PREV.get(match.word);
-		if (keepBefore && index > 0 && keepBefore.has(words[index - 1].word)) {
-			out += source.slice(token.start, match.end);
-			cursor = match.end;
-			index += match.count;
-			continue;
-		}
-
-		const next = source[match.end] ?? '';
-		if (/[A-Za-z0-9]/.test(out[out.length - 1] ?? '') && /[A-Za-z0-9]/.test(next)) {
-			out += ' ';
+		} else if (out.endsWith('一')) {
+			out = out.slice(0, -1);
 		}
 		cursor = match.end;
 		index += match.count;
@@ -3988,43 +4095,20 @@ function deriveCompressedLeadTitle(
 const ENGLISH_LEAD_PHRASE_TOKENS = 8;
 const ENGLISH_LEAD_PHRASE_WIDTH = 32;
 
-// Cuts an over-wide English lead back to its last clause break that still fits.
-// The cut lands on a word boundary (the end of the word before the separator),
-// so a hyphen compound is never split. Deleting function words is the fallback.
-function cutEnglishLeadPhrase(lead: string): { phrase: string; fits: boolean } {
-	if (
-		countReasoningTokens(lead) <= ENGLISH_LEAD_PHRASE_TOKENS &&
-		displayWidth(lead) <= ENGLISH_LEAD_PHRASE_WIDTH
-	) {
-		return { phrase: lead, fits: true };
+// A word end can sit before a closing math/code delimiter ("$b$", "`x`"): the
+// delimiter belongs to the word, so the cut goes past it. An unpaired `$` left
+// behind would survive into the title.
+function snapLeadBreak(lead: string, end: number): number {
+	let cut = end;
+	while (cut < lead.length && (lead[cut] === '$' || lead[cut] === '`')) {
+		cut++;
 	}
+	return cut;
+}
 
-	const words = englishTokens(lead);
-	let wordIndex = 0;
-	let lastWordEnd = 0;
-	const breaks: number[] = [];
-	let inMath = false;
-	let inCode = false;
-
-	// A word end can sit before a closing math/code delimiter ("$b$", "`x`"):
-	// the delimiter belongs to the word, so the cut goes past it. An unpaired `$`
-	// left behind would survive into the title.
-	const snapBreak = (end: number): number => {
-		let cut = end;
-		while (cut < lead.length && (lead[cut] === '$' || lead[cut] === '`')) {
-			cut++;
-		}
-		return cut;
-	};
-
-	const addBreak = () => {
-		if (lastWordEnd > 0 && breaks[breaks.length - 1] !== lastWordEnd) {
-			breaks.push(snapBreak(lastWordEnd));
-		}
-	};
-
-	// A formula tail ("… such that $13_b \cdot 15_b = 243_b$", "… where x²") is
-	// the condition, not the topic: the prose before the connector is the phrase.
+// A formula tail ("… such that $13_b \cdot 15_b = 243_b$", "… where x²") is the
+// condition, not the topic: the prose before the connector is the phrase.
+function pushFormulaTailBreaks(lead: string, words: EnglishToken[], ends: number[]): void {
 	for (let i = 1; i < words.length; i++) {
 		const lower = words[i].lower;
 		const next = words[i + 1]?.lower;
@@ -4035,10 +4119,22 @@ function cutEnglishLeadPhrase(lead: string): { phrase: string; fits: boolean } {
 		) {
 			const tail = lead.slice(words[i].start);
 			if (/[$\\=^_]|[≤≥≠≈±×÷√]/u.test(tail)) {
-				breaks.push(snapBreak(words[i - 1].end));
+				ends.push(snapLeadBreak(lead, words[i - 1].end));
 			}
 		}
 	}
+}
+
+// End offsets a cut may land on: the last whole word before a clause separator
+// (a comma, semicolon, colon or spaced dash outside math and code), plus the
+// prose before a formula tail ("… such that $13_b …").
+function leadClauseBreakEnds(lead: string, words: EnglishToken[]): number[] {
+	let wordIndex = 0;
+	let lastWordEnd = 0;
+	const breaks: number[] = [];
+	pushFormulaTailBreaks(lead, words, breaks);
+	let inMath = false;
+	let inCode = false;
 
 	for (let i = 0; i < lead.length; i++) {
 		// `lastWordEnd` is the end of the last whole token starting before `i`:
@@ -4064,7 +4160,9 @@ function cutEnglishLeadPhrase(lead: string): { phrase: string; fits: boolean } {
 			continue;
 		}
 		if (char === ',' || char === ';' || char === ':') {
-			addBreak();
+			if (lastWordEnd > 0 && breaks[breaks.length - 1] !== lastWordEnd) {
+				breaks.push(snapLeadBreak(lead, lastWordEnd));
+			}
 			continue;
 		}
 		if (
@@ -4074,16 +4172,24 @@ function cutEnglishLeadPhrase(lead: string): { phrase: string; fits: boolean } {
 		) {
 			const before = /(\S+)\s*$/u.exec(lead.slice(0, i))?.[1] ?? '';
 			const after = /^\s*(\S+)/u.exec(lead.slice(i + 1))?.[1] ?? '';
-			if (!isSubtractionDash(before, after)) {
-				addBreak();
+			if (
+				!isSubtractionDash(before, after) &&
+				lastWordEnd > 0 &&
+				breaks[breaks.length - 1] !== lastWordEnd
+			) {
+				breaks.push(snapLeadBreak(lead, lastWordEnd));
 			}
 		}
 	}
 
-	const cutBreaks = [...new Set(breaks)].sort((a, b) => a - b);
+	return breaks;
+}
 
-	for (let i = cutBreaks.length - 1; i >= 0; i--) {
-		const phrase = lead.slice(0, cutBreaks[i]).trimEnd();
+// The last clause cut that reads as a phrase and fits the title budget, or null.
+function lastFittingLeadCut(lead: string, ends: readonly number[]): string | null {
+	const cutEnds = [...new Set(ends)].sort((a, b) => a - b);
+	for (let i = cutEnds.length - 1; i >= 0; i--) {
+		const phrase = lead.slice(0, cutEnds[i]).trimEnd();
 		if (
 			Array.from(phrase).length >= TITLE_MIN_CHARS &&
 			// The phrase must fit the title token target; a clause wider than that
@@ -4091,11 +4197,25 @@ function cutEnglishLeadPhrase(lead: string): { phrase: string; fits: boolean } {
 			countReasoningTokens(phrase) <= REASONING_SUMMARY_TITLE_TOKEN_TARGET &&
 			displayWidth(phrase) <= ENGLISH_LEAD_PHRASE_WIDTH
 		) {
-			return { phrase, fits: true };
+			return phrase;
 		}
 	}
+	return null;
+}
 
-	return { phrase: lead, fits: false };
+// Cuts an over-wide English lead back to its last clause break that still fits.
+// The cut lands on a word boundary (the end of the word before the separator),
+// so a hyphen compound is never split. Deleting function words is the fallback.
+function cutEnglishLeadPhrase(lead: string): { phrase: string; fits: boolean } {
+	if (
+		countReasoningTokens(lead) <= ENGLISH_LEAD_PHRASE_TOKENS &&
+		displayWidth(lead) <= ENGLISH_LEAD_PHRASE_WIDTH
+	) {
+		return { phrase: lead, fits: true };
+	}
+
+	const phrase = lastFittingLeadCut(lead, leadClauseBreakEnds(lead, englishTokens(lead)));
+	return phrase === null ? { phrase: lead, fits: false } : { phrase, fits: true };
 }
 
 // A prose title prefers the lead's own phrase; only a lead no clause cut can fit
@@ -4554,9 +4674,8 @@ function titleRunOnPenalty(title: string): number {
 //
 // The block is its own corpus: sentences are nodes, edges are content-word
 // cosine, and PageRank ranks them. Bags are IDF-weighted over the block's own
-// sentences, so a repeated word cannot make a pair look alike. Centrality only
-// has to be meaningful inside this summary. O(sentences² · bag size), cached
-// once per block; candidates read the finished vector by sentence index.
+// sentences, so a repeated word cannot make a pair look alike; O(sentences² ·
+// bag size), cached once per block, and candidates read the vector by index.
 // ---------------------------------------------------------------------------
 
 /** PageRank damping: the share of a sentence's rank passed to its neighbours. */
@@ -4814,34 +4933,26 @@ function dotTitleFeatures(
 	return total;
 }
 
-/**
- * The feature vector of one candidate: every term the hand-tuned scorer read, in
- * `TITLE_FEATURE_NAMES` order.
- *
- * Two places need care, because the old scorer was not a plain sum:
- *
- * 1. `pen_numeric_run` is exclusive of `pen_formula_fragment`: the branch was an
- *    `if / else if`, so a title that is both pays one penalty, not two. The
- *    feature keeps that precedence so the map stays linear.
- * 2. `spec_content_word_count_capped` is the upper bound the IDF loss is
- *    measured against; it is carried as a feature of its own (with its fitted
- *    weight) instead of being folded into `spec_idf_loss`.
- *
- * Ported 1:1 from the GRPO feature extractor (`ReasoningSummary/features.md`),
- * which reproduced the hand scorer to 2.84e-14 over 36,173 candidates.
- */
-function extractTitleFeatures(
-	candidate: TitleCandidateMeta,
-	sentenceCount: number,
-	sentenceCentrality: readonly number[] = [],
-	contentIdf: ContentIdf = NEUTRAL_CONTENT_IDF
-): TitleFeatures {
-	const title = candidate.title.trim();
-	const features = emptyTitleFeatures();
-	if (!title) {
-		return features;
-	}
+type TitleFeatureContext = {
+	candidate: TitleCandidateMeta;
+	title: string;
+	sentenceCount: number;
+	sentenceCentrality: readonly number[];
+	contentIdf: ContentIdf;
+	/** A definition or a template: both name their subject instead of quoting it. */
+	composed: boolean;
+	contentTerms: readonly string[];
+	contentWords: number;
+};
 
+/** Everything the feature groups read, derived once per candidate. */
+function titleFeatureContext(
+	candidate: TitleCandidateMeta,
+	title: string,
+	sentenceCount: number,
+	sentenceCentrality: readonly number[],
+	contentIdf: ContentIdf
+): TitleFeatureContext {
 	const definition = candidate.source === 'definition';
 	// A template names its work and, when it has one, its object. The object can
 	// be a letter (`H(t)`), which the content-word counter does not see, so a
@@ -4853,12 +4964,25 @@ function extractTitleFeatures(
 	// A definition names its symbol even when the symbol is not a word: it is
 	// scored as two content words, and the weak-label penalty is not applied.
 	const contentWords = composed ? Math.max(2, contentTerms.length) : contentTerms.length;
+	return {
+		candidate,
+		title,
+		sentenceCount,
+		sentenceCentrality,
+		contentIdf,
+		composed,
+		contentTerms,
+		contentWords
+	};
+}
 
+/** One-hot source prior, sentence decay and masked centrality. */
+function featureSourcePrior(features: TitleFeatures, context: TitleFeatureContext): void {
+	const { candidate, sentenceCentrality } = context;
 	const sourceKey = `src_${candidate.source.replace(/-/g, '_')}` as TitleFeatureName;
 	if (sourceKey in features) {
 		features[sourceKey] = 1;
 	}
-
 	if (candidate.source !== 'opening' && candidate.sentence > 1) {
 		features.pos_decay = Math.min(
 			TITLE_POSITION_SENTENCE_DECAY_CAP,
@@ -4868,7 +4992,11 @@ function extractTitleFeatures(
 	if (TITLE_CENTRALITY_SOURCES.has(candidate.source)) {
 		features.centrality_masked = sentenceCentrality[candidate.sentence] ?? 0;
 	}
+}
 
+/** Specificity: the IDF aggregate for prose, a flat bonus for composed titles. */
+function featureSpecificity(features: TitleFeatures, context: TitleFeatureContext): void {
+	const { composed, contentTerms, contentIdf } = context;
 	if (composed) {
 		// A composed title (a definition or a template) is scored as a flat
 		// two-content-word bonus: its object may be a symbol rather than a word,
@@ -4876,20 +5004,24 @@ function extractTitleFeatures(
 		// the fallback layer, so this bonus only decides whether one clears the
 		// fallback floor, never whether it outranks a natural phrase.
 		features.spec_definition = 1;
-	} else {
-		let weighted = 0;
-		for (const term of contentTerms) {
-			weighted += contentIdf.weights.get(term) ?? 1;
-		}
-		const baseline = Math.min(contentTerms.length, TITLE_SCORE_CONTENT_WORD_CAP);
-		const capped = Math.min(weighted, TITLE_SCORE_CONTENT_WORD_CAP);
-		// Weighted at most 1 per word, so the loss is bounded and cannot sink a
-		// title position already ranked.
-		features.spec_idf_sum_capped = capped;
-		features.spec_content_word_count_capped = baseline;
-		features.spec_idf_loss = Math.max(0, baseline - capped - TITLE_IDF_MAX_DISCOUNT);
+		return;
 	}
+	let weighted = 0;
+	for (const term of contentTerms) {
+		weighted += contentIdf.weights.get(term) ?? 1;
+	}
+	const baseline = Math.min(contentTerms.length, TITLE_SCORE_CONTENT_WORD_CAP);
+	const capped = Math.min(weighted, TITLE_SCORE_CONTENT_WORD_CAP);
+	// Weighted at most 1 per word, so the loss is bounded and cannot sink a
+	// title position already ranked.
+	features.spec_idf_sum_capped = capped;
+	features.spec_content_word_count_capped = baseline;
+	features.spec_idf_loss = Math.max(0, baseline - capped - TITLE_IDF_MAX_DISCOUNT);
+}
 
+/** Phrase-quality terms: ending, stated intent, handoff and run-on width. */
+function featurePhraseQuality(features: TitleFeatures, context: TitleFeatureContext): void {
+	const { candidate, title, sentenceCount } = context;
 	if (titleEndsOnContentWord(title)) {
 		features.title_ends_on_content_word = 1;
 	}
@@ -4899,9 +5031,17 @@ function extractTitleFeatures(
 	if (candidate.sentence === sentenceCount - 1 && TOPIC_HANDOFF_RE.test(title)) {
 		features.topics_handoff = 1;
 	}
-
 	features.run_on_units = titleRunOnPenalty(title);
+}
 
+/**
+ * Substance penalties: what the title is made of. `pen_numeric_run` is exclusive
+ * of `pen_formula_fragment` (the hand scorer used `if / else if`, so a title that
+ * is both pays once), and templates are exempt from the numeric run for the same
+ * reason a stated intent is.
+ */
+function featureSubstancePenalties(features: TitleFeatures, context: TitleFeatureContext): void {
+	const { candidate, title, contentWords } = context;
 	if (isDiscourseMarkerOnly(title)) {
 		features.pen_marker_only = 1;
 	}
@@ -4943,6 +5083,11 @@ function extractTitleFeatures(
 			features.pen_process_opener_en = 1;
 		}
 	}
+}
+
+/** Opener and tail penalties: how the title phrases its topic. */
+function featureOpenerPenalties(features: TitleFeatures, context: TitleFeatureContext): void {
+	const { title } = context;
 	if (!CJK_RUN_RE.test(title) && TITLE_META_COGNITION_OPENER_RE.test(title)) {
 		features.pen_meta_cognition = 1;
 	}
@@ -4976,6 +5121,11 @@ function extractTitleFeatures(
 	if (TITLE_DANGLING_END_RE.test(title)) {
 		features.pen_dangling_end = 1;
 	}
+}
+
+/** Metadata penalties: facts about the candidate rather than its wording. */
+function featureMetadataPenalties(features: TitleFeatures, context: TitleFeatureContext): void {
+	const { candidate, title, contentWords } = context;
 	if (candidate.compressed) {
 		features.pen_telegraphic = 1;
 	}
@@ -5000,12 +5150,59 @@ function extractTitleFeatures(
 	if (!CJK_RUN_RE.test(title) && contentWords === 1) {
 		features.pen_single_word = 1;
 	}
-	if (candidate.source === 'intent' && candidate.sentence === 0 && sentenceCount === 1) {
+	if (candidate.source === 'intent' && candidate.sentence === 0 && context.sentenceCount === 1) {
 		features.pen_whole_block_intent = 1;
 	}
-	if (TITLE_FALLBACK_LOW_CONFIDENCE_RE.test(title)) {
+}
+
+/** The fallback layer's own term: a hedged opener on an otherwise usable phrase. */
+function featureFallbackPenalty(features: TitleFeatures, context: TitleFeatureContext): void {
+	if (TITLE_FALLBACK_LOW_CONFIDENCE_RE.test(context.title)) {
 		features.fb_low_confidence = 1;
 	}
+}
+
+/**
+ * The feature vector of one candidate: every term the hand-tuned scorer read, in
+ * `TITLE_FEATURE_NAMES` order. Groups own disjoint terms and write only 1 or a
+ * point value, so the pass cannot depend on branch order.
+ *
+ * Two places need care, because the old scorer was not a plain sum:
+ *
+ * 1. `pen_numeric_run` is exclusive of `pen_formula_fragment`: an `if / else if`
+ *    branch paid one penalty, not two, and the feature keeps that precedence.
+ * 2. `spec_content_word_count_capped` is the upper bound the IDF loss is measured
+ *    against, carried as its own weighted feature instead of folded in.
+ *
+ * Ported 1:1 from the GRPO feature extractor (`ReasoningSummary/features.md`),
+ * which reproduced the hand scorer to 2.84e-14 over 36,173 candidates.
+ */
+function extractTitleFeatures(
+	candidate: TitleCandidateMeta,
+	sentenceCount: number,
+	sentenceCentrality: readonly number[] = [],
+	contentIdf: ContentIdf = NEUTRAL_CONTENT_IDF
+): TitleFeatures {
+	const title = candidate.title.trim();
+	const features = emptyTitleFeatures();
+	if (!title) {
+		return features;
+	}
+
+	const context = titleFeatureContext(
+		candidate,
+		title,
+		sentenceCount,
+		sentenceCentrality,
+		contentIdf
+	);
+	featureSourcePrior(features, context);
+	featureSpecificity(features, context);
+	featurePhraseQuality(features, context);
+	featureSubstancePenalties(features, context);
+	featureOpenerPenalties(features, context);
+	featureMetadataPenalties(features, context);
+	featureFallbackPenalty(features, context);
 
 	return features;
 }
@@ -5153,11 +5350,11 @@ function deriveVerbatimCandidate(text: string, start: number, end: number): Pros
 // ---------------------------------------------------------------------------
 // Verb-phrase synthesis
 //
-// A span may still be a process beat ("Let me analyze this problem") or may lose
-// the article carrying its object. This pass composes one 状语 + 动词 + 宾语 (or
-// verb + object NP) phrase from a closed verb table plus an object-boundary test.
-// It only enters the pool when both boundaries are certain; identification is
-// tiny on purpose, because a full noun lexicon would be a second grammar.
+// A span may still be a process beat ("Let me analyze this problem") or lose the
+// article carrying its object. This pass composes one 状语 + 动词 + 宾语 (or verb
+// + object NP) from a closed verb table plus an object-boundary test, and only
+// enters the pool when both boundaries are certain. The lexicon stays tiny on
+// purpose: a full noun lexicon would be a second grammar.
 // ---------------------------------------------------------------------------
 
 // Action verbs a title may open on. Closed on purpose: a word outside this table
@@ -5441,7 +5638,7 @@ for (const bucket of CHINESE_ACTION_VERB_INDEX.values()) {
 /** A whole action verb at word index `at`, or null. */
 function matchChineseActionVerb(
 	text: string,
-	words: WordSegment[],
+	words: readonly WordSegment[],
 	at: number
 ): ChineseVerbEntry | null {
 	const entries = CHINESE_ACTION_VERB_INDEX.get(words[at]?.word ?? '');
@@ -5504,110 +5701,109 @@ function isChineseToolPrefix(prefix: WordSegment[], text: string): boolean {
 	return content;
 }
 
-// 状语 + 动词 + 宾语, or null when either boundary is uncertain. A verb behind a
-// lead that is not a means phrase is skipped, so the result never loses the
-// topic the lead carried ("如何通过编译预处理来实现…" is not just "实现…").
-function synthesizeChineseVerbPhrase(source: string): string | null {
-	const words = wordSegments(source);
-	if (words.length < 2) {
-		return null;
-	}
+// ---------------------------------------------------------------------------
+// Verb-phrase synthesis skeleton
+// ---------------------------------------------------------------------------
 
-	let verbAt = -1;
-	let verbMatch: ChineseVerbEntry | null = null;
-	for (let i = 0; i < words.length; i++) {
-		verbMatch = matchChineseActionVerb(source, words, i);
-		if (verbMatch) {
-			verbAt = i;
-			break;
-		}
-	}
-	if (!verbMatch || verbAt === -1) {
-		return null;
-	}
+// One walk over verb and object; a language config supplies the tokens, verb
+// table, lead guard, particles and object rules, with module-level hooks so a
+// candidate allocates only its own matches.
+type PhraseToken = { start: number; end: number };
 
-	let prefixText = '';
-	if (verbAt > 0) {
+type PhraseMatch = { span: number; text: string };
+
+type PhraseObjectRule = {
+	maxTokens: number;
+	maxWidth: number;
+	minWidth: number;
+	stopWords: ReadonlySet<string>;
+	relativeWords?: ReadonlySet<string>;
+	relativeMax: number;
+	/** Keep a second verb while the object is still one split compound. */
+	compoundGuard: boolean;
+	purpose?: ReadonlySet<string>;
+};
+
+type PhraseLanguage<T extends PhraseToken> = {
+	tokens(source: string): readonly T[];
+	/** How many leading tokens may hold the verb. */
+	verbScan: number;
+	matchVerb(source: string, tokens: readonly T[], at: number): PhraseMatch | null;
+	/** The lead kept in front of the verb, '' when the language has none, null when it is no means phrase. */
+	prefix(source: string, tokens: readonly T[], verbAt: number): string | null;
+	openObject(
+		source: string,
+		tokens: readonly T[],
+		verbAt: number,
+		match: PhraseMatch
+	): { cursor: number; verbText: string } | null;
+	key(token: T): string;
+	clauseGap(source: string, before: T, after: T): boolean;
+	isVerb(source: string, tokens: readonly T[], at: number): boolean;
+	assemble(prefix: string, verb: string, object: string): string;
+	object: PhraseObjectRule;
+};
+
+const CHINESE_PHRASE_OBJECT: PhraseObjectRule = {
+	maxTokens: CHINESE_SYNTHESIS_OBJECT_MAX_WORDS,
+	maxWidth: CHINESE_SYNTHESIS_OBJECT_MAX_WIDTH,
+	minWidth: 4,
+	stopWords: CHINESE_OBJECT_STOP_WORDS,
+	relativeMax: 0,
+	compoundGuard: true,
+	purpose: CHINESE_PURPOSE_CONNECTORS
+};
+
+const CHINESE_PHRASE_LANGUAGE: PhraseLanguage<WordSegment> = {
+	tokens: wordSegments,
+	verbScan: Number.MAX_SAFE_INTEGER,
+	matchVerb(source, words, at) {
+		const entry = matchChineseActionVerb(source, words, at);
+		return entry ? { span: entry.tokens.length, text: '' } : null;
+	},
+	prefix(source, words, verbAt) {
 		const prefix = words.slice(0, verbAt);
 		if (!isChineseToolPrefix(prefix, source)) {
 			return null;
 		}
-		prefixText = source.slice(prefix[0].start, prefix[prefix.length - 1].end);
-	}
+		return source.slice(prefix[0].start, prefix[prefix.length - 1].end);
+	},
+	openObject(source, words, verbAt, match) {
+		let cursor = verbAt + match.span;
+		let verbText = source.slice(words[verbAt].start, words[cursor - 1].end);
 
-	let cursor = verbAt + verbMatch.tokens.length;
-	let verbText = source.slice(words[verbAt].start, words[cursor - 1].end);
-
-	// Particles right behind the verb are aspect markers, not the object.
-	while (
-		cursor < words.length &&
-		CHINESE_OBJECT_LEADING_PARTICLES.has(words[cursor].word) &&
-		!hasClausePunctuationGap(source, words[cursor - 1], words[cursor])
-	) {
-		cursor++;
-	}
-
-	const complement = words[cursor];
-	if (
-		complement &&
-		CHINESE_VERB_COMPLEMENTS.has(complement.word) &&
-		!hasClausePunctuationGap(source, words[cursor - 1], complement)
-	) {
-		verbText += complement.word;
-		cursor++;
-	}
-
-	const objectWords: WordSegment[] = [];
-	for (; cursor < words.length; cursor++) {
-		const word = words[cursor];
-		if (cursor > verbAt && hasClausePunctuationGap(source, words[cursor - 1], word)) {
-			break;
-		}
-
-		const nextVerb = matchChineseActionVerb(source, words, cursor);
-		if (objectWords.length === 0) {
-			if (CHINESE_OBJECT_STOP_WORDS.has(word.word) || nextVerb) {
-				break;
-			}
-		} else {
-			if (objectWords.length >= CHINESE_SYNTHESIS_OBJECT_MAX_WORDS) {
-				break;
-			}
-			if (CHINESE_OBJECT_STOP_WORDS.has(word.word)) {
-				break;
-			}
-			if (nextVerb) {
-				const previous = objectWords[objectWords.length - 1].word;
-				// One word is not yet an object: a compound noun the segmenter split
-				// ("条件编译", "字符编码") must not lose its second half. Only a
-				// second predicate behind a real object ends the phrase.
-				if (objectWords.length >= 2 && !CHINESE_PURPOSE_CONNECTORS.has(previous)) {
-					break;
-				}
-			}
-		}
-
-		objectWords.push(word);
-		if (
-			displayWidth(source.slice(objectWords[0].start, word.end)) >
-			CHINESE_SYNTHESIS_OBJECT_MAX_WIDTH
+		// Particles right behind the verb are aspect markers, not the object.
+		while (
+			cursor < words.length &&
+			CHINESE_OBJECT_LEADING_PARTICLES.has(words[cursor].word) &&
+			!hasClausePunctuationGap(source, words[cursor - 1], words[cursor])
 		) {
-			objectWords.pop();
-			break;
+			cursor++;
 		}
-	}
 
-	if (objectWords.length === 0) {
-		return null;
-	}
+		const complement = words[cursor];
+		if (
+			complement &&
+			CHINESE_VERB_COMPLEMENTS.has(complement.word) &&
+			!hasClausePunctuationGap(source, words[cursor - 1], complement)
+		) {
+			verbText += complement.word;
+			cursor++;
+		}
+		return { cursor, verbText };
+	},
+	key: (token) => token.word,
+	clauseGap: hasClausePunctuationGap,
+	isVerb: (source, words, at) => matchChineseActionVerb(source, words, at) !== null,
+	assemble: (prefix, verb, object) => `${prefix}${verb}${object}`,
+	object: CHINESE_PHRASE_OBJECT
+};
 
-	const objectText = source.slice(objectWords[0].start, objectWords[objectWords.length - 1].end);
-	// A one-character "object" is the segmenter splitting a word ("编译" + "器"),
-	// not a noun phrase: it would title the block with a fragment.
-	if (displayWidth(objectText) < 4) {
-		return null;
-	}
-	return `${prefixText}${verbText}${objectText}`;
+// 状语 + 动词 + 宾语, or null when either boundary is uncertain. A verb behind a
+// lead that is not a means phrase is skipped, so the result never loses the
+// topic the lead carried ("如何通过编译预处理来实现…" is not just "实现…").
+function synthesizeChineseVerbPhrase(source: string): string | null {
+	return synthesizeVerbPhrase(source, CHINESE_PHRASE_LANGUAGE);
 }
 
 // ---------------------------------------------------------------------------
@@ -5826,104 +6022,186 @@ const ENGLISH_SYNTHESIS_OBJECT_MAX_TOKENS = 8;
 const ENGLISH_SYNTHESIS_RELATIVE_MAX_TOKENS = 4;
 const ENGLISH_SYNTHESIS_OBJECT_MAX_WIDTH = 48;
 
-function synthesizeEnglishVerbPhrase(source: string): string | null {
-	const tokens = englishTokens(source);
+const ENGLISH_PHRASE_OBJECT: PhraseObjectRule = {
+	maxTokens: ENGLISH_SYNTHESIS_OBJECT_MAX_TOKENS,
+	maxWidth: ENGLISH_SYNTHESIS_OBJECT_MAX_WIDTH,
+	minWidth: 4,
+	stopWords: ENGLISH_OBJECT_STOP_WORDS,
+	relativeWords: ENGLISH_SYNTHESIS_RELATIVE_WORDS,
+	relativeMax: ENGLISH_SYNTHESIS_RELATIVE_MAX_TOKENS,
+	compoundGuard: false
+};
+
+const ENGLISH_PHRASE_LANGUAGE: PhraseLanguage<EnglishToken> = {
+	tokens: englishTokens,
+	verbScan: 3,
+	matchVerb(_source, tokens, at) {
+		const base = ENGLISH_ACTION_VERB_FORMS.get(tokens[at].lower);
+		if (!base) {
+			return null;
+		}
+		if (at > 0 && !ENGLISH_SYNTHESIS_LEAD_WORDS.has(tokens[at - 1].lower)) {
+			return null;
+		}
+		return { span: 1, text: base };
+	},
+	prefix: () => '',
+	openObject(source, tokens, verbAt, match) {
+		let cursor = verbAt + 1;
+		const particles = ENGLISH_VERB_PARTICLES.get(match.text);
+		if (particles && cursor < tokens.length && particles.has(tokens[cursor].lower)) {
+			cursor++;
+		}
+		if (cursor >= tokens.length) {
+			return null;
+		}
+		return { cursor, verbText: match.text };
+	},
+	key: (token) => token.lower,
+	clauseGap: (source, before, after) => !isWhitespaceGap(source, before, after),
+	isVerb: (_source, tokens, at) => ENGLISH_ACTION_VERB_FORMS.has(tokens[at].lower),
+	assemble: (_prefix, verb, object) => `${verb} ${object}`,
+	object: ENGLISH_PHRASE_OBJECT
+};
+
+// A second predicate behind a real object ends the phrase; behind a split
+// compound ("条件编译") it is the noun's second half, so only a purpose
+// connector may keep it.
+function objectEndsOnVerb<T extends PhraseToken>(
+	language: PhraseLanguage<T>,
+	count: number,
+	previous: T
+): boolean {
+	const rule = language.object;
+	if (!rule.compoundGuard) {
+		return true;
+	}
+	return count >= 2 && !rule.purpose?.has(language.key(previous));
+}
+
+// The object's own source span, or null when it is too short to read as a noun
+// phrase (a one-character "object" is the segmenter splitting a word).
+function phraseObjectText<T extends PhraseToken>(
+	source: string,
+	objectWords: readonly T[],
+	minWidth: number
+): string | null {
+	if (objectWords.length === 0) {
+		return null;
+	}
+	const text = source.slice(objectWords[0].start, objectWords[objectWords.length - 1].end);
+	return displayWidth(text) >= minWidth ? text : null;
+}
+
+// The object NP ends where a new clause, a prepositional phrase or a predicate
+// starts: the last whole token before that boundary is the head. The relative
+// branch keeps "the option that best completes" whole and stops at its own verb.
+function collectPhraseObject<T extends PhraseToken>(
+	source: string,
+	tokens: readonly T[],
+	start: number,
+	language: PhraseLanguage<T>
+): string | null {
+	const rule = language.object;
+	const objectWords: T[] = [];
+	let relativeStart = -1;
+
+	for (let cursor = start; cursor < tokens.length; cursor++) {
+		const token = tokens[cursor];
+		if (objectWords.length > 0 && language.clauseGap(source, tokens[cursor - 1], token)) {
+			break;
+		}
+
+		const count = objectWords.length;
+		const verb = language.isVerb(source, tokens, cursor);
+		const key = language.key(token);
+		if (count === 0) {
+			if (rule.stopWords.has(key) || verb) {
+				break;
+			}
+		} else if (relativeStart >= 0) {
+			if (count >= rule.maxTokens) {
+				break;
+			}
+			objectWords.push(token);
+			if (verb || count - relativeStart >= rule.relativeMax) {
+				break;
+			}
+			continue;
+		} else {
+			if (count >= rule.maxTokens) {
+				break;
+			}
+			if (rule.relativeWords?.has(key)) {
+				relativeStart = count;
+				objectWords.push(token);
+				continue;
+			}
+			if (rule.stopWords.has(key)) {
+				break;
+			}
+			if (verb && objectEndsOnVerb(language, count, objectWords[count - 1])) {
+				break;
+			}
+		}
+
+		objectWords.push(token);
+		if (displayWidth(source.slice(objectWords[0].start, token.end)) > rule.maxWidth) {
+			objectWords.pop();
+			break;
+		}
+	}
+
+	return phraseObjectText(source, objectWords, rule.minWidth);
+}
+
+// The shared synthesis engine: find the verb, keep its lead and particles, walk
+// the object to its boundary, then assemble the phrase in the language's order.
+function synthesizeVerbPhrase<T extends PhraseToken>(
+	source: string,
+	language: PhraseLanguage<T>
+): string | null {
+	const tokens = language.tokens(source);
 	if (tokens.length < 2) {
 		return null;
 	}
 
 	let verbAt = -1;
-	let base = '';
-	for (let i = 0; i < Math.min(tokens.length, 3); i++) {
-		const candidate = ENGLISH_ACTION_VERB_FORMS.get(tokens[i].lower);
-		if (!candidate) {
-			continue;
-		}
-		if (i > 0 && !ENGLISH_SYNTHESIS_LEAD_WORDS.has(tokens[i - 1].lower)) {
-			continue;
-		}
-		verbAt = i;
-		base = candidate;
-		break;
-	}
-	if (verbAt === -1) {
-		return null;
-	}
-
-	let cursor = verbAt + 1;
-	const particles = ENGLISH_VERB_PARTICLES.get(base);
-	if (particles && cursor < tokens.length && particles.has(tokens[cursor].lower)) {
-		cursor++;
-	}
-	if (cursor >= tokens.length) {
-		return null;
-	}
-
-	const objectTokens: EnglishToken[] = [];
-	let relativeStart = -1;
-	for (; cursor < tokens.length; cursor++) {
-		const token = tokens[cursor];
-		if (objectTokens.length > 0 && !isWhitespaceGap(source, tokens[cursor - 1], token)) {
-			break;
-		}
-
-		if (objectTokens.length === 0) {
-			if (
-				ENGLISH_OBJECT_STOP_WORDS.has(token.lower) ||
-				ENGLISH_ACTION_VERB_FORMS.has(token.lower)
-			) {
-				break;
-			}
-		} else if (relativeStart >= 0) {
-			if (objectTokens.length >= ENGLISH_SYNTHESIS_OBJECT_MAX_TOKENS) {
-				break;
-			}
-			objectTokens.push(token);
-			// The relative clause's own verb closes the NP: "the option that
-			// best completes" is the object; the quote behind it is not.
-			if (ENGLISH_ACTION_VERB_FORMS.has(token.lower)) {
-				break;
-			}
-			if (objectTokens.length - relativeStart >= ENGLISH_SYNTHESIS_RELATIVE_MAX_TOKENS) {
-				break;
-			}
-			continue;
-		} else {
-			if (objectTokens.length >= ENGLISH_SYNTHESIS_OBJECT_MAX_TOKENS) {
-				break;
-			}
-			if (ENGLISH_SYNTHESIS_RELATIVE_WORDS.has(token.lower)) {
-				relativeStart = objectTokens.length;
-				objectTokens.push(token);
-				continue;
-			}
-			if (ENGLISH_OBJECT_STOP_WORDS.has(token.lower)) {
-				break;
-			}
-			if (ENGLISH_ACTION_VERB_FORMS.has(token.lower)) {
-				break;
-			}
-		}
-
-		objectTokens.push(token);
-		if (
-			displayWidth(source.slice(objectTokens[0].start, token.end)) >
-			ENGLISH_SYNTHESIS_OBJECT_MAX_WIDTH
-		) {
-			objectTokens.pop();
+	let match: PhraseMatch | null = null;
+	const scanEnd = Math.min(tokens.length, language.verbScan);
+	for (let i = 0; i < scanEnd; i++) {
+		match = language.matchVerb(source, tokens, i);
+		if (match) {
+			verbAt = i;
 			break;
 		}
 	}
-
-	if (objectTokens.length === 0) {
+	if (!match) {
 		return null;
 	}
 
-	const objectText = source.slice(objectTokens[0].start, objectTokens[objectTokens.length - 1].end);
-	if (displayWidth(objectText) < 4) {
+	let prefixText = '';
+	if (verbAt > 0) {
+		const prefix = language.prefix(source, tokens, verbAt);
+		if (prefix === null) {
+			return null;
+		}
+		prefixText = prefix;
+	}
+
+	const open = language.openObject(source, tokens, verbAt, match);
+	if (!open) {
 		return null;
 	}
-	return `${base} ${objectText}`;
+	const objectText = collectPhraseObject(source, tokens, open.cursor, language);
+	if (!objectText) {
+		return null;
+	}
+	return language.assemble(prefixText, open.verbText, objectText);
+}
+
+function synthesizeEnglishVerbPhrase(source: string): string | null {
+	return synthesizeVerbPhrase(source, ENGLISH_PHRASE_LANGUAGE);
 }
 
 // The synthesized candidate of one sentence: a verb phrase when the language
@@ -6024,27 +6302,19 @@ function enhanceCandidate(
 // ---------------------------------------------------------------------------
 // Symbolic title templates
 //
-// The last title layer for a formula-dense block: a derivation block whose every
-// sentence is a calculation has no natural candidate left after the formula and
-// numeric-run penalties, so it used to render bare or merge into its neighbour.
-// A template names the work instead of quoting it — "Solve for the positive
-// roots of H(t)", "求解 H(t) 的正根" — by classifying the block's own signals
+// The last title layer for a formula-dense block: with every sentence a
+// calculation, no natural candidate survives the formula and numeric-run
+// penalties. A template names the work instead of quoting it ("Solve for the
+// positive roots of H(t)", "求解 H(t) 的正根") by classifying the block's signals
 // (roots / simplify / factor / substitute / sign / derivative / bisect) and
 // naming the symbol the formulas act on.
 //
-// Three rules keep the layer honest:
-// - it only speaks for a prose block whose sentences are formula sentences
-//   (`TITLE_TEMPLATE_FORMULA_SENTENCE_SHARE`); a list, fence or table block is
-//   structural and never reaches this pass;
-// - the language follows the block (CJK share over non-space characters), so a
-//   Chinese derivation gets a Chinese template;
-// - it is a fallback-layer candidate: composed when the ordinary pool has
-//   already failed, scored with the same feature table under the hand-set prior
-//   (`src_template` / `pen_template`), and eligible only while no natural
-//   candidate clears the fallback floor. The prior alone cannot promise that —
-//   specificity points would let a clean template phrase outscore a marginal
-//   natural one — so the "only when the natural pool is all below the floor"
-//   rule is explicit in `chooseBestCandidate`.
+// Three rules keep it honest: it speaks only for a prose block of formula
+// sentences (`TITLE_TEMPLATE_FORMULA_SENTENCE_SHARE`; lists, fences and tables
+// never reach it); the language follows the block's CJK share; it is a fallback
+// candidate, so eligibility requires that no natural candidate clears the
+// fallback floor — specificity alone would otherwise let a clean template
+// outscore a marginal natural title, and that rule lives in `chooseBestCandidate`.
 // ---------------------------------------------------------------------------
 
 type TitleTemplateCategory =
@@ -6160,11 +6430,10 @@ const TITLE_TEMPLATE_CATEGORY_ORDER: ReadonlyArray<Exclude<TitleTemplateCategory
 type TitleTemplateForms = { withObject: string; withoutObject: string };
 
 /**
- * The templates. `{obj}` is a symbol the block works on; without a usable
- * symbol the sentence-initial form still names the work ("Solve for the
- * positive roots" reads better than "Solve for the positive roots of").
- * Chinese keeps a space around the symbol, matching the title spacing rules;
- * English is written as a normal sentence.
+ * The templates. `{obj}` is a symbol the block works on; without a usable symbol
+ * the sentence-initial form still names the work ("Solve for the positive roots"
+ * reads better than "Solve for the positive roots of"). Chinese keeps a space
+ * around the symbol; English is written as a normal sentence.
  */
 const TITLE_TEMPLATE_FORMS: Record<
 	Exclude<TitleTemplateCategory, 'transform'>,
@@ -6386,11 +6655,10 @@ function templateTitleFor(blockText: string): string | null {
 }
 
 /**
- * Template candidates for a block, at most one. The block has to be prose (the
- * structural shapes were returned before the pool is collected) and formula
- * dense: at least half of its sentences carry a formula mark. Both tests read
- * signals the module already has, so the layer adds one O(block) pass and no new
- * tokenizer.
+ * Template candidates for a block, at most one. The block must be prose
+ * (structural shapes return before the pool is collected) and formula dense: at
+ * least half of its sentences carry a formula mark. Both tests reuse existing
+ * signals, so the layer adds one O(block) pass and no tokenizer.
  */
 function collectTemplateCandidates(
 	blockText: string,
@@ -6433,8 +6701,245 @@ function collectTemplateCandidates(
 }
 
 // The candidate pool. Every sentence, clause prefix, long quote and label task
-// enters; none is pre-filtered for being a beat. Position only labels a
-// candidate — the score decides. Structural titles are returned before this pass.
+// enters; none is pre-filtered for being a beat — position only labels a
+// candidate, the score decides. Structural titles return before this pass.
+//
+// One collector per family, dispatched in table order: an earlier family wins a
+// tie against a later one with the same score, so the order is behaviour.
+type TitlePool = {
+	text: string;
+	sentenceCount: number;
+	centrality: readonly number[];
+	contentIdf: ContentIdf;
+	continuation: boolean;
+	priorTitleTerms: ReadonlySet<string>;
+	byTitle: Map<string, EnhancedCandidate>;
+	/** Ordinary-layer synthesis attempts, capped across the whole block. */
+	synthesisAttempts: number;
+};
+
+type SentenceSlot = {
+	index: number;
+	sentence: SentenceSpan;
+	/** The position prior this sentence's own prose competes under. */
+	source: TitleSource;
+	markup: boolean;
+};
+
+type AddCandidate = (
+	candidate: TitleCandidate & { compressed?: boolean },
+	kind: TitleSource,
+	rawStart?: number,
+	rawEnd?: number
+) => void;
+
+type TitleCollector = (pool: TitlePool, slot: SentenceSlot, add: AddCandidate) => void;
+
+/** Lines that are structure (empty, list, fence, table) never enter the pool. */
+function isStructuralTitleLine(line: string): boolean {
+	return !line || LIST_ITEM_RE.test(line) || /^(?:```|~~~)/u.test(line) || /^\|/u.test(line);
+}
+
+function keepTitleCandidate(
+	byTitle: Map<string, EnhancedCandidate>,
+	candidate: EnhancedCandidate | null
+): void {
+	if (!candidate) {
+		return;
+	}
+	const key = candidate.title.toLowerCase();
+	const existing = byTitle.get(key);
+	if (!existing || candidate.score > existing.score) {
+		byTitle.set(key, candidate);
+	}
+}
+
+/** Score and file one candidate against the sentence that produced it. */
+function titleCandidateAdder(pool: TitlePool, slot: SentenceSlot): AddCandidate {
+	return (candidate, kind, rawStart = slot.sentence.start, rawEnd = slot.sentence.end) => {
+		const continuationBonus = pool.continuation
+			? titleContinuationBonus(
+					candidate.title,
+					pool.text.slice(rawStart, rawEnd),
+					pool.priorTitleTerms
+				)
+			: 0;
+		keepTitleCandidate(
+			pool.byTitle,
+			enhanceCandidate(
+				candidate,
+				kind,
+				slot.index,
+				slot.markup,
+				pool.sentenceCount,
+				pool.centrality,
+				pool.contentIdf,
+				candidateMergeFlags(pool.text, rawStart, rawEnd, candidate.consumed),
+				continuationBonus
+			)
+		);
+	};
+}
+
+// The block's lead is its first sentence that says something. A marker like
+// "嗯，" is a sentence of its own in the split, but the task behind it is the
+// opening lead.
+function findLeadSentenceIndex(sentences: readonly SentenceSpan[]): number {
+	return sentences.findIndex((sentence) => {
+		const trimmed = sentence.text.trim();
+		return !isStructuralTitleLine(trimmed) && !isDiscourseMarkerOnly(trimmed);
+	});
+}
+
+// A sequencing word with a comma in front of the intent ("First, let me find…")
+// still states intent; "First I'll parse…" is a later sentence and stays one, so
+// the lead marker has to be separated.
+function titleSourceFor(trimmed: string, index: number, leadIndex: number): TitleSource {
+	const intent =
+		TOPIC_INTENT_RE.test(trimmed) ||
+		TOPIC_INTENT_RE.test(
+			trimmed.replace(/^(?:first|firstly|second|secondly|finally)\s*[,，:]\s*/iu, '')
+		);
+	const asker = !intent && TOPIC_ASKER_RE.test(trimmed);
+	return intent
+		? 'intent'
+		: index === leadIndex
+			? 'opening'
+			: asker
+				? 'asker'
+				: index === 1 && SECOND_SENTENCE_OPENER_RE.test(trimmed)
+					? 'second'
+					: 'later';
+}
+
+function collectQuoteTitle(pool: TitlePool, slot: SentenceSlot, add: AddCandidate): void {
+	const quote = findLongQuotedSpan(slot.sentence.text);
+	const quoteTitle = quote ? quotedTitle(quote.text) : null;
+	if (!quoteTitle) {
+		return;
+	}
+	// The quote is the title, not the label colon in front of it: an empty raw
+	// span keeps the merge penalties off it.
+	add(
+		{ title: quoteTitle, consumed: slot.sentence.end, abridged: true },
+		'quote',
+		slot.sentence.end,
+		slot.sentence.end
+	);
+}
+
+function collectProseTitles(pool: TitlePool, slot: SentenceSlot, add: AddCandidate): void {
+	const main = deriveProseCandidate(pool.text, slot.sentence.start, true, slot.sentence.end);
+	if (main) {
+		add(main, slot.source);
+	}
+	const verbatim = deriveVerbatimCandidate(pool.text, slot.sentence.start, slot.sentence.end);
+	if (verbatim) {
+		add(verbatim, slot.source);
+	}
+}
+
+// A verb phrase composed from the block's lead or a stated task competes like any
+// other candidate; its lower position prior and synthesis penalty keep it behind
+// the block's own words unless it reads clearly better. A later beat is not
+// synthesized: its verb+object is usually a step of the reasoning, not the
+// block's topic.
+function collectSynthesisTitle(pool: TitlePool, slot: SentenceSlot, add: AddCandidate): void {
+	if (slot.source !== 'opening' && slot.source !== 'intent' && slot.source !== 'asker') {
+		return;
+	}
+	if (pool.synthesisAttempts >= TITLE_SYNTHESIS_ATTEMPT_LIMIT) {
+		return;
+	}
+	pool.synthesisAttempts++;
+	const synthesized = deriveSynthesizedCandidate(pool.text, slot.sentence.start, slot.sentence.end);
+	if (synthesized) {
+		add(synthesized, 'synthesis');
+	}
+}
+
+function collectClauseTitles(pool: TitlePool, slot: SentenceSlot, add: AddCandidate): void {
+	const clauseSource: TitleSource = slot.index === 0 ? 'opening-clause' : 'clause';
+	const breakEnds = findClauseBreakEnds(pool.text, slot.sentence.start, slot.sentence.end).slice(
+		0,
+		TITLE_CLAUSE_CANDIDATE_LIMIT
+	);
+	for (const breakEnd of breakEnds) {
+		const prefix = deriveProseCandidate(pool.text, slot.sentence.start, true, breakEnd);
+		if (prefix) {
+			add(prefix, clauseSource, slot.sentence.start, breakEnd);
+		}
+		const prefixVerbatim = deriveVerbatimCandidate(pool.text, slot.sentence.start, breakEnd);
+		if (prefixVerbatim) {
+			add(prefixVerbatim, clauseSource, slot.sentence.start, breakEnd);
+		}
+	}
+}
+
+function collectTaskTitles(pool: TitlePool, slot: SentenceSlot, add: AddCandidate): void {
+	for (const taskStart of findLabelTaskStarts(pool.text, slot.sentence.start, slot.sentence.end)) {
+		const taskEnd =
+			findClauseBreakEnds(pool.text, taskStart, slot.sentence.end)[0] ?? slot.sentence.end;
+		// A label in front of a list leaves the list to the body: the first item
+		// is a candidate only through the list's own prose, not through its
+		// marker ("1. The output marked").
+		if (LIST_ITEM_RE.test(pool.text.slice(taskStart, taskEnd).trim())) {
+			continue;
+		}
+		const task = deriveProseCandidate(pool.text, taskStart, true, taskEnd);
+		if (task) {
+			add(task, 'task', taskStart, taskEnd);
+		}
+	}
+}
+
+// The fix-up source: the first later sentence that reads as a topic sentence. It
+// enters with the lowest position prior, so it only titles when nothing better
+// survives.
+function collectFixupTitle(pool: TitlePool, sentences: readonly SentenceSpan[]): void {
+	const chinese = CJK_RUN_RE.test(pool.text);
+	for (let index = 1; index < sentences.length; index++) {
+		const sentence = sentences[index];
+		if (chinese && !CJK_RUN_RE.test(sentence.text)) {
+			continue;
+		}
+		if (!sentenceEnds(sentence.text)) {
+			continue;
+		}
+		const trimmed = sentence.text.trim();
+		if (LIST_ITEM_RE.test(trimmed) || /^\s*(?:```|~~~)/u.test(sentence.text)) {
+			continue;
+		}
+		// The fix-up slot is the last resort: a sentence that opens on a topic
+		// skip word is not promoted to it. The same sentence already entered the
+		// pool from the main loop as a later/opening candidate, so the fallback
+		// layer can still choose it without this pass.
+		if (TOPIC_SENTENCE_SKIP_RE.test(sentence.text) && !findLongQuotedSpan(sentence.text)) {
+			continue;
+		}
+		const fixup = deriveProseCandidate(pool.text, sentence.start, true, sentence.end);
+		if (!fixup) {
+			continue;
+		}
+		const slot: SentenceSlot = {
+			index,
+			sentence,
+			source: 'fixup',
+			markup: TITLE_MARKUP_START_RE.test(trimmed)
+		};
+		titleCandidateAdder(pool, slot)(fixup, 'fixup');
+		break;
+	}
+}
+
+const TITLE_COLLECTORS: readonly TitleCollector[] = [
+	collectQuoteTitle,
+	collectProseTitles,
+	collectSynthesisTitle,
+	collectClauseTitles,
+	collectTaskTitles
+];
+
 function collectTitleCandidates(
 	text: string,
 	blockText: string,
@@ -6450,228 +6955,56 @@ function collectTitleCandidates(
 	const centrality = sentenceCentrality(blockText, sentences).map((value, index) =>
 		isCentralSentence(sentences[index].text) ? value : 0
 	);
-	const byTitle = new Map<string, EnhancedCandidate>();
-	// The anchor is block-level: it only asks whether this block's lead continues
-	// the previous one. Detecting it once keeps the per-candidate work to two
-	// set intersections.
-	const continuation = priorTitleTerms.size > 0 && opensWithContinuation(blockText);
-
-	// The block's lead is its first sentence that says something. A marker like
-	// "嗯，" is a sentence of its own in the split, but the task behind it is the
-	// opening lead.
-	const leadIndex = sentences.findIndex((sentence) => {
-		const trimmed = sentence.text.trim();
-		return (
-			trimmed !== '' &&
-			!isDiscourseMarkerOnly(trimmed) &&
-			!LIST_ITEM_RE.test(trimmed) &&
-			!/^(?:```|~~~)/u.test(trimmed) &&
-			!/^\|/u.test(trimmed)
-		);
-	});
-
-	const keep = (candidate: EnhancedCandidate | null) => {
-		if (!candidate) {
-			return;
-		}
-		const key = candidate.title.toLowerCase();
-		const existing = byTitle.get(key);
-		if (!existing || candidate.score > existing.score) {
-			byTitle.set(key, candidate);
-		}
+	const pool: TitlePool = {
+		text,
+		sentenceCount,
+		centrality,
+		contentIdf,
+		// The anchor is block-level: it only asks whether this block's lead
+		// continues the previous one. Detecting it once keeps the per-candidate
+		// work to two set intersections.
+		continuation: priorTitleTerms.size > 0 && opensWithContinuation(blockText),
+		priorTitleTerms,
+		byTitle: new Map<string, EnhancedCandidate>(),
+		synthesisAttempts: 0
 	};
-
-	let synthesisAttempts = 0;
+	const leadIndex = findLeadSentenceIndex(sentences);
 
 	for (let index = 0; index < sentences.length; index++) {
 		const sentence = sentences[index];
 		const trimmed = sentence.text.trim();
-		if (
-			!trimmed ||
-			LIST_ITEM_RE.test(trimmed) ||
-			/^(?:```|~~~)/u.test(trimmed) ||
-			/^\|/u.test(trimmed)
-		) {
+		if (isStructuralTitleLine(trimmed)) {
 			continue;
 		}
-
-		// A sequencing word with a comma in front of the intent ("First, let me
-		// find…") still states intent; "First I'll parse…" is a later sentence
-		// and stays one, so the lead marker has to be separated.
-		const intent =
-			TOPIC_INTENT_RE.test(trimmed) ||
-			TOPIC_INTENT_RE.test(
-				trimmed.replace(/^(?:first|firstly|second|secondly|finally)\s*[,，:]\s*/iu, '')
-			);
-		const asker = !intent && TOPIC_ASKER_RE.test(trimmed);
-		const source: TitleSource = intent
-			? 'intent'
-			: index === leadIndex
-				? 'opening'
-				: asker
-					? 'asker'
-					: index === 1 && SECOND_SENTENCE_OPENER_RE.test(trimmed)
-						? 'second'
-						: 'later';
-		const markup = TITLE_MARKUP_START_RE.test(trimmed);
-		const add = (
-			candidate: TitleCandidate & { compressed?: boolean },
-			kind: TitleSource,
-			rawStart = sentence.start,
-			rawEnd = sentence.end
-		) => {
-			const continuationBonus = continuation
-				? titleContinuationBonus(candidate.title, text.slice(rawStart, rawEnd), priorTitleTerms)
-				: 0;
-			keep(
-				enhanceCandidate(
-					candidate,
-					kind,
-					index,
-					markup,
-					sentenceCount,
-					centrality,
-					contentIdf,
-					candidateMergeFlags(text, rawStart, rawEnd, candidate.consumed),
-					continuationBonus
-				)
-			);
+		const slot: SentenceSlot = {
+			index,
+			sentence,
+			source: titleSourceFor(trimmed, index, leadIndex),
+			markup: TITLE_MARKUP_START_RE.test(trimmed)
 		};
-
-		const quote = findLongQuotedSpan(sentence.text);
-		const quoteTitle = quote ? quotedTitle(quote.text) : null;
-		if (quoteTitle) {
-			// The quote is the title, not the label colon in front of it: an
-			// empty raw span keeps the merge penalties off it.
-			add(
-				{ title: quoteTitle, consumed: sentence.end, abridged: true },
-				'quote',
-				sentence.end,
-				sentence.end
-			);
-		}
-
-		const main = deriveProseCandidate(text, sentence.start, true, sentence.end);
-		if (main) {
-			add(main, source);
-		}
-		const verbatim = deriveVerbatimCandidate(text, sentence.start, sentence.end);
-		if (verbatim) {
-			add(verbatim, source);
-		}
-
-		// A verb phrase composed from the block's lead or a stated task competes
-		// like any other candidate; its lower position prior and synthesis
-		// penalty keep it behind the block's own words unless it reads clearly
-		// better. A later beat is not synthesized: its verb+object is usually a
-		// step of the reasoning, not the block's topic.
-		if (
-			(source === 'opening' || source === 'intent' || source === 'asker') &&
-			synthesisAttempts < TITLE_SYNTHESIS_ATTEMPT_LIMIT
-		) {
-			synthesisAttempts++;
-			const synthesized = deriveSynthesizedCandidate(text, sentence.start, sentence.end);
-			if (synthesized) {
-				add(synthesized, 'synthesis');
-			}
-		}
-
-		const clauseSource: TitleSource = index === 0 ? 'opening-clause' : 'clause';
-		for (const breakEnd of findClauseBreakEnds(text, sentence.start, sentence.end).slice(
-			0,
-			TITLE_CLAUSE_CANDIDATE_LIMIT
-		)) {
-			const prefix = deriveProseCandidate(text, sentence.start, true, breakEnd);
-			if (prefix) {
-				add(prefix, clauseSource, sentence.start, breakEnd);
-			}
-			const prefixVerbatim = deriveVerbatimCandidate(text, sentence.start, breakEnd);
-			if (prefixVerbatim) {
-				add(prefixVerbatim, clauseSource, sentence.start, breakEnd);
-			}
-		}
-
-		for (const taskStart of findLabelTaskStarts(text, sentence.start, sentence.end)) {
-			const taskEnd = findClauseBreakEnds(text, taskStart, sentence.end)[0] ?? sentence.end;
-			// A label in front of a list leaves the list to the body: the first
-			// item is a candidate only through the list's own prose, not through
-			// its marker ("1. The output marked").
-			if (LIST_ITEM_RE.test(text.slice(taskStart, taskEnd).trim())) {
-				continue;
-			}
-			const task = deriveProseCandidate(text, taskStart, true, taskEnd);
-			if (task) {
-				add(task, 'task', taskStart, taskEnd);
-			}
+		const add = titleCandidateAdder(pool, slot);
+		for (const collect of TITLE_COLLECTORS) {
+			collect(pool, slot, add);
 		}
 	}
 
-	// The fix-up source: the first later sentence that reads as a topic
-	// sentence. It enters with the lowest position prior, so it only titles when
-	// nothing better survives.
-	const chinese = CJK_RUN_RE.test(text);
-	for (let index = 1; index < sentences.length; index++) {
-		const sentence = sentences[index];
-		if (chinese && !CJK_RUN_RE.test(sentence.text)) {
-			continue;
-		}
-		if (
-			!sentenceEnds(sentence.text) ||
-			LIST_ITEM_RE.test(sentence.text.trim()) ||
-			/^\s*(?:```|~~~)/u.test(sentence.text)
-		) {
-			continue;
-		}
-		// The fix-up slot is the last resort: a sentence that opens on a topic
-		// skip word is not promoted to it. The same sentence already entered the
-		// pool from the main loop as a later/opening candidate, so the fallback
-		// layer can still choose it without this pass.
-		if (TOPIC_SENTENCE_SKIP_RE.test(sentence.text) && !findLongQuotedSpan(sentence.text)) {
-			continue;
-		}
-		const fixup = deriveProseCandidate(text, sentence.start, true, sentence.end);
-		if (fixup) {
-			const trimmed = sentence.text.trim();
-			const continuationBonus = continuation
-				? titleContinuationBonus(
-						fixup.title,
-						text.slice(sentence.start, sentence.end),
-						priorTitleTerms
-					)
-				: 0;
-			keep(
-				enhanceCandidate(
-					fixup,
-					'fixup',
-					index,
-					TITLE_MARKUP_START_RE.test(trimmed),
-					sentenceCount,
-					centrality,
-					contentIdf,
-					candidateMergeFlags(text, sentence.start, sentence.end, fixup.consumed),
-					continuationBonus
-				)
-			);
-			break;
-		}
-	}
+	collectFixupTitle(pool, sentences);
 
 	// A formula-dense block's own sentences are all calculation fragments. The
 	// template layer is tried by the fallback pass below, which is the only
 	// layer that may take it; the ordinary pool never uses one, so building it
 	// here would cost every well-titled block for nothing.
 
-	return [...byTitle.values()];
+	return [...pool.byTitle.values()];
 }
 
 // ---------------------------------------------------------------------------
 // Definition titles (fallback layer)
 //
-// "Define A(k) = k² − 376k − 5120 (the negative branch…)" is the sentence that
-// names what the block is about, but it is neither an opening lead nor an
-// intent, and its direct candidate ends up carrying the formula tail. The
-// fallback composes the verb with the defined symbol only: the assignment and
-// everything behind it never enter the title.
+// "Define A(k) = k² − 376k − 5120 (the negative branch…)" names the block, but
+// it is neither an opening lead nor an intent, and its direct candidate carries
+// the formula tail. The fallback composes the verb with the defined symbol
+// only: the assignment and everything behind it never enter the title.
 // ---------------------------------------------------------------------------
 
 const DEFINITION_EN_VERB_RE = /^(Define|Let|Set|Denote)\b\s*/iu;
@@ -6741,11 +7074,10 @@ function definitionSeparatorIndex(
 }
 
 /**
- * The title a definition sentence carries, or null. Only the verb and its
- * symbol survive: "Define A(k) = …", "Let f(x) be …", "设 F(k) = …". The symbol
- * has to be a compact name (letters, digits, one parenthesised argument list),
- * so an expression such as "Let (t² + at + b)(…) = …" is not a definition
- * title.
+ * The title a definition sentence carries, or null. Only the verb and its symbol
+ * survive: "Define A(k) = …", "Let f(x) be …", "设 F(k) = …". The symbol must be
+ * a compact name (letters, digits, one parenthesised argument list), so "Let (t²
+ * + at + b)(…) = …" is not a definition title.
  */
 function definitionTitle(source: string): string | null {
 	const trimmed = source.trim();
@@ -6887,11 +7219,10 @@ function chooseBestCandidate(
 ): TitleCandidate {
 	// A template speaks only in the fallback layer, and only when the natural
 	// pool is silent: it is the block's last voice, not a competitor. The prior
-	// alone cannot promise this (a clean template phrase collects enough
-	// specificity to pass a marginal natural one), so the eligibility is
-	// explicit — the same kind of rule as the lone-intent test below. The
-	// ordinary layer never takes a template: a natural opening still wins there
-	// even when its score is only a little above the floor.
+	// alone cannot promise that (a clean template phrase collects enough
+	// specificity to pass a marginal natural one), so eligibility is explicit —
+	// the same kind of rule as the lone-intent test below. The ordinary layer
+	// never takes a template: a natural opening wins even just above the floor.
 	const naturalTitles = candidates.some(
 		(candidate) =>
 			candidate.source !== 'template' &&
@@ -7172,12 +7503,11 @@ function findTitleCandidate(
 		return { candidate, candidates, prose: true };
 	}
 
-	// No candidate cleared the ordinary floor. Re-score the pool that was just
-	// built under the fallback layer (the fallback score is computed with the
-	// ordinary one, so no sentence is collected twice), add the definitions the
-	// ordinary synthesis does not reach, and compose the block's symbolic
-	// template if the block is formula dense. A block that still has nothing
-	// usable here renders without a title.
+	// No candidate cleared the ordinary floor. Re-score the pool just built under
+	// the fallback layer (its score came with the ordinary one, so nothing is
+	// collected twice), add the definitions the ordinary synthesis does not
+	// reach, and compose the block's template if it is formula dense. A block
+	// still without anything usable here renders titleless.
 	const fallbackSentences = splitSentences(blockText);
 	const fallbackPool = new Map<string, EnhancedCandidate>();
 	for (const entry of [
@@ -7513,14 +7843,13 @@ function splitReasoningBlocks(
 }
 
 // ---------------------------------------------------------------------------
-// Body extraction (S3)
+// Body extraction
 //
 // The body is the one or two most readable sentences of the block, shown
 // verbatim: centrality and position carry the signal, a conclusion marker pays
-// more near the end, session IDF discounts repeated vocabulary, and a title
+// more near the end, session IDF discounts repeated vocabulary, and title
 // overlap, an earlier block's sentence or a mid-clause cut are penalties. A body
-// that already fits, or a block with no eligible sentence (code, numbers, a lone
-// marker), keeps the opening-prefix cut.
+// that already fits, or a block with no eligible sentence, keeps the prefix cut.
 // ---------------------------------------------------------------------------
 
 /** Points the block's most central sentence earns over an even share. */
@@ -7568,9 +7897,9 @@ const BODY_CLOSING_MARKS_RE = /["'”’）)\]】」』]+$/u;
 
 /**
  * A clause that continues something before it: a Chinese comma split often
- * leaves half a sentence ("特别是数据块的大小。"). It ends on a full stop but has
- * no subject, so it is not body material. Conclusion connectives are absent on
- * purpose: "所以…" is what the body is looking for.
+ * leaves half a sentence ("特别是数据块的大小。"), which ends on a full stop but has
+ * no subject. Conclusion connectives are absent on purpose: "所以…" is what the
+ * body is looking for.
  */
 const BODY_FRAGMENT_OPENER_RE =
 	/^(?:特别是|尤其是|尤其|如前面|如前所述|如上|如下|而不是|而是|既|以及|或者|还是|并且|而且|但是|但|不过|然而|此外|另外|同时|接着|然后|最后|首先|其次|至于|关于|对于|由于|因为|如果|虽然|尽管|即使|除非|一旦|当|为了|以便|从而|进而|同样|这样|这么|那么|这种|那种|此|该|其)/u;
@@ -7613,6 +7942,9 @@ type BodyContext = {
 	displayed: Array<{ bag: ReadonlyMap<string, number>; norm: number }>;
 };
 
+/** A reading unit of a block: joined clauses that read as one sentence. */
+type BodyUnit = { start: number; end: number; text: string; centrality: number };
+
 /** A content-word bag; numbers weigh more because they name a fact. */
 function bodyBag(terms: readonly string[]): { bag: Map<string, number>; norm: number } {
 	const bag = new Map<string, number>();
@@ -7635,6 +7967,11 @@ function bodyBag(terms: readonly string[]): { bag: Map<string, number>; norm: nu
  */
 function bodySimilarityTerms(text: string): string[] {
 	return [...contentWordTerms(text), ...(text.match(/\d+(?:[.,]\d+)*/gu) ?? [])];
+}
+
+/** The cross-block similarity digest of a text: a weighted bag and its norm. */
+function bodyDigest(text: string): { bag: Map<string, number>; norm: number } {
+	return bodyBag(bodySimilarityTerms(text));
 }
 
 /** Whether `text` ends as a complete sentence (a closing mark may follow). */
@@ -7663,18 +8000,18 @@ function isStructuralBodyLine(text: string): boolean {
 }
 
 /**
- * Reading units for the body. `splitSentences` also cuts at a Chinese comma, so
- * consecutive clauses on one line are joined until the unit ends on a sentence
- * mark. A newline always ends a unit, so list lines and headings never absorb
- * prose. Centrality is the strongest clause, read from the S1 vector.
+ * Reading units for the body: `splitSentences` also cuts at a Chinese comma, so
+ * clauses on one line are joined until a sentence mark. A newline always ends a
+ * unit, so list lines and headings never absorb prose. Centrality is the
+ * strongest clause, read from the S1 vector.
  */
 function collectBodyUnits(
 	blockText: string,
 	sentences: SentenceSpan[],
 	centrality: readonly number[],
 	codeRanges: ReadonlyArray<{ start: number; end: number }>
-): Array<{ start: number; end: number; text: string; centrality: number }> {
-	const units: Array<{ start: number; end: number; text: string; centrality: number }> = [];
+): BodyUnit[] {
+	const units: BodyUnit[] = [];
 	const inCode = (sentence: SentenceSpan) =>
 		codeRanges.some((range) => sentence.start < range.end && sentence.end > range.start);
 
@@ -7708,6 +8045,17 @@ function collectBodyUnits(
 	return units;
 }
 
+/** The reading units of a block, with the code ranges already dropped. */
+function bodyUnits(blockText: string): BodyUnit[] {
+	const sentences = splitSentences(blockText);
+	return collectBodyUnits(
+		blockText,
+		sentences,
+		sentenceCentrality(blockText, sentences),
+		fencedCodeRanges(blockText)
+	);
+}
+
 /** The strongest cosine or containment a candidate has against a shown body. */
 function repeatedSimilarity(
 	bag: ReadonlyMap<string, number>,
@@ -7734,6 +8082,30 @@ function repeatedSimilarity(
 		best = Math.max(best, cosine, containment);
 	}
 	return best;
+}
+
+/**
+ * Whether a digest restates a body an earlier block showed. The same threshold
+ * governs the source gate and the per-candidate skip, so both agree.
+ */
+function restatesShownBody(
+	digest: { bag: ReadonlyMap<string, number>; norm: number },
+	displayed: BodyContext['displayed']
+): boolean {
+	return repeatedSimilarity(digest.bag, digest.norm, displayed) >= BODY_REPEAT_SKIP_SIMILARITY;
+}
+
+/** Puts a body that is on screen into the repeat set later blocks read. */
+function recordDisplayedBody(
+	displayed: BodyContext['displayed'],
+	digest: { bag: ReadonlyMap<string, number>; norm: number }
+): void {
+	displayed.push({ bag: digest.bag, norm: digest.norm });
+}
+
+/** Whether a text stays inside the visible body budget. */
+function fitsBodyBudget(text: string, tokenLimit: number): boolean {
+	return countReasoningTokens(text) <= tokenLimit;
 }
 
 /** Character ranges covered by fenced code, fences included. */
@@ -7822,6 +8194,93 @@ function isBodySentence(text: string): boolean {
 	return true;
 }
 
+/**
+ * Session novelty: a sentence built from words every block repeats is less
+ * informative than one naming this block's vocabulary. With a neutral corpus
+ * every weight is 1, so the term is a constant and the order is undisturbed.
+ */
+function bodyNovelty(terms: readonly string[], contentIdf: ContentIdf): number {
+	let weightSum = 0;
+	for (const term of terms) {
+		weightSum += contentIdf.weights.get(term) ?? 1;
+	}
+	const meanWeight = terms.length ? weightSum / terms.length : 1;
+	return (
+		BODY_SCORE_NOVELTY *
+		Math.max(0, (meanWeight - TITLE_IDF_WEIGHT_FLOOR) / (1 - TITLE_IDF_WEIGHT_FLOOR))
+	);
+}
+
+/**
+ * A title source that the title reproduces is removed before this pass; a
+ * sentence that merely shares words with the title is still wanting.
+ */
+function titleOverlapPenalty(terms: readonly string[], titleTerms: readonly string[]): number {
+	if (!titleTerms.length) {
+		return 0;
+	}
+	const titleSet = new Set(titleTerms);
+	let shared = 0;
+	for (const term of terms) {
+		if (titleSet.has(term)) {
+			shared++;
+		}
+	}
+	return BODY_PENALTY_TITLE_OVERLAP * (shared / titleTerms.length);
+}
+
+/** Conclusion points, read against the sentence's position in the block. */
+function applyConclusionPoints(score: number, conclusion: number, position: number): number {
+	if (conclusion === 0) {
+		return score;
+	}
+	let next = score + BODY_SCORE_CONCLUSION * conclusion;
+	next += BODY_SCORE_CONCLUSION_POSITION * conclusion * position;
+	next -= BODY_SCORE_EARLY_CONCLUSION * conclusion * (1 - position) ** 2;
+	return next;
+}
+
+/**
+ * An over-budget sentence pays for its cut. A cut at a clause boundary still
+ * reads as a sentence fragment; a cut inside a word run reads as a telegraph.
+ * Only the head matters: the tail is what gets dropped.
+ */
+function applyOverLimitPenalty(score: number, text: string, tokenLimit: number): number {
+	const tokens = countReasoningTokens(text);
+	if (tokens <= tokenLimit) {
+		return score;
+	}
+	let next = score - BODY_PENALTY_OVER_LIMIT;
+	if (tokens > tokenLimit * 1.5) {
+		next -= BODY_PENALTY_FAR_OVER_LIMIT;
+	}
+	const head = text.slice(0, Math.ceil((text.length * tokenLimit) / tokens));
+	next += /[，、；：,;:]/u.test(head) ? BODY_PENALTY_NO_CLAUSE / 2 : -BODY_PENALTY_NO_CLAUSE;
+	return next;
+}
+
+/**
+ * Rhythm and framing, used only by the body score. The S1 gate names the openers
+ * that read as a beat; a conclusion marker is what a "所以…" sentence is, so it
+ * cancels the frame penalty. A label ending on a colon introduces code or a
+ * list, not a result.
+ */
+function applyFramingPenalty(score: number, text: string, conclusion: number): number {
+	let next = score;
+	if (conclusion === 0) {
+		if (TOPIC_PROCESS_CORE_RE.test(text) || TOPIC_SENTENCE_SKIP_RE.test(text)) {
+			next -= BODY_PENALTY_FRAME;
+		}
+		if (TITLE_CONNECTIVE_OPENER_RE.test(text) || TITLE_HEDGE_OPENER_RE.test(text)) {
+			next -= BODY_PENALTY_HEDGE;
+		}
+	}
+	if (/[：:]$/u.test(text)) {
+		next -= BODY_PENALTY_LABEL;
+	}
+	return next;
+}
+
 /** One candidate sentence with its body score. */
 function scoreBodySentence(args: {
 	index: number;
@@ -7840,126 +8299,54 @@ function scoreBodySentence(args: {
 	const position = count <= 1 ? 1 : index / (count - 1);
 
 	let score = BODY_SCORE_CENTRALITY * centrality;
-
 	// A leftover clause can carry rare words, but it does not carry the block's
 	// content: substance is content words as well as novelty.
 	score += BODY_SCORE_CONTENT_WORD * Math.min(terms.length, BODY_SCORE_CONTENT_WORD_CAP);
-
-	// Session novelty: a sentence built from words every block repeats is less
-	// informative than one that names this block's own vocabulary. With a
-	// neutral corpus every weight is 1, so the term is a constant and does not
-	// disturb the relative order.
-	let weightSum = 0;
-	for (const term of terms) {
-		weightSum += contentIdf.weights.get(term) ?? 1;
-	}
-	const meanWeight = terms.length ? weightSum / terms.length : 1;
-	score +=
-		BODY_SCORE_NOVELTY *
-		Math.max(0, (meanWeight - TITLE_IDF_WEIGHT_FLOOR) / (1 - TITLE_IDF_WEIGHT_FLOOR));
-
-	if (conclusion > 0) {
-		score += BODY_SCORE_CONCLUSION * conclusion;
-		score += BODY_SCORE_CONCLUSION_POSITION * conclusion * position;
-		score -= BODY_SCORE_EARLY_CONCLUSION * conclusion * (1 - position) ** 2;
-	}
-
-	// A title source that the title reproduces is removed before this pass; a
-	// sentence that merely shares words with the title is still wanting.
-	if (titleTerms.length) {
-		const titleSet = new Set(titleTerms);
-		let shared = 0;
-		for (const term of terms) {
-			if (titleSet.has(term)) {
-				shared++;
-			}
-		}
-		score -= BODY_PENALTY_TITLE_OVERLAP * (shared / titleTerms.length);
-	}
-
+	score += bodyNovelty(terms, contentIdf);
+	// The adjustments thread the running score: the accumulation order is part
+	// of the tuned scores and a delta could round differently.
+	score = applyConclusionPoints(score, conclusion, position);
+	score -= titleOverlapPenalty(terms, titleTerms);
 	// A sentence an earlier block already showed is usually the model restating
 	// itself; the earlier block is already on screen, so this one yields.
 	score -= BODY_PENALTY_REPEAT * repeated;
-
-	const tokens = countReasoningTokens(text);
-	if (tokens > tokenLimit) {
-		score -= BODY_PENALTY_OVER_LIMIT;
-		if (tokens > tokenLimit * 1.5) {
-			score -= BODY_PENALTY_FAR_OVER_LIMIT;
-		}
-		// A cut at a clause boundary still reads as a sentence fragment; a cut
-		// inside a word run reads as a telegraph. Only the head matters: the
-		// tail is what gets dropped.
-		const head = text.slice(0, Math.ceil((text.length * tokenLimit) / tokens));
-		if (/[，、；：,;:]/u.test(head)) {
-			score += BODY_PENALTY_NO_CLAUSE / 2;
-		} else {
-			score -= BODY_PENALTY_NO_CLAUSE;
-		}
-	}
-
-	// Rhythm and framing, used only here. The S1 gate already names the openers
-	// that read as a beat rather than a topic; a conclusion marker is what a
-	// "所以…" sentence is, so it cancels the frame penalty instead of paying it.
-	if (conclusion === 0) {
-		if (TOPIC_PROCESS_CORE_RE.test(text) || TOPIC_SENTENCE_SKIP_RE.test(text)) {
-			score -= BODY_PENALTY_FRAME;
-		}
-		if (TITLE_CONNECTIVE_OPENER_RE.test(text) || TITLE_HEDGE_OPENER_RE.test(text)) {
-			score -= BODY_PENALTY_HEDGE;
-		}
-	}
-	if (/[：:]$/u.test(text)) {
-		score -= BODY_PENALTY_LABEL;
-	}
-
+	score = applyOverLimitPenalty(score, text, tokenLimit);
+	score = applyFramingPenalty(score, text, conclusion);
 	return { index, text, bag, norm, score, conclusion };
 }
 
 /**
- * Picks the body sentences of a block. `blockText` is the block as written, so
- * its sentence graph is the one S1 cached; `content` is the text the prefix cut
- * would show, used to decide whether extraction is needed and as the fallback.
- * Returns null when the prefix behaviour should stand.
+ * Whether any sentence of `content` restates a body an earlier block showed.
+ * Checking sentence by sentence keeps the fits gate cheap: no sentence graph is
+ * built for the common case.
  */
-function extractBodySentences(
-	blockText: string,
-	content: string,
-	title: string,
-	consumed: number,
-	keepOriginal: boolean,
-	contentIdf: ContentIdf,
-	tokenLimit: number,
-	context: BodyContext
-): { text: string; truncated: boolean } | null {
-	// A body that already fits is complete: there is nothing to improve by
-	// reordering it, and keeping every sentence is more faithful. The one
-	// exception is a body an earlier block already showed: then the block still
-	// yields the repetition and lets a fresh sentence through.
-	const contentFits = countReasoningTokens(content) <= tokenLimit;
-	if (contentFits) {
-		if (!context.displayed.length) {
-			return null;
-		}
-		// A short block is kept whole unless one of its sentences is the one an
-		// earlier block already showed. Checking sentence by sentence keeps this
-		// gate cheap: no sentence graph is built for the common case.
-		const repeated = splitSentences(content).some((sentence) => {
-			const { bag, norm } = bodyBag(bodySimilarityTerms(sentence.text));
-			return repeatedSimilarity(bag, norm, context.displayed) >= BODY_REPEAT_SKIP_SIMILARITY;
-		});
-		if (!repeated) {
-			return null;
-		}
+function showsRepeatedSentence(content: string, displayed: BodyContext['displayed']): boolean {
+	if (!displayed.length) {
+		return false;
 	}
+	return splitSentences(content).some((sentence) =>
+		restatesShownBody(bodyDigest(sentence.text), displayed)
+	);
+}
 
-	const sentences = splitSentences(blockText);
-	const centrality = sentenceCentrality(blockText, sentences);
+/**
+ * Scores every reading unit that can stand as body material. The title's own
+ * source is dropped when the title reproduces it, and a heading, table row, list
+ * item or fragment never qualifies; a unit an earlier body already showed keeps
+ * its similarity as a penalty instead of being dropped here.
+ */
+function collectBodyCandidates(args: {
+	units: readonly BodyUnit[];
+	title: string;
+	consumed: number;
+	keepOriginal: boolean;
+	contentIdf: ContentIdf;
+	displayed: BodyContext['displayed'];
+	tokenLimit: number;
+}): BodySentence[] {
+	const { units, title, consumed, keepOriginal, contentIdf, displayed, tokenLimit } = args;
 	const titleTerms = titleContentWordTerms(title);
-	const codeRanges = fencedCodeRanges(blockText);
 	const candidates: BodySentence[] = [];
-
-	const units = collectBodyUnits(blockText, sentences, centrality, codeRanges);
 
 	for (let index = 0; index < units.length; index++) {
 		const unit = units[index];
@@ -7978,7 +8365,7 @@ function extractBodySentences(
 		if (!isBodySentence(text)) {
 			continue;
 		}
-		const { bag, norm } = bodyBag(bodySimilarityTerms(text));
+		const digest = bodyDigest(text);
 		candidates.push(
 			scoreBodySentence({
 				index,
@@ -7987,81 +8374,123 @@ function extractBodySentences(
 				centrality: unit.centrality,
 				titleTerms,
 				contentIdf,
-				repeated: repeatedSimilarity(bag, norm, context.displayed),
+				repeated: repeatedSimilarity(digest.bag, digest.norm, displayed),
 				tokenLimit
 			})
 		);
 	}
 
-	if (!candidates.length) {
-		return null;
-	}
+	return candidates;
+}
 
-	// A near-duplicate of an earlier body is skipped when the block has any
-	// alternative; if every sentence was already shown, the best one still
-	// stands rather than rendering nothing.
-	const fresh = candidates.filter(
-		(candidate) =>
-			repeatedSimilarity(candidate.bag, candidate.norm, context.displayed) <
-			BODY_REPEAT_SKIP_SIMILARITY
+/**
+ * Picks the sentences the body shows. A near-duplicate of an earlier body steps
+ * aside while a fresh alternative exists; if every sentence was already shown,
+ * the best one still stands. The second sentence crosses the dry/conclusion split
+ * so a result is shown next to its claim, and a lone over-budget sentence is cut
+ * at a word boundary.
+ */
+function pickBodySentences(
+	candidates: readonly BodySentence[],
+	displayed: BodyContext['displayed'],
+	tokenLimit: number
+): { selected: BodySentence[]; text: string; truncated: boolean } {
+	const fresh = candidates.filter((candidate) => !restatesShownBody(candidate, displayed));
+	const pool = [...(fresh.length ? fresh : candidates)].sort(
+		(a, b) => b.score - a.score || a.index - b.index
 	);
-	const pool = fresh.length ? fresh : candidates;
-	pool.sort((a, b) => b.score - a.score || a.index - b.index);
 	const top = pool[0];
 
-	// The second sentence crosses the dry/conclusion split: a block that states
-	// a result should show it next to the claim it follows from.
-	let counterpart: BodySentence | undefined;
-	if (top.conclusion > 0) {
-		counterpart = pool.find((candidate) => candidate.conclusion === 0);
-	} else {
-		counterpart = pool
-			.filter((candidate) => candidate.conclusion > 0)
-			.sort((a, b) => b.conclusion - a.conclusion || b.score - a.score)[0];
-	}
+	const counterpart =
+		top.conclusion > 0
+			? pool.find((candidate) => candidate.conclusion === 0)
+			: pool
+					.filter((candidate) => candidate.conclusion > 0)
+					.sort((a, b) => b.conclusion - a.conclusion || b.score - a.score)[0];
 
 	const selected: BodySentence[] = [];
-	let truncated = false;
 	if (counterpart && counterpart !== top) {
 		// A conclusion reads at the end of the body; otherwise the highest
 		// scoring sentence leads and the conclusion follows.
 		const ordered = top.conclusion > 0 ? [counterpart, top] : [top, counterpart];
-		const joined = ordered.map((candidate) => candidate.text).join(' ');
-		if (countReasoningTokens(joined) <= tokenLimit) {
+		if (fitsBodyBudget(ordered.map((candidate) => candidate.text).join(' '), tokenLimit)) {
 			selected.push(...ordered);
 		}
 	}
 
 	if (!selected.length) {
 		// Only one sentence fits. A complete sentence beats a truncated one, and
-		// a conclusion beats a claim; a lone over-budget sentence is cut at a
-		// word boundary.
+		// a conclusion beats a claim.
 		const one = [top, counterpart].filter((candidate): candidate is BodySentence => !!candidate);
-		const fitting = one.filter((candidate) => countReasoningTokens(candidate.text) <= tokenLimit);
-		const chosen =
+		const fitting = one.filter((candidate) => fitsBodyBudget(candidate.text, tokenLimit));
+		selected.push(
 			fitting.find((candidate) => candidate.conclusion > 0) ??
-			fitting[0] ??
-			one.find((candidate) => candidate.conclusion > 0) ??
-			top;
-		selected.push(chosen);
+				fitting[0] ??
+				one.find((candidate) => candidate.conclusion > 0) ??
+				top
+		);
 	}
 
-	let body = selected.map((candidate) => candidate.text).join(' ');
-	if (countReasoningTokens(body) > tokenLimit) {
-		const cut = truncateReasoningTokens(body, tokenLimit);
-		body = cut.text;
+	let text = selected.map((candidate) => candidate.text).join(' ');
+	let truncated = false;
+	if (!fitsBodyBudget(text, tokenLimit)) {
+		const cut = truncateReasoningTokens(text, tokenLimit);
+		text = cut.text;
 		truncated = cut.truncated;
 	}
+	return { selected, text, truncated };
+}
 
-	if (!body) {
+/**
+ * The body sentences of a block, or null when the prefix behaviour should stand.
+ * `blockText` is the block as written, so its sentence graph is the one S1
+ * cached; `content` is the text the prefix cut would show, used to decide whether
+ * extraction is needed and as the fallback.
+ */
+function extractBodySentences(
+	blockText: string,
+	content: string,
+	title: string,
+	consumed: number,
+	keepOriginal: boolean,
+	contentIdf: ContentIdf,
+	tokenLimit: number,
+	context: BodyContext
+): { text: string; truncated: boolean } | null {
+	// A body that already fits is complete: there is nothing to improve by
+	// reordering it, and keeping every sentence is more faithful. The one
+	// exception is a body an earlier block already showed: then the block still
+	// yields the repetition and lets a fresh sentence through.
+	if (fitsBodyBudget(content, tokenLimit) && !showsRepeatedSentence(content, context.displayed)) {
 		return null;
 	}
 
-	for (const candidate of selected) {
-		context.displayed.push({ bag: candidate.bag, norm: candidate.norm });
+	const units = bodyUnits(blockText);
+	const candidates = collectBodyCandidates({
+		units,
+		title,
+		consumed,
+		keepOriginal,
+		contentIdf,
+		displayed: context.displayed,
+		tokenLimit
+	});
+	if (!candidates.length) {
+		return null;
 	}
 
-	return { text: body, truncated };
+	const { selected, text, truncated } = pickBodySentences(
+		candidates,
+		context.displayed,
+		tokenLimit
+	);
+	if (!text) {
+		return null;
+	}
+	for (const candidate of selected) {
+		recordDisplayedBody(context.displayed, candidate);
+	}
+	return { text, truncated };
 }
 
 type SummaryDraft = {
@@ -8070,10 +8499,9 @@ type SummaryDraft = {
 	/** The session corpus this block's title and body were scored against. */
 	contentIdf: ContentIdf;
 	/**
-	 * The complete title pool the candidate was chosen from. Empty for a
-	 * structural title. Kept until the call renders the drafts so a non-streaming
-	 * diversity repair can take the block's next-best candidate; the pool is one
-	 * block's worth and a call has tens of blocks.
+	 * The complete title pool the candidate was chosen from; empty for a
+	 * structural title. Kept until the call renders the drafts so the non-streaming
+	 * diversity repair can take the block's next-best candidate.
 	 */
 	candidates: EnhancedCandidate[];
 	/**
@@ -8103,10 +8531,10 @@ function shortSummaryBlock(blockText: string, candidate: TitleCandidate): string
 }
 
 /**
- * What a merged block contributes to the pool. The body of a summary is cut at
- * `REASONING_SUMMARY_TOKEN_LIMIT`, so a block can add at most that much visible
- * region; counting the raw block would reject every full-size block and leave
- * the merge layer dead in exactly the formula-heavy reasoning it exists for.
+ * What a merged block contributes to the pool. A visible body is cut at
+ * `REASONING_SUMMARY_TOKEN_LIMIT`, so a block can add at most that much; counting
+ * the raw block would reject every full-size block and kill the merge layer in
+ * exactly the formula-heavy reasoning it exists for.
  */
 function mergeContributionTokens(blockText: string): number {
 	return Math.min(countReasoningTokens(blockText), REASONING_SUMMARY_TOKEN_LIMIT);
@@ -8141,21 +8569,19 @@ type ExpansionOutcome =
 /**
  * Forward expansion of a titleless prose block.
  *
- * The base block closed at the ordinary cut point and its title derivation
- * (ordinary pool, fallback layer, definitions) failed. Instead of rendering it
- * bare or folding it into the previous summary, the block keeps reading: it
- * absorbs following blocks until it has added `REASONING_SUMMARY_EXPAND_TOKEN_TARGET`
- * tokens, cuts at that blank line, and re-derives the title over the whole
- * region. A title ends the expansion and the region becomes one summary; a
- * failure spends a stage and absorbs another 200 tokens, up to
- * `REASONING_SUMMARY_EXPAND_STAGES` stages (the total cap). When the text runs
- * out, `final` closes the window with whatever was absorbed. On failure the
- * caller keeps the base block exactly as it was (the absorbed text is never
- * consumed by a failed attempt).
+ * The base block closed at the ordinary cut and its title derivation failed.
+ * Instead of rendering it bare or folding it into the previous summary, the
+ * block keeps reading: it absorbs following blocks until it has added
+ * `REASONING_SUMMARY_EXPAND_TOKEN_TARGET` tokens, cuts at that blank line, and
+ * re-derives the title over the whole region. Success ends the expansion and the
+ * region becomes one summary; failure spends a stage and absorbs 200 more, up to
+ * `REASONING_SUMMARY_EXPAND_STAGES`. When the text runs out, `final` closes the
+ * window with whatever was absorbed; a failed attempt consumes nothing, so the
+ * caller keeps the base block exactly as it was.
  *
- * The function is stateless: it rescans the blocks from `index` on every call,
- * so a streaming caller can simply call it again when another block closes.
- * That keeps the batch and incremental paths on one decision procedure.
+ * The function is stateless — it rescans from `index` on every call — so a
+ * streaming caller simply calls it again when another block closes, and batch
+ * and incremental paths share one decision procedure.
  */
 function expandTitlelessBlock(args: {
 	blocks: readonly string[];
@@ -8167,9 +8593,8 @@ function expandTitlelessBlock(args: {
 	final: boolean;
 	/**
 	 * Absorbed-token boundaries already re-derived and rejected for this window.
-	 * A streaming caller rescans the window whenever a block closes; the same
-	 * region and prefix IDF can only fail again, so the attempt is remembered
-	 * instead of re-scored. Keeps a stalled window at one derivation per stage.
+	 * A streaming rescan sees the same region and prefix IDF, so remembering the
+	 * attempt keeps a stalled window at one derivation per stage.
 	 */
 	attempted?: Set<number>;
 }): ExpansionOutcome {
@@ -8228,130 +8653,49 @@ function expandTitlelessBlock(args: {
 	}
 }
 
+/** The IDF a block or window is scored against: whole corpus, or its prefix. */
+function summaryIdfAt(state: PreviewState, end: number): ContentIdf {
+	return state.sessionIdf ?? buildContentIdf(state.corpus.slice(0, end));
+}
+
 /**
- * Turns blocks into drafts before any summary is rendered. A titleless prose
- * block first reads forward (see `expandTitlelessBlock`); what still has no
- * title after that is appended to the pending titled draft's raw text. The draft
- * renders only once the next block stops the merge or the reasoning ends, so a
- * returned summary is never changed afterwards.
+ * Turns blocks into drafts before any summary is rendered (compatibility shim).
+ *
+ * The incremental engine is the single decision procedure: this feeds the block
+ * texts into a fresh state exactly as the streaming scan does, runs the same
+ * per-block steps to the end, and returns the drafts that were not rendered. A
+ * finished call scores every block against the whole corpus; a streaming call
+ * keeps the prefix scope, holds the last titled draft and never repairs
+ * diversity. A spent expansion window is not replayed here — a batch call has no
+ * state to carry, so the block settles under the ordinary titleless path.
  */
 function collectSummaryDrafts(blocks: string[][], streaming: boolean): SummaryDraft[] {
-	const drafts: SummaryDraft[] = [];
-	let pending: SummaryDraft | null = null;
+	const state = createPreviewState();
+	state.corpus = blocks.map((lines) => prepareBlockText(lines)).filter((text) => text !== '');
+	// A finished reasoning knows every document a title may see; a streaming
+	// call must not let a later block re-score a title already returned, so each
+	// block sees only the prefix that ends at itself.
+	state.sessionIdf = streaming ? null : buildContentIdf(state.corpus);
+	state.summariesEnabled = true;
 
-	// The session's documents are the blocks a title may see. A finished
-	// reasoning knows them all; a streaming call must not let a later block
-	// re-score a title already returned, so each block sees only the prefix that
-	// ends at itself (the trailing, unfinished group is not a block yet).
-	const blockTexts = blocks.map((lines) => prepareBlockText(lines)).filter((text) => text !== '');
-	const sessionIdf = streaming ? null : buildContentIdf(blockTexts);
+	advanceSummaryState(state, !streaming, false);
 
-	// Titles chosen earlier in this call, in block order. A block is scored
-	// against the prefix — the titles that were already final when it closed —
-	// so the streaming invariant holds: a later block cannot re-title an earlier
-	// one, and the held draft's title is exactly what it was when computed.
-	const chosenTitles: TitleBag[] = [];
-	let priorTitleTerms: ReadonlySet<string> = EMPTY_TITLE_TERMS;
-
-	for (let index = 0; index < blockTexts.length; index++) {
-		const blockText = blockTexts[index];
-		const contentIdf = sessionIdf ?? buildContentIdf(blockTexts.slice(0, index + 1));
-		const context = { chosenTitles, priorTitleTerms };
-		const selection = deriveReasoningSummaryTitle(blockText, contentIdf, context);
-		const candidate = selection.candidate;
-		const tail = pending?.candidate.title ? shortSummaryBlock(blockText, candidate) : null;
-		if (pending && tail && canMergeIntoDraft(pending, tail)) {
-			mergeIntoDraft(pending, tail);
-			continue;
-		}
-
-		// A titleless prose block reads forward before it gives up on a title:
-		// it absorbs up to three stages of 200 tokens and re-derives over the
-		// whole region. While the window is still open at the end of a streaming
-		// text, nothing is emitted for it (and the absorbed blocks are not drafts
-		// of their own); a finished text concludes the window.
-		let draftText = blockText;
-		let draftSelection = selection;
-		let draftIdf = contentIdf;
-		let consumed = 1;
-		if (!candidate.title && selection.prose) {
-			const expansion = expandTitlelessBlock({
-				blocks: blockTexts,
-				index,
-				contentIdfAt: (end) => sessionIdf ?? buildContentIdf(blockTexts.slice(0, end)),
-				context,
-				final: !streaming
-			});
-			if (expansion.status === 'pending') {
-				break;
-			}
-			if (expansion.status === 'ready') {
-				consumed = expansion.consumed;
-				draftText = expansion.blockText;
-				draftSelection = expansion.selection;
-				draftIdf = expansion.contentIdf;
-			}
-		}
-
-		const chosen = draftSelection.candidate;
-		// A block that is still titleless after the fallback joins the previous
-		// titled draft: the title line already on screen names the beat, and the
-		// block's body reads under it instead of as a bare paragraph.
-		if (pending && !chosen.title && draftSelection.prose && canMergeIntoDraft(pending, draftText)) {
-			mergeIntoDraft(pending, draftText);
-			index += consumed - 1;
-			continue;
-		}
-
-		if (pending) {
-			drafts.push(pending);
-		}
-		// A merge target keeps the title of the draft it joined; only a block
-		// that starts a new draft becomes the anchor for the next one.
-		if (chosen.title) {
-			chosenTitles.push(titleBag(chosen.title));
-			priorTitleTerms = new Set(titleContentWordTerms(chosen.title));
-		} else {
-			priorTitleTerms = EMPTY_TITLE_TERMS;
-		}
-		pending = {
-			blockText: draftText,
-			candidate: chosen,
-			contentIdf: draftIdf,
-			candidates: draftSelection.candidates,
-			fallback: draftSelection.fallback
-		};
-		index += consumed - 1;
-	}
-
-	// While streaming, a titled draft may still receive a tail from the next
-	// block: hold it until that block decides the merge or the reasoning ends.
-	// A titleless draft cannot be a merge target, so it may be rendered now.
-	if (pending && (!streaming || !pending.candidate.title)) {
-		drafts.push(pending);
-	}
-
-	// Non-streaming only: all blocks are visible, so a collision that the causal
-	// pass could only resolve by changing the later block can instead yield on
-	// the earlier, less specific title. Streaming never repairs: a title already
-	// returned must not change.
 	if (!streaming) {
-		repairTitleDiversity(drafts);
+		releasePendingDraft(state);
+		repairTitleDiversity(state.renderQueue);
 	}
-
-	return drafts;
+	return state.renderQueue;
 }
 
 /**
  * Resolves the title collisions left by the causal pass. For each pair above the
  * threshold, the less specific title (the later block on a tie) is re-chosen
- * against every other title, so a converged, specific title keeps its place.
- * Structural titles cannot be re-chosen.
+ * against every other title, so a converged, specific title keeps its place;
+ * structural titles cannot be re-chosen.
  *
- * `fixed` holds titles that were already shown and must not change: they take
- * part in the comparison and in the re-choice, but they are never the loser. A
- * finished reasoning uses it to diversify the blocks that were still open
- * against the ones the reader already sees.
+ * `fixed` holds titles that were already shown: they take part in the comparison
+ * and the re-choice but are never the loser, so a finished reasoning diversifies
+ * its still-open blocks against what the reader already sees.
  */
 function repairTitleDiversity(drafts: SummaryDraft[], fixed: readonly TitleBag[] = []): void {
 	type Entry = { draft: SummaryDraft | null; bag: TitleBag; fixed: boolean };
@@ -8441,14 +8785,14 @@ function repairTitleDiversity(drafts: SummaryDraft[], fixed: readonly TitleBag[]
 }
 
 /**
- * Renders a merged draft once. Appended short blocks are part of the raw source,
- * so normal body extraction and the token cut decide whether they fit.
+ * The body a draft shows: extracted when the block needs it, otherwise the
+ * prefix cut. A fallback body is on screen too, so it joins the repeat set.
  */
-function renderSummaryDraft(
+function draftBody(
 	draft: SummaryDraft,
 	tokenLimit: number,
 	bodyContext: BodyContext
-): ReasoningSummary | null {
+): { text: string; truncated: boolean } {
 	const { blockText, candidate, contentIdf } = draft;
 	const { title, consumed, abridged } = candidate;
 	const keepOriginal = abridged && !titleCoversRegion(title, blockText.slice(0, consumed));
@@ -8463,18 +8807,31 @@ function renderSummaryDraft(
 		tokenLimit,
 		bodyContext
 	);
-	const fallback = extracted ? null : truncateReasoningTokens(content, tokenLimit);
-	const { text: body, truncated } = extracted ?? fallback!;
-	// A fallback body is on screen too: a later block must see it as a repeat.
-	if (!extracted && body) {
-		const { bag, norm } = bodyBag(bodySimilarityTerms(body));
-		bodyContext.displayed.push({ bag, norm });
+	if (extracted) {
+		return extracted;
 	}
+	const cut = truncateReasoningTokens(content, tokenLimit);
+	// A fallback body is on screen too: a later block must see it as a repeat.
+	if (cut.text) {
+		recordDisplayedBody(bodyContext.displayed, bodyDigest(cut.text));
+	}
+	return cut;
+}
 
+/**
+ * Renders a merged draft once. Appended short blocks are part of the raw source,
+ * so normal body extraction and the token cut decide whether they fit.
+ */
+function renderSummaryDraft(
+	draft: SummaryDraft,
+	tokenLimit: number,
+	bodyContext: BodyContext
+): ReasoningSummary | null {
+	const { title } = draft.candidate;
+	const { text: body, truncated } = draftBody(draft, tokenLimit, bodyContext);
 	if (!title && !body) {
 		return null;
 	}
-
 	return { title, body, truncated };
 }
 
@@ -8499,11 +8856,10 @@ export function buildReasoningSummary(
 }
 
 /**
- * Title for the live preview: the last finalized summary's title. A closed
- * block is held while the next block decides whether it merges into it, so a
- * title that is still waiting on a merge — or belongs to the trailing,
- * unfinished block — is never shown. The scan is incremental and cached per
- * `cacheId`; `done` releases the held title.
+ * Title for the live preview: the last finalized summary's title. A closed block
+ * is held while the next one decides whether it merges, so a title still waiting
+ * on a merge — or belonging to the trailing unfinished block — is never shown.
+ * The scan is incremental and cached per `cacheId`; `done` releases the title.
  */
 export function deriveReasoningSummaryPreview(
 	cacheId: string,
@@ -8527,18 +8883,15 @@ export function deriveReasoningSummaryPreview(
 /**
  * Summaries for a streaming reasoning, derived only when a block closes.
  *
- * The same per-`cacheId` scan that feeds the preview also feeds this builder:
- * every tick appends only the lines that arrived, and the title and body of a
- * block are computed once, when that block closes. A tick that closes no block
- * returns the array handed out last time (the very same reference), so nothing
- * downstream re-renders while a block is still being written.
+ * The same per-`cacheId` scan feeds the preview: every tick appends the lines
+ * that arrived, and a block's title and body are computed once, when it closes.
+ * A tick that closes no block returns the array handed out last time (the same
+ * reference), so nothing downstream re-renders while a block is being written.
  *
  * Streaming holds the last titled draft until the next block decides whether it
- * merges a short titleless tail; `done` releases it, folds the trailing line
- * into its block and runs the non-streaming diversity repair over the blocks
- * that were not returned yet. An already returned summary is never rewritten.
- * A finished reasoning that never returned a summary is exactly the
- * non-streaming build.
+ * merges a short titleless tail; `done` releases it, folds the trailing line in,
+ * and repairs diversity over the blocks not returned yet. An already returned
+ * summary is never rewritten.
  */
 export function deriveReasoningSummaries(
 	cacheId: string,
@@ -8609,10 +8962,9 @@ type PreviewState = {
 	lastFinalizedTitle: string;
 	fence: FenceState;
 	/**
-	 * Prepared texts of the blocks that have closed, in order. The session's
-	 * documents for the title/body IDF: a block is scored against the prefix that
-	 * ends at itself, which never changes later. Kept even before a summary
-	 * consumer appears, so enabling it later replays the same blocks.
+	 * Prepared texts of the blocks that have closed, in order. A block is scored
+	 * against the prefix that ends at itself, which never changes later. Kept
+	 * before a summary consumer appears, so enabling it later replays the blocks.
 	 */
 	corpus: string[];
 	/** True once `deriveReasoningSummaries` owns this state. */
@@ -8633,6 +8985,12 @@ type PreviewState = {
 	chosenTitles: TitleBag[];
 	/** Title terms of the previous draft, for the continuation anchor (S4). */
 	priorTitleTerms: ReadonlySet<string>;
+	/**
+	 * Whole-corpus IDF for a finished build, or null to score each block against
+	 * the prefix that ends at itself (the streaming invariant). The build shim
+	 * sets it once; the incremental scan never does.
+	 */
+	sessionIdf: ContentIdf | null;
 	/** The last draft, held until the next block decides whether it merges. */
 	pendingDraft: SummaryDraft | null;
 	/** Closed drafts not rendered yet: body extraction is deferred to the caller. */
@@ -8668,6 +9026,7 @@ function createPreviewState(): PreviewState {
 		expansionAttempts: new Set(),
 		chosenTitles: [],
 		priorTitleTerms: EMPTY_TITLE_TERMS,
+		sessionIdf: null,
 		pendingDraft: null,
 		renderQueue: [],
 		summaries: [],
@@ -8800,11 +9159,11 @@ function closePreviewBlock(
 }
 
 /**
- * Drives the preview's titleless window. The preview scores the region on its
- * own (`NEUTRAL_CONTENT_IDF`), matching the per-block title it would derive.
- * A ready window replaces the held title; a failed one replays the base and the
- * absorbed blocks under the ordinary close rule, so the status line matches what
- * the blocks would have shown without expansion.
+ * Drives the preview's titleless window. The preview scores the region with
+ * `NEUTRAL_CONTENT_IDF`, matching the per-block title it would derive. A ready
+ * window replaces the held title; a failed one replays the base and absorbed
+ * blocks under the ordinary close rule, so the status line matches what the
+ * blocks would have shown without expansion.
  */
 function resolvePreviewExpansion(state: PreviewState, final: boolean): void {
 	const expansion = state.previewExpansion;
@@ -8873,132 +9232,192 @@ type SummaryStep = {
 	retry: boolean;
 };
 
-/**
- * Turns the block at `index` into a draft. This mirrors `collectSummaryDrafts`,
- * but each block is seen exactly once: the prefix IDF, the titles already chosen
- * and the previous title's terms are carried in the state instead of being
- * rebuilt from the beginning of the text.
- *
- * A titleless prose block first tries forward expansion. While the window is
- * open (`pending`) the state is untouched: the held draft and the chosen titles
- * stay exactly where they were, so the next call can rescan the window from the
- * base block and decide again once more text exists. `final` is set by the
- * finished text, which concludes a short window instead of holding it.
- */
-function processSummaryBlock(state: PreviewState, index: number, final: boolean): SummaryStep {
+/** A block that settled without absorbing or holding anything. */
+const SETTLED_STEP: SummaryStep = { consumed: 1, pending: false, retry: false };
+
+/** Chosen-title bookkeeping for a block that just became a draft's anchor. */
+function adoptTitle(state: PreviewState, title: string): void {
+	state.chosenTitles.push(titleBag(title));
+	state.priorTitleTerms = new Set(titleContentWordTerms(title));
+}
+
+/** A draft from a settled selection; the pool is kept for the diversity repair. */
+function newDraft(
+	blockText: string,
+	selection: TitleSelection,
+	contentIdf: ContentIdf
+): SummaryDraft {
+	return {
+		blockText,
+		candidate: selection.candidate,
+		contentIdf,
+		candidates: selection.candidates,
+		fallback: selection.fallback
+	};
+}
+
+/** A held draft that can no longer receive a tail is queued for rendering. */
+function releasePendingDraft(state: PreviewState): void {
+	if (state.pendingDraft) {
+		state.renderQueue.push(state.pendingDraft);
+		state.pendingDraft = null;
+	}
+}
+
+/** The title decision for the block at `index`, plus the context it saw. */
+function summarizeBlockAt(
+	state: PreviewState,
+	index: number
+): {
+	blockText: string;
+	contentIdf: ContentIdf;
+	selection: TitleSelection;
+	context: TitleContext;
+} {
 	const blockText = state.corpus[index];
 	// The block sees the prefix that ends at itself — the same corpus a
 	// streaming call would give it — so later blocks can never re-title it.
-	const contentIdf = buildContentIdf(state.corpus.slice(0, index + 1));
-	const context = {
+	const contentIdf = summaryIdfAt(state, index + 1);
+	const context: TitleContext = {
 		chosenTitles: state.chosenTitles,
 		priorTitleTerms: state.priorTitleTerms
 	};
 	const selection = deriveReasoningSummaryTitle(blockText, contentIdf, context);
-	const candidate = selection.candidate;
-	const pending = state.pendingDraft;
-
-	// A short titleless block folds into the previous draft's raw text; the draft
-	// stays held, and its title is untouched by the merge. This explicit layer
-	// runs before expansion, so a tail that already has a home is not delayed.
-	if (pending && pending.candidate.title) {
-		const tail = shortSummaryBlock(blockText, candidate);
-		if (tail && canMergeIntoDraft(pending, tail)) {
-			mergeIntoDraft(pending, tail);
-			return { consumed: 1, pending: false, retry: false };
-		}
-	}
-
-	if (!candidate.title && selection.prose) {
-		if (state.expansionBase !== index) {
-			state.expansionBase = index;
-			state.expansionAttempts = new Set();
-		}
-		const expansion = expandTitlelessBlock({
-			blocks: state.corpus,
-			index,
-			contentIdfAt: (end) => buildContentIdf(state.corpus.slice(0, end)),
-			context,
-			final,
-			attempted: state.expansionAttempts
-		});
-		if (expansion.status === 'pending') {
-			return { consumed: expansion.consumed, pending: true, retry: false };
-		}
-		if (expansion.status === 'failed' && !final) {
-			// The budget is spent: redo the window block by block, exactly as if
-			// expansion had never been tried. `advanceSummaryState` replays it.
-			return { consumed: expansion.consumed, pending: false, retry: true };
-		}
-		if (expansion.status === 'ready') {
-			// The region titles: it starts a new draft, and the draft held before
-			// it can no longer receive a tail.
-			if (pending) {
-				state.renderQueue.push(pending);
-			}
-			const title = expansion.selection.candidate.title;
-			state.chosenTitles.push(titleBag(title));
-			state.priorTitleTerms = new Set(titleContentWordTerms(title));
-			state.pendingDraft = {
-				blockText: expansion.blockText,
-				candidate: expansion.selection.candidate,
-				contentIdf: expansion.contentIdf,
-				candidates: expansion.selection.candidates,
-				fallback: expansion.selection.fallback
-			};
-			return { consumed: expansion.consumed, pending: false, retry: false };
-		}
-	}
-
-	// A block that is still titleless after the fallback joins a titled draft
-	// that has not been returned yet. While streaming that is the held draft, or
-	// the tail of the render queue within the same tick; a summary already handed
-	// out is never touched, so an older target is not considered.
-	if (!candidate.title && selection.prose) {
-		const target = pending ?? state.renderQueue.at(-1) ?? null;
-		if (canMergeIntoDraft(target, blockText)) {
-			mergeIntoDraft(target!, blockText);
-			return { consumed: 1, pending: false, retry: false };
-		}
-	}
-
-	if (pending) {
-		state.renderQueue.push(pending);
-	}
-
-	if (candidate.title) {
-		state.chosenTitles.push(titleBag(candidate.title));
-		state.priorTitleTerms = new Set(titleContentWordTerms(candidate.title));
-		state.pendingDraft = {
-			blockText,
-			candidate,
-			contentIdf,
-			candidates: selection.candidates,
-			fallback: selection.fallback
-		};
-		return { consumed: 1, pending: false, retry: false };
-	}
-
-	// A titleless block cannot be a merge target, so it is final right away.
-	state.priorTitleTerms = EMPTY_TITLE_TERMS;
-	state.pendingDraft = null;
-	state.renderQueue.push({
-		blockText,
-		candidate,
-		contentIdf,
-		candidates: selection.candidates,
-		fallback: selection.fallback
-	});
-	return { consumed: 1, pending: false, retry: false };
+	return { blockText, contentIdf, selection, context };
 }
 
 /**
- * Advances the incremental pipeline over every corpus block that is not settled
- * yet. A pending expansion leaves `processedBlocks` on its base, so the next
- * closed block rescans the window; a ready window consumes every absorbed block
- * at once. `final` is set when the reasoning ends.
+ * A short titleless block folds into the previous draft's raw text; the draft
+ * stays held and its title is untouched. Runs before expansion, so a tail that
+ * already has a home is not delayed.
  */
-function advanceSummaryState(state: PreviewState, final: boolean): void {
+function mergeShortTail(
+	state: PreviewState,
+	blockText: string,
+	candidate: TitleCandidate
+): boolean {
+	const pending = state.pendingDraft;
+	if (!pending?.candidate.title) {
+		return false;
+	}
+	const tail = shortSummaryBlock(blockText, candidate);
+	if (!tail || !canMergeIntoDraft(pending, tail)) {
+		return false;
+	}
+	mergeIntoDraft(pending, tail);
+	return true;
+}
+
+/**
+ * Forward expansion of a titleless prose block; null when ineligible or when the
+ * window failed on the finished text (the ordinary titleless path applies).
+ * While `pending`, no state was touched, so the next call can rescan the window.
+ */
+function expandSummaryWindow(
+	state: PreviewState,
+	index: number,
+	final: boolean,
+	selection: TitleSelection,
+	context: TitleContext
+): SummaryStep | null {
+	if (selection.candidate.title || !selection.prose) {
+		return null;
+	}
+	if (state.expansionBase !== index) {
+		state.expansionBase = index;
+		state.expansionAttempts = new Set();
+	}
+	const expansion = expandTitlelessBlock({
+		blocks: state.corpus,
+		index,
+		contentIdfAt: (end) => summaryIdfAt(state, end),
+		context,
+		final,
+		attempted: state.expansionAttempts
+	});
+	if (expansion.status === 'pending') {
+		return { consumed: expansion.consumed, pending: true, retry: false };
+	}
+	if (expansion.status === 'failed' && !final) {
+		// The budget is spent: redo the window block by block, exactly as if
+		// expansion had never been tried. `advanceSummaryState` replays it.
+		return { consumed: expansion.consumed, pending: false, retry: true };
+	}
+	if (expansion.status !== 'ready') {
+		return null;
+	}
+	// The region titles: it starts a new draft, and the draft held before it can
+	// no longer receive a tail.
+	releasePendingDraft(state);
+	adoptTitle(state, expansion.selection.candidate.title);
+	state.pendingDraft = newDraft(expansion.blockText, expansion.selection, expansion.contentIdf);
+	return { consumed: expansion.consumed, pending: false, retry: false };
+}
+
+/**
+ * Applies a block whose title decision is final. A still-titleless block merges
+ * into a held titled draft, so its body reads under that title instead of as a
+ * bare paragraph; a titleless draft cannot be a target, so it is queued.
+ */
+function settleSummaryBlock(
+	state: PreviewState,
+	blockText: string,
+	selection: TitleSelection,
+	contentIdf: ContentIdf
+): void {
+	const candidate = selection.candidate;
+	if (!candidate.title && selection.prose) {
+		const target = state.pendingDraft ?? state.renderQueue.at(-1) ?? null;
+		if (canMergeIntoDraft(target, blockText)) {
+			mergeIntoDraft(target!, blockText);
+			return;
+		}
+	}
+
+	releasePendingDraft(state);
+	if (candidate.title) {
+		adoptTitle(state, candidate.title);
+		state.pendingDraft = newDraft(blockText, selection, contentIdf);
+		return;
+	}
+	state.priorTitleTerms = EMPTY_TITLE_TERMS;
+	state.renderQueue.push(newDraft(blockText, selection, contentIdf));
+}
+
+/**
+ * Turns the block at `index` into a draft: short-tail merge, forward expansion,
+ * then the settled title/titleless path. The state carries the prefix IDF, the
+ * chosen titles and the previous title's terms, so each block is seen once.
+ * `allowExpansion` is cleared only when a batch call re-settles a spent window:
+ * that caller has no state to replay, so the block takes the ordinary path.
+ */
+function processSummaryBlock(
+	state: PreviewState,
+	index: number,
+	final: boolean,
+	allowExpansion = true
+): SummaryStep {
+	const { blockText, contentIdf, selection, context } = summarizeBlockAt(state, index);
+	if (mergeShortTail(state, blockText, selection.candidate)) {
+		return SETTLED_STEP;
+	}
+	if (allowExpansion) {
+		const expanded = expandSummaryWindow(state, index, final, selection, context);
+		if (expanded) {
+			return expanded;
+		}
+	}
+	settleSummaryBlock(state, blockText, selection, contentIdf);
+	return SETTLED_STEP;
+}
+
+/**
+ * Advances over every corpus block that is not settled yet. A pending expansion
+ * leaves `processedBlocks` on its base so the next closed block rescans the
+ * window; a ready one consumes every absorbed block. A spent window (`retry`) is
+ * replayed block by block, or settled in one pass when `replaySpent` is false.
+ */
+function advanceSummaryState(state: PreviewState, final: boolean, replaySpent = true): void {
 	while (state.processedBlocks < state.corpus.length) {
 		const index = state.processedBlocks;
 		const step = processSummaryBlock(state, index, final);
@@ -9006,7 +9425,14 @@ function advanceSummaryState(state: PreviewState, final: boolean): void {
 			return;
 		}
 		if (step.retry) {
-			replaySummaryRange(state, index);
+			if (replaySpent) {
+				replaySummaryRange(state, index);
+			} else {
+				// No state to carry over: the block settles under the ordinary
+				// titleless path, exactly as a single batch pass did.
+				processSummaryBlock(state, index, final, false);
+				state.processedBlocks = index + 1;
+			}
 			continue;
 		}
 		state.processedBlocks = index + step.consumed;
@@ -9014,10 +9440,9 @@ function advanceSummaryState(state: PreviewState, final: boolean): void {
 }
 
 /**
- * Replays a spent expansion window with the finish rules: the base block takes
- * the ordinary titleless path, then each absorbed block is processed in order
- * (and may open a window of its own). The budget already bounded this range, so
- * the loop cannot run away.
+ * Replays a spent expansion window: the base block takes the ordinary titleless
+ * path, then each absorbed block is processed in order and may open a window of
+ * its own. The budget already bounded the range, so the loop cannot run away.
  */
 function replaySummaryRange(state: PreviewState, start: number): void {
 	state.processedBlocks = start;
@@ -9041,10 +9466,10 @@ function enableReasoningSummaries(state: PreviewState): void {
 }
 
 /**
- * Closes the reasoning: the trailing line that streaming holds back joins its
- * block, the held draft is released, and the blocks that were not returned yet
- * go through the non-streaming diversity repair. Already returned summaries are
- * not touched — the repair can only move a title that has not been shown.
+ * Closes the reasoning: the held-back trailing line joins its block, the held
+ * draft is released, and not-yet-returned blocks get the diversity repair.
+ * Already returned summaries are not touched — the repair only moves a title
+ * that has not been shown.
  */
 function finishSummaryState(state: PreviewState, markdown: string): void {
 	// The line after the last newline was never scanned: it belongs to the last
@@ -9067,10 +9492,9 @@ function finishSummaryState(state: PreviewState, markdown: string): void {
 	// titleless path.
 	advanceSummaryState(state, true);
 
-	if (state.pendingDraft) {
-		state.renderQueue.push(state.pendingDraft);
-		state.pendingDraft = null;
-	}
+	// While streaming, a titled draft may still receive a tail from the next
+	// block; the finished text ends that possibility.
+	releasePendingDraft(state);
 
 	// The blocks still in the queue are the only ones not shown yet: the repair
 	// may move their titles, and reads the returned ones as fixed reference.
