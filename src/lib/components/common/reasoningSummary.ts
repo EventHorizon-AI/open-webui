@@ -14,7 +14,8 @@
  * - fallback: halved soft penalties and definition titles;
  * - symbolic templates: name the work of a formula-dense block, eligible only
  *   after every natural candidate failed;
- * - forward expansion or merge into the previous summary while it is held;
+ * - forward expansion, or merge into the previous summary while it is held: a
+ *   titleless tail, or a prose block that is only its own title;
  * - TextRank centrality, session IDF, MMR title diversity, extractive body;
  * - streaming invariant: a returned summary and its title are never rewritten.
  */
@@ -7891,6 +7892,25 @@ const BODY_PENALTY_FRAME = 10;
 const BODY_PENALTY_HEDGE = 5;
 /** A label ending on a colon introduces code or a list; it is not a result. */
 const BODY_PENALTY_LABEL = 5;
+/**
+ * Body tokens extraction fills up to: 0.8 x the visible limit (32 of 40). A body
+ * that stops far below the budget reads as a fragment beside the block it
+ * summarizes, so the unused room goes to the next-best sentences. The last fifth
+ * stays free because a sentence that only fits by a cut costs more than it adds.
+ */
+const BODY_FILL_TARGET = 32;
+/**
+ * Lowest body score a filling sentence may have. The anchors already say what
+ * the block concluded, so the free budget goes only to sentences that still earn
+ * their place. Zero is too strict: a hedge, a label or a cut just over the limit
+ * pays a few points and still reads as content, so a zero floor leaves the body
+ * at half the budget. The value is calibrated on the corpus plus a seed-7
+ * stand-in — see the comment on the fill loop — and sits below the light
+ * penalties so they survive while a frame, a far-over-limit cut or a repeat does
+ * not. Only the fill pass reads it: anchors, the conclusion pair and the single
+ * fallback are chosen before it applies.
+ */
+const BODY_FILL_MIN_SCORE = -7;
 /** A body sentence ends on a sentence mark, never on a comma or a colon. */
 const BODY_TERMINAL_RE = /[.。！？!?…]$/u;
 const BODY_CLOSING_MARKS_RE = /["'”’）)\]】」』]+$/u;
@@ -7906,8 +7926,13 @@ const BODY_FRAGMENT_OPENER_RE =
 
 /** English sentences start with a capital; a lowercase start is a cut clause. */
 const BODY_LOWERCASE_START_RE = /^[a-z]/u;
-/** A conversational beat ("Actually wait…", "Hmm, …") is not a result sentence. */
-const BODY_BEAT_OPENER_RE = /^(?:actually|wait|hmm+|hm|oh|ah|okay|ok)\b/iu;
+/**
+ * A conversational beat ("Actually wait…", "嗯，…") is not a result sentence. The
+ * Chinese branch needs no trailing boundary: 嗯 is a whole word at the sentence
+ * start, and the clause join keeps the comma that follows it inside the
+ * sentence, so any sentence opening on it is the same beat.
+ */
+const BODY_BEAT_OPENER_RE = /^(?:(?:actually|wait|hmm+|hm|oh|ah|okay|ok)\b|嗯)/iu;
 /** A body sentence never opens on a closing mark or a lone punctuation mark. */
 const BODY_BAD_START_RE = /^[\s,，、.。!！?？;；:：|]/u;
 /** A math line, not prose: display/inline math at the start of the sentence. */
@@ -8384,17 +8409,38 @@ function collectBodyCandidates(args: {
 }
 
 /**
+ * Puts a filled sentence back in reading order: before the first selected
+ * sentence that starts later in the block and after every earlier one. The
+ * initial pair keeps the order the conclusion rule gave it, so a conclusion
+ * that sits early in the block is still shown last.
+ */
+function insertInBodyOrder(selected: BodySentence[], candidate: BodySentence): void {
+	const at = selected.findIndex((sentence) => sentence.index > candidate.index);
+	selected.splice(at === -1 ? selected.length : at, 0, candidate);
+}
+
+/**
  * Picks the sentences the body shows. A near-duplicate of an earlier body steps
  * aside while a fresh alternative exists; if every sentence was already shown,
  * the best one still stands. The second sentence crosses the dry/conclusion split
  * so a result is shown next to its claim, and a lone over-budget sentence is cut
  * at a word boundary.
+ *
+ * A pair of short sentences leaves most of the budget unused, so the remaining
+ * candidates are tried best-first until the body reaches `BODY_FILL_TARGET`: the
+ * block's own material is preferred to a body that reads as a fragment. Only
+ * candidates that pass the collect filters are tried, a sentence that would
+ * cross the limit is skipped instead of cut, and an exact repeat is passed over,
+ * so a block with nothing left to say keeps the body it had. A filled sentence is
+ * a budget top-up rather than a representative sentence, so it leaves the repeat
+ * set alone: a later block is never shortened because this one padded itself. The
+ * cost is that a later block may restate the padding.
  */
 function pickBodySentences(
 	candidates: readonly BodySentence[],
 	displayed: BodyContext['displayed'],
 	tokenLimit: number
-): { selected: BodySentence[]; text: string; truncated: boolean } {
+): { anchors: BodySentence[]; text: string; truncated: boolean } {
 	const fresh = candidates.filter((candidate) => !restatesShownBody(candidate, displayed));
 	const pool = [...(fresh.length ? fresh : candidates)].sort(
 		(a, b) => b.score - a.score || a.index - b.index
@@ -8431,6 +8477,45 @@ function pickBodySentences(
 		);
 	}
 
+	// Fill the rest of the budget. The candidate list is already filtered (no
+	// leftover clause, heading, table row, list item or sentence an earlier body
+	// showed) and `pool` is best-first, so filling adds what this block itself
+	// said rather than filler. The order is the block's own, so the body reads
+	// forward; a candidate that does not fit is left out whole. These sentences
+	// are not anchors: they do not enter the repeat set the next block reads.
+	const anchors = [...selected];
+	if (fresh.length) {
+		let tokens = 0;
+		for (const sentence of selected) {
+			tokens += countReasoningTokens(sentence.text);
+		}
+		for (const candidate of pool) {
+			if (tokens >= BODY_FILL_TARGET) {
+				break;
+			}
+			// `pool` is best-first, so the first candidate below the floor ends
+			// the pass: nothing after it can clear the floor either. The floor is
+			// calibrated: on the corpus plus the seed-7 stand-in, a zero floor cost
+			// 11 points of ≥32 bodies, while -7 costs 4.4 and still rejects frames
+			// and the heaviest over-limit cuts.
+			if (candidate.score < BODY_FILL_MIN_SCORE) {
+				break;
+			}
+			if (
+				selected.includes(candidate) ||
+				selected.some((sentence) => sentence.text === candidate.text)
+			) {
+				continue;
+			}
+			const added = countReasoningTokens(candidate.text);
+			if (tokens + added > tokenLimit) {
+				continue;
+			}
+			insertInBodyOrder(selected, candidate);
+			tokens += added;
+		}
+	}
+
 	let text = selected.map((candidate) => candidate.text).join(' ');
 	let truncated = false;
 	if (!fitsBodyBudget(text, tokenLimit)) {
@@ -8438,7 +8523,7 @@ function pickBodySentences(
 		text = cut.text;
 		truncated = cut.truncated;
 	}
-	return { selected, text, truncated };
+	return { anchors, text, truncated };
 }
 
 /**
@@ -8479,15 +8564,13 @@ function extractBodySentences(
 		return null;
 	}
 
-	const { selected, text, truncated } = pickBodySentences(
-		candidates,
-		context.displayed,
-		tokenLimit
-	);
+	const { anchors, text, truncated } = pickBodySentences(candidates, context.displayed, tokenLimit);
 	if (!text) {
 		return null;
 	}
-	for (const candidate of selected) {
+	// Only the anchors describe this block: the padding a fill adds stays out of
+	// the repeat set, so it cannot shorten a later block's body.
+	for (const candidate of anchors) {
 		recordDisplayedBody(context.displayed, candidate);
 	}
 	return { text, truncated };
@@ -8538,6 +8621,73 @@ function shortSummaryBlock(blockText: string, candidate: TitleCandidate): string
  */
 function mergeContributionTokens(blockText: string): number {
 	return Math.min(countReasoningTokens(blockText), REASONING_SUMMARY_TOKEN_LIMIT);
+}
+
+/**
+ * Whether the body pass would show nothing once the title's source is lifted.
+ * This runs the same exclusion chain as `collectBodyCandidates` — the title
+ * source, structural lines, markdown stripping, sentence shape and the content
+ * thresholds — so the merge decision cannot drift from what `draftBody` renders.
+ * IDF and the token budget only move scores, never membership, so the neutral
+ * corpus is enough; the call is O(block) and happens once, when the block
+ * settles, so no tick recomputes it.
+ */
+function bodyWouldBeEmpty(
+	blockText: string,
+	title: string,
+	consumed: number,
+	keepOriginal: boolean
+): boolean {
+	return (
+		collectBodyCandidates({
+			units: bodyUnits(blockText),
+			title,
+			consumed,
+			keepOriginal,
+			contentIdf: NEUTRAL_CONTENT_IDF,
+			displayed: [],
+			tokenLimit: REASONING_SUMMARY_TOKEN_LIMIT
+		}).length === 0
+	);
+}
+
+/**
+ * A block that is only its own title: "Write in Chinese, technical." The title
+ * derivation is satisfied — the opening sentence clears the prose floor — but
+ * the body pass then lifts that sentence as the title's source, leaving an empty
+ * draft. The block carries no topic beyond the title, so it should ride under
+ * the previous summary instead of rendering as a title over nothing.
+ *
+ * Conditions, all read from the block as written:
+ * - exactly one `splitSentences` span (for CJK that also rules out an internal
+ *   comma clause, so the whole block is one sentence);
+ * - the title reproduces that sentence from its first word to its last, dropping
+ *   only function words, glue and punctuation (`titleCoversRegion`), so it is the
+ *   sentence as a title rather than a synthesis beside it;
+ * - the body pass, with the same exclusion chain body extraction runs, leaves no
+ *   candidate: the title-source sentence was the block's only material.
+ *
+ * Structural titles are excluded by the caller (`selection.prose` is false for a
+ * label, heading, list item, quote or fence): those blocks render the line that
+ * named them, so a structural title is not a prose sentence lifted out of its
+ * own block. A lone heading stays its own draft (titleless or titled), while a
+ * prose sentence taken whole is the case this rule folds away.
+ */
+function contentlessSummaryBlock(blockText: string, candidate: TitleCandidate): boolean {
+	const { title, consumed, abridged } = candidate;
+	if (!title) return false;
+	const sentences = splitSentences(blockText);
+	if (sentences.length !== 1) return false;
+	const sentence = sentences[0];
+	// The title source has to sit inside the unique sentence, and the title has
+	// to reproduce that sentence, not merely the source prefix.
+	if (consumed > sentence.end) return false;
+	if (!titleCoversRegion(title, blockText.slice(sentence.start, sentence.end))) return false;
+	// Same shaping `draftBody` uses: an abridged title that does not reproduce
+	// its region leaves the original sentence as body material.
+	const keepOriginal = abridged && !titleCoversRegion(title, blockText.slice(0, consumed));
+	if (keepOriginal) return false;
+	return bodyWouldBeEmpty(blockText, title, consumed, keepOriginal);
 }
 
 /** A titled draft that has not been rendered yet can still take one more block. */
@@ -9355,9 +9505,17 @@ function expandSummaryWindow(
 }
 
 /**
- * Applies a block whose title decision is final. A still-titleless block merges
- * into a held titled draft, so its body reads under that title instead of as a
- * bare paragraph; a titleless draft cannot be a target, so it is queued.
+ * Applies a block whose title decision is final. Two conditions merge it into a
+ * held titled draft, in this order and mutually exclusive by construction:
+ * 1. titleless prose (the short-tail case): it has no title to show, so the body
+ *    reads under the previous one;
+ * 2. contentful title with no content behind it (the contentless case): the
+ *    title is the block's only sentence, so a draft of its own would render a
+ *    title over an empty body. It joins the previous draft the same way, with
+ *    the same merge budget; without a target it keeps the old standalone
+ *    rendering (title, body ""), because dropping a title nobody can replace
+ *    would lose the only text the block has.
+ * A titleless draft cannot be a target, so it is queued.
  */
 function settleSummaryBlock(
 	state: PreviewState,
@@ -9367,6 +9525,17 @@ function settleSummaryBlock(
 ): void {
 	const candidate = selection.candidate;
 	if (!candidate.title && selection.prose) {
+		const target = state.pendingDraft ?? state.renderQueue.at(-1) ?? null;
+		if (canMergeIntoDraft(target, blockText)) {
+			mergeIntoDraft(target!, blockText);
+			return;
+		}
+	}
+
+	// The complement of the branch above: a titled prose block whose own title is
+	// all it says. Structural selections stay out (`selection.prose` is false):
+	// a heading or label line is a complete draft even with no body under it.
+	if (candidate.title && selection.prose && contentlessSummaryBlock(blockText, candidate)) {
 		const target = state.pendingDraft ?? state.renderQueue.at(-1) ?? null;
 		if (canMergeIntoDraft(target, blockText)) {
 			mergeIntoDraft(target!, blockText);
