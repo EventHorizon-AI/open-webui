@@ -1319,7 +1319,9 @@ function stripLeadingDiscourseMarkers(text: string): { text: string; abridged: b
 // lead-ins and labels. What remains is the task itself.
 const TITLE_PREAMBLE_RES: RegExp[] = [
 	// Pointless lead-ins: 需要注意的是，缓存… -> 缓存…, 关键的一点是… -> …
-	/^(?:最?重要|需要|值得|重点|关键|问题|结论)(?:注意|说明|强调|指出|留意|关注)?(?:的?(?:一点|地方|之处))?(?:的)?(?:是|在于|就是)[，,]?\s*/,
+	// 是/就是 keep a guard against 是否: the copula cannot be lifted out of the
+	// word "whether" and leave 否 as the title.
+	/^(?:最?重要|需要|值得|重点|关键|问题|结论)(?:注意|说明|强调|指出|留意|关注)?(?:的?(?:一点|地方|之处))?(?:的)?(?:是|在于|就是)(?!否)[，,]?\s*/,
 	// 让我看看… / 让我们试试… without a subject.
 	/^让我们?/,
 	// Hedges: 我觉得缓存有问题 -> 缓存有问题.
@@ -1342,16 +1344,19 @@ const TITLE_PREAMBLE_RES: RegExp[] = [
 	// answer — there is no topic behind it.
 	/^(?:evaluate|consider|assess|review|examine|analyze|analyse|check|list|go through|look at|work through)\s+(?:each|every|all|the)\s+(?:of\s+)?(?:the\s+)?(?:options?|choices?|answers?|alternatives?|possibilit(?:y|ies)|sentences?|statements?|items?|cases?|steps?|values?|numbers?)\s*[:：]?\s*(?=$)/iu,
 	// "Here's the classification for each food:" -> "classification for each food".
-	/^here(?:['’]s| is| are| was| were)(?: the| a| an| my| our)?\s*/i,
-	// The asker in Spanish: "El usuario pide un poema…" -> "un poema…".
-	/^(?:el|la)\s+(?:usuario|pregunta|problema|tarea|ejercicio)\s+(?:pide|quiere|necesita|solicita|espera|dice|pregunta|es)(?:\s+que)?\s*/iu,
+	// The article alternation keeps a word boundary, so "the" cannot be lifted
+	// out of "theorem" (or "a"/"an" out of "analysis").
+	/^here(?:['’]s| is| are| was| were)(?: the| a| an| my| our)?\b\s*/i,
+	// The asker in Spanish: "El usuario pide un poema…" -> "un poema…". The verb
+	// boundary keeps "es" out of "está" and "espera" out of "esperanza".
+	/^(?:el|la)\s+(?:usuario|pregunta|problema|tarea|ejercicio)\s+(?:pide|quiere|necesita|solicita|espera|dice|pregunta|es)\b(?:\s+que)?\s*/iu,
 	// Noticing lead-ins: "I see that the cache…" -> "the cache…".
 	/^(?:i|we) (?:notice|noticed|see|saw|realize|realized|find|found|understand|understood|think|thought|guess|assume|assumed|remember) (?:that )?/i,
 	// Holding something in hand: "We have f(x) = …, defined for…" -> "f(x) = …".
 	/^(?:i|we) (?:have|has|had|get|got|obtain|obtained|know|note|noticed?|recall|remember|see|find|found)(?: that)?\s+/i,
 	// Framing before the task: "Looking at this problem, I need to find…" ->
-	// "find…".
-	/^(?:looking at|reading|re-reading) (?:this|the) (?:problem|question|equation|expression|task|scenario|situation)[,]?\s*/i,
+	// "find…". The noun boundary keeps "problem" out of "problems".
+	/^(?:looking at|reading|re-reading) (?:this|the) (?:problem|question|equation|expression|task|scenario|situation)\b[,]?\s*/i,
 	// First-person lead-ins: "I need to check…" -> "check…".
 	/^(?:i|we)(?:'m|'re| am| are) going to /i,
 	/^(?:i|we) (?:need|needs|needed|have|has|had|want|wants|wanted|ought|used|plan|plans|planned|aim|aims|aimed|intend|intends|intended|seek|seeks|sought|strive|strives|strove|attempt|attempts|attempted|try|tries|tried|hope|hopes|hoped|decide|decides|decided|expect|expects|expected|manage|manages|managed) to /i,
@@ -1917,8 +1922,16 @@ const ENGLISH_ASKER_NOUN_FRAME_RE =
 
 // One pattern for the English subject and verb group ("the user wants to…",
 // "the problem clearly says…"). The trailing connector lets the object start.
+//
+// The verb is required: an asker with no statement verb is not a frame, only a
+// subject ("the user is…"). Every stem that optional groups or a bare
+// separator class follow carries a word boundary, so a verb cannot be cut out
+// of a longer word: `says?` must not bite "saying" (leaving "ing" as the
+// object), `do` must not bite "doing", `that` must not bite "that's", and the
+// pronoun/article/scenario stems cannot bite "messages", "formatting",
+// "theorem" or "cases".
 const ENGLISH_ASKER_FRAME_RE =
-	/^(?:the|this|that)\s+(?:user|person|questioner|asker|enquirer|inquirer|problem|question|task|prompt|request|message)(?:'s)?(?:\s+(?:is|are|was|were|seems to be|appears to be|clearly|just|also))?(?:\s+(?:asking|asks?|asked|wondering|wonders|requesting|requests?|inquiring|inquires|enquiring|would like|wants?|wanted|needs?|needed|requires?|required|states?|stated|says?|said|mentions?|mentioned|expects?|expected|describes?|presents?|introduces?|sets? up))(?:\s+(?:me|us))?(?:\s+(?:for|about|regarding))?(?:\s+(?:an?|the))?(?:\s+(?:scenario|situation|case|story))?(?:\s+(?:to\s+(?:identify|determine|explain|describe|say|tell|state|find|calculate|compute|write|provide|answer|handle|do)|where|in which|that|about|for|to|regarding))?[ ,:：]*/iu;
+	/^(?:the|this|that)\s+(?:user|person|questioner|asker|enquirer|inquirer|problem|question|task|prompt|request|message)(?:'s)?(?:\s+(?:is|are|was|were|seems to be|appears to be|clearly|just|also))?\s+(?:asking|asks?|asked|wondering|wonders|requesting|requests?|inquiring|inquires|enquiring|would like|wants?|wanted|needs?|needed|requires?|required|states?|stated|says?|said|mentions?|mentioned|expects?|expected|describes?|presents?|introduces?|sets? up)\b(?:\s+(?:me|us)\b)?(?:\s+(?:for|about|regarding)\b)?(?:\s+(?:an?|the)\b)?(?:\s+(?:scenario|situation|case|story)\b)?(?:\s+(?:to\s+(?:identify|determine|explain|describe|say|tell|state|find|calculate|compute|write|provide|answer|handle|do)\b|where\b|in which\b|that\b|about\b|for\b|to\b|regarding\b))?[ ,:：]*/iu;
 
 // Lifts the asker and its request off a title source, leaving the object that
 // titles. A frame whose strip would leave less than a usable title is refused.
