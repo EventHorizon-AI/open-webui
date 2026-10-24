@@ -1975,9 +1975,78 @@ function stripAskerFrame(text: string): { text: string; abridged: boolean } {
 
 // Function words a lead never ends on: such a title was cut mid-thought, so the
 // ending is dropped with the separators it leaves. Dangling words chain, so the
-// strip repeats.
-const TITLE_DANGLING_ENDING_RE =
-	/(?:可能|应该|需要|比如|例如|或者|得到|在于|包括|的话|要|还|也|都|就|又|再|并|而|但|是|的|了|着|过|与|和|及|或)+$/u;
+// strip repeats. The endings are words, not a character class: 要 may go after a
+// modal (…就+要) but never out of 重要/必要/主要, and 是 never out of 还是/总是/
+// 就是. 如下 is a forward pointer ("…步骤如下") that names no content of its own,
+// so it comes off like 的话.
+const TITLE_DANGLING_ENDINGS: ReadonlyArray<string> = [
+	'可能',
+	'应该',
+	'需要',
+	'比如',
+	'例如',
+	'或者',
+	'得到',
+	'在于',
+	'包括',
+	'的话',
+	'如下',
+	'要',
+	'还',
+	'也',
+	'都',
+	'就',
+	'又',
+	'再',
+	'并',
+	'而',
+	'但',
+	'是',
+	'的',
+	'了',
+	'着',
+	'过',
+	'与',
+	'和',
+	'及',
+	'或'
+];
+
+// Segmenter words, longest first, so 的话 is preferred over 的 and 再 over 又.
+const TITLE_DANGLING_ENDING_PHRASES: ReadonlyArray<{ word: string; tokens: readonly string[] }> =
+	TITLE_DANGLING_ENDINGS.map((word) => ({
+		word,
+		tokens: wordSegments(word).map((part) => part.word)
+	})).sort((a, b) => b.tokens.length - a.tokens.length || b.word.length - a.word.length);
+
+// Intl.Segmenter is not a dictionary: with a degree adverb in front it splits
+// 紧要 into 很紧|要 and 次要 into 次|要, and it splits 有的/意味着 the same way.
+// These compounds end in a dangling single character but are one word, so the
+// lexical layer protects them. Only single-character entries need the guard:
+// a multi-character entry (需要, 包括) is stripped whole, never as a fragment.
+const TITLE_WHOLE_TAIL_WORDS: ReadonlyArray<string> = [
+	'重要',
+	'必要',
+	'主要',
+	'紧要',
+	'次要',
+	'首要',
+	'显要',
+	'险要',
+	'目的',
+	'有的',
+	'别的',
+	'似的',
+	'意味着',
+	'照着',
+	'为着',
+	'这么着',
+	'那么着',
+	'给与',
+	'触及',
+	'附及',
+	'给及'
+];
 // A lead can also end mid-clause on an English relative ("…the type of a
 // variable that has"): the relative with its verb is dropped.
 const TITLE_DANGLING_RELATIVE_RE =
@@ -1988,11 +2057,11 @@ function stripDanglingTitleEnding(title: string): string {
 	let text = title;
 
 	for (;;) {
-		const next = text
-			.replace(TITLE_DANGLING_ENDING_RE, '')
+		const trimmed = text
 			.replace(TITLE_DANGLING_RELATIVE_RE, '')
 			.replace(TITLE_TRAILING_SEPARATORS_RE, '')
 			.trimEnd();
+		const next = stripTrailingDanglingWord(trimmed);
 
 		if (next === text || Array.from(next).length < TITLE_MIN_CHARS) {
 			return text;
@@ -2000,6 +2069,29 @@ function stripDanglingTitleEnding(title: string): string {
 
 		text = next;
 	}
+}
+
+// The trailing check is segment-based: a dangling word may go only when it is
+// the whole last Segmenter word. A character test would read 重要, 必要, 主要,
+// 还是 and 总是 as a stray 要 or 是 and leave "这个很重".
+function stripTrailingDanglingWord(text: string): string {
+	const segments = wordSegments(text);
+	for (const entry of TITLE_DANGLING_ENDING_PHRASES) {
+		if (segments.length < entry.tokens.length) {
+			continue;
+		}
+		const tail = segments.slice(-entry.tokens.length);
+		if (!tail.every((segment, index) => segment.word === entry.tokens[index])) {
+			continue;
+		}
+		// A single-character entry is a fragment of a word here, not a word of
+		// its own, when the text still ends on a protected compound.
+		if (entry.word.length === 1 && TITLE_WHOLE_TAIL_WORDS.some((word) => text.endsWith(word))) {
+			continue;
+		}
+		return text.slice(0, tail[0].start).trimEnd();
+	}
+	return text;
 }
 
 // Cleans a title source and reports whether it abridges what it covers. The body
@@ -3572,6 +3664,10 @@ const CHINESE_FUNCTION_WORDS: ReadonlyArray<string> = [
 	'再',
 	'很',
 	'太',
+	// The degree adverb 更 modifies the filler behind it; without an entry the
+	// head is deleted alone and 更 glues to the next word ("更仔细地想想为什么…"
+	// -> "更为什么…"). It is glue everywhere, like 很 and 太.
+	'更',
 	'才',
 	'只',
 	'则',
@@ -4013,7 +4109,13 @@ function stripChineseFunctionWords(source: string): string {
 		}
 
 		const measure = measureWordHandling(source, token, match);
-		if (measure === 'keep' || chineseFunctionKeptBefore(words, index, match)) {
+		// The same lexical guard as the dangling-ending strip: a single-character
+		// function word that is the tail of a protected compound (很紧|要) is not
+		// a word of its own.
+		const insideWholeWord =
+			match.word.length === 1 &&
+			TITLE_WHOLE_TAIL_WORDS.some((word) => source.slice(0, match.end).endsWith(word));
+		if (measure === 'keep' || chineseFunctionKeptBefore(words, index, match) || insideWholeWord) {
 			out += source.slice(token.start, match.end);
 		} else if (measure === null) {
 			// The word is dropped; a word between Latin or digit runs leaves a
