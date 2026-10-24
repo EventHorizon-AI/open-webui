@@ -17,6 +17,10 @@
  * - forward expansion, or merge into the previous summary while it is held: a
  *   titleless tail, or a prose block that is only its own title;
  * - TextRank centrality, session IDF, MMR title diversity, extractive body;
+ * - body voice: the process frame, the hedge and the asker commentary are lifted
+ *   from each candidate (F1), the selection discounts a perspective sentence and
+ *   a dangling connective and prefers a result-shaped tail (F2), and the chosen
+ *   body loses its opening connective and gets its capital back (F2);
  * - streaming invariant: a returned summary and its title are never rewritten.
  */
 
@@ -7955,6 +7959,216 @@ const BODY_PENALTY_FRAME = 10;
 const BODY_PENALTY_HEDGE = 5;
 /** A label ending on a colon introduces code or a list; it is not a result. */
 const BODY_PENALTY_LABEL = 5;
+
+// ---------------------------------------------------------------------------
+// Body selection preferences (F2)
+//
+// F1 made the candidate text read like the model's own sentence. These three
+// constants make the *choice* among those sentences read like a summary: a
+// perspective sentence (about the asker or the reply rather than the topic) is
+// discounted, a sentence that closes on a result is preferred, and a sentence
+// that opens on a connective — the second half of a thought the reader never saw
+// — is discounted. Each is a constant added to the tuned score, so the
+// structural features (centrality, novelty, title overlap, repeat, the
+// conclusion pair) are untouched and no candidate enters or leaves the pool.
+// Every one is soft: a block whose only usable sentence is a perspective
+// sentence still renders that sentence.
+// ---------------------------------------------------------------------------
+
+/**
+ * A perspective sentence describes the asker or the reply: "用户是学生写论文…",
+ * "用户混淆了预处理和运行时的switch。", "The user likely wants a table". It reads
+ * as a working note between reader and answer, not as the answer. The constant
+ * is the conclusion marker's own base (`BODY_SCORE_CONCLUSION`), so a meta
+ * comment gives back exactly what a stated result earns; a normal-scoring meta
+ * sentence still clears `BODY_FILL_MIN_SCORE`, so it is shown when the block has
+ * nothing better.
+ */
+const BODY_PENALTY_PERSPECTIVE_META = 10;
+
+/**
+ * The count that separates a meta sentence from one that merely opens on an
+ * asker-shaped frame. "用户是学生写论文，或者对哲学感兴趣的自学者，需要深入但不过于
+ * 学术化的解释。" keeps three topic words (写/哲学/化), while "用户可能还想知道洛
+ * 克的理论对后来思想的影响…" keeps eleven: the first says what the reader is like,
+ * the second says what the answer contains. Counted on `contentWordTerms` — the
+ * same notion the body score prices — after the frame's own words, the register
+ * vocabulary below and discourse glue are lifted.
+ */
+const BODY_META_TOPIC_WORD_LIMIT = 5;
+
+/**
+ * Frames whose proposition is about the asker's state of mind. They are
+ * penalised without the count: what the sentence asserts is the asker's
+ * confusion, and no amount of domain nouns inside it makes that a finding. F1's
+ * R2 strip turns "可能用户混淆了…" into "用户混淆了…", which is how this shape
+ * reached the body's first sentence.
+ */
+const BODY_META_STATE_RE =
+	/^(?:用户(?:可能|似乎|好像|大概)?(?:混淆|误以为|误解|搞混|弄混|不清楚|不明白|不了解|没意识到)|(?:the\s+)?user(?:['’]s)?\s+(?:got|is|was|seems?|appears?|may\s+be|might\s+be)?\s*(?:confused|confuses|misunderstands?|misunderstood|mixes?\s+up))/iu;
+
+/**
+ * Frames that open on the asker or on the reply itself: the asker's profile and
+ * its register request, an unfamiliarity, a summary or a structure note. A
+ * sentence here is only a perspective sentence when its remaining topic words
+ * stay under the limit, because these frames can carry a real requirement
+ * ("用户可能没有明确提到的需求包括：虚拟主持人的多语言支持…").
+ */
+const BODY_META_FRAME_RE =
+	/^(?:用户是|用户(?:可能|似乎|好像|大概)?(?:对[^，。；！？]{0,12})?(?:不太|并不|不是很|不|没有)(?:太)?(?:熟悉|了解|清楚|明白|懂)|用户可能没有(?:明确)?(?:提到|意识)|总结下来|回答的结构|回答的框架|the\s+user(?:['’]s)?\s+(?:is|are|was|may\s+be|might\s+be|is\s+likely)\b|the\s+user(?:['’]s)?\s+(?:may|might)\s+not\s+be\s+(?:familiar|aware)|summing\s+up|to\s+sum\s+up|the\s+structure\s+of\s+the\s+answer)/iu;
+
+/**
+ * The vocabulary a reader-fit request is built from: who the reader is and how
+ * plain the answer should be. It names no topic, so it does not count toward the
+ * topic words that make a frame-bearing sentence content.
+ */
+const BODY_META_REGISTER_TERMS: ReadonlySet<string> = new Set<string>([
+	'学生',
+	'论文',
+	'作业',
+	'考试',
+	'学习',
+	'课程',
+	'自学',
+	'自学者',
+	'初学者',
+	'新手',
+	'入门',
+	'爱好者',
+	'从业者',
+	'专业',
+	'学术',
+	'背景',
+	'基础',
+	'经验',
+	'水平',
+	'解释',
+	'讲解',
+	'说明',
+	'术语',
+	'语言',
+	'通俗',
+	'简单',
+	'易懂',
+	'简洁',
+	'详细',
+	'深入',
+	'例子',
+	'示例',
+	'举例',
+	'条理',
+	'清晰',
+	'准确',
+	'避免',
+	'student',
+	'paper',
+	'essay',
+	'homework',
+	'beginner',
+	'newcomer',
+	'novice',
+	'learner',
+	'audience',
+	'academic',
+	'background',
+	'experience',
+	'level',
+	'explain',
+	'explanation',
+	'term',
+	'terms',
+	'terminology',
+	'language',
+	'plain',
+	'simple',
+	'easy',
+	'detailed',
+	'detail',
+	'example',
+	'examples',
+	'concrete'
+]);
+
+/** Connectives and modals that carry a frame rather than a topic. */
+const BODY_META_DISCOURSE_TERMS: ReadonlySet<string> = new Set<string>([
+	'不过',
+	'所以',
+	'因此',
+	'得',
+	'用',
+	'还',
+	'也',
+	'就',
+	'都',
+	'又',
+	'才',
+	'则',
+	'或者',
+	'比如',
+	'例如',
+	'可能',
+	'也许',
+	'大概',
+	'需要',
+	'应该',
+	'可以',
+	'能',
+	'会',
+	'要',
+	'这样',
+	'这么',
+	'那么',
+	'这个',
+	'这种',
+	'这些',
+	'那些',
+	'一些',
+	'一下',
+	'提到',
+	'明确',
+	'是否'
+]);
+
+/**
+ * A conclusion reads best when it closes the sentence: "…, so the answer is
+ * 720", "…因此最终收益是 6". Only the last third counts, so a "因此" that opens a
+ * setup clause cannot pass for a result. The bonus is half
+ * `BODY_SCORE_CENTRALITY`: enough to lift a result-shaped tail over a near-tie,
+ * not enough to outrank a clearly more central sentence. It only applies to a
+ * sentence the conclusion terms in `conclusionSignal` did not already price, so
+ * 因此/所以/于是 are never paid twice.
+ */
+const BODY_SCORE_CONCLUSION_TAIL = 4;
+
+/** Share of a sentence, from its end, that counts as its conclusion window. */
+const BODY_CONCLUSION_TAIL_SHARE = 1 / 3;
+
+/** Conclusion words that only mean something at the end of a sentence. */
+const BODY_CONCLUSION_TAIL_RE =
+	/(?:therefore|thus|hence|in conclusion|so the answer|falls? to|equals?|means|因此|综上|所以|最终|答案)/iu;
+
+/**
+ * A body that opens on "But…", "Since…" or "不过…" reads as the continuation of
+ * a thought the reader never saw. The penalty is uniform across positions rather
+ * than first-sentence-only, because the choice has to be a pure function of the
+ * candidate text: the streaming preview and the settled body must pick the same
+ * sentence, and the fill pass can put a later-index sentence in front. It is
+ * small enough that the block's only complete sentence still leads; layer 3
+ * strips the connective from what is shown. Conclusion connectives (所以/因此/So/
+ * Therefore) are skipped: the conclusion terms already price them, and paying
+ * again demoted the sentence the pair rule shows last, taking a better pair with
+ * it.
+ */
+const BODY_PENALTY_LEAD_CONNECTIVE = 6;
+
+/**
+ * The openers layer 2 discounts and layer 3 removes. `Since`/`因为` are not
+ * stripped (a causal premise carries the argument) but they still read as a
+ * continuation, so they are discounted here.
+ */
+const BODY_LEAD_CONNECTIVE_RE =
+	/^(?:(?:since|but|however|so|now|also|therefore)\b|但是|然而|不过|所以|因此|那么|接下来)/iu;
+
 /**
  * Body tokens extraction fills up to: 0.8 x the visible limit (32 of 40). A body
  * that stops far below the budget reads as a fragment beside the block it
@@ -8012,6 +8226,628 @@ const BODY_CONCLUSION_SO_RE = /(?:^|[.!?;:,]\s*)so\b/iu;
 /** A line that is plainly code: a preprocessor line, a declaration or a brace. */
 const BODY_CODE_LINE_RE =
 	/^(?:#(?:define|include|if|ifdef|ifndef|else|elif|endif|pragma|undef)\b|(?:def|class|import|from|function|const|let|var|return|public|private|template|struct|typedef|switch|case)\b|[{}])/u;
+
+// ---------------------------------------------------------------------------
+// Body polish (F1)
+//
+// The extractive body is faithful but reads like a working note: "Looking at
+// this problem, I need to…", "Let me count…", "用户可能希望…". This layer
+// removes the process frame, the hedge and the asker commentary *inside* a
+// candidate sentence before it is scored. It only deletes: no subject is
+// supplied, no verb form is changed and no word is reordered. A strip that
+// would leave a fragment is refused and the sentence stands unchanged, so the
+// body can never become emptier than what the model wrote, and the merge path
+// (`bodyWouldBeEmpty`) never sees a different membership.
+//
+// Sentence splitting is untouched: `splitSentences` spans stay byte-identical,
+// and polish replaces the text inside each span while every separator between
+// spans is copied through. Running it twice is running it once: rules strip to
+// a fixed point, so a second call finds nothing left to strip.
+//
+// Rules:
+// - R1 process opener: "Looking at this problem, …", "Wait, let me …", "I need
+//   to …", 接下来，/ 我需要 / 让我 / 现在我…;
+// - R2 hedge or self-evaluation: a leading "maybe/perhaps/I think/it seems"
+//   (and 可能/也许/大概 at the sentence start only — a medial 可能 carries
+//   meaning), a comma-delimited "…, I think, …"; a sentence that is nothing but
+//   a self-evaluation ("This is a reasonable approach…") keeps its words;
+// - R3 asker commentary: "用户可能希望…" / "The user likely wants…" is lifted
+//   so the requirement itself leads; 用户可能需要 keeps 需要, which is the
+//   requirement rather than a comment about the asker. A fact about the task
+//   (用户输入/用户选择/用户启动, "The user's question") stays.
+// ---------------------------------------------------------------------------
+
+export type BodyPolishRule = 'R1' | 'R2' | 'R3';
+
+/** Why a strip was refused; the original sentence then stands unchanged. */
+export type BodyPolishRevert = 'empty' | 'short' | 'start' | 'terminal' | 'brackets' | 'self-eval';
+
+export type BodyPolishOutcome = {
+	/** The effective text: polished when a rule applied, otherwise the input. */
+	text: string;
+	/** Rules that changed the text, deduplicated, in application order. */
+	rules: BodyPolishRule[];
+	/** Non-null when a strip was refused; `text` is then the input. */
+	reverted: BodyPolishRevert | null;
+};
+
+/** A stripped sentence is a fragment below this many English words. */
+const BODY_POLISH_EN_MIN_WORDS = 4;
+/** A stripped sentence is a fragment below this many Han characters. */
+const BODY_POLISH_ZH_MIN_CHARS = 6;
+/** Rules strip one frame per pass; the cap only guards an unforeseen loop. */
+const BODY_POLISH_MAX_PASSES = 8;
+/** The polish cache is bounded and cleared wholesale, like the segment caches. */
+const BODY_POLISH_CACHE_LIMIT = 512;
+const bodyPolishCache = new Map<string, BodyPolishOutcome>();
+
+/**
+ * A cheap gate: most candidates contain none of these, so the sentence split
+ * and the rule loop are skipped. Over-inclusive on purpose — a false positive
+ * costs one split, a false negative leaves the pathology in the body.
+ */
+const BODY_POLISH_TRIGGER_RE =
+	/我|让|可能|也许|大概|用户|现在|首先|接下来|需要|\b(?:let|looking|step|maybe|perhaps|probably|possibly|user|it\s+seems|i\s+(?:need|should|think|guess|will|must))\b/iu;
+
+/**
+ * R1 English openers, stripped from the sentence start. Each alternative ends
+ * on a word boundary so a strip cannot cut inside a word ("Okay" out of
+ * "Okayama", "to" out of "total").
+ */
+const BODY_POLISH_EN_PREAMBLE_RES: RegExp[] = [
+	// A conversational beat before the real opener: "Wait, let me…", "Okay, …".
+	/^(?:okay|ok|alright|all right|wait|hold on|hmm+|hm+|oh|ah)\b\s*[,，、:：.。!！?？]?\s*/iu,
+	// "Let me…", "First, let me…", "Now let me…", "Let's…", "Let us…".
+	/^(?:(?:first|firstly|next|now|then|so|okay|alright)\s*[,，、:：]?\s*)?(?:let(?:['’]s| us)|let me|lets)\b\s*/iu,
+	// "Looking at this problem, …" — the noun boundary keeps "problems" whole.
+	/^(?:looking at|reading|re-reading|considering)\s+(?:this|the)\s+(?:problem|question|equation|expression|task|scenario|situation|prompt)\b\s*[,，:：]?\s*/iu,
+	// "I need to…", "We should…", "I have to…".
+	/^(?:i|we)\s+(?:need|needs|want|wants|should|must|will|would|have|has|had|plan|plans|try|tries|attempt|attempts|ought)\s+to\s+/iu,
+	/^(?:i|we)(?:['’]ll|['’]d|['’]m|['’]re|['’]ve)\s+/iu,
+	// A modal that lost its subject in the pass above: "need to check…".
+	/^(?:need|needs|want|wants|have|has|ought|plan|try|attempt|going|gonna)\s+to\s+/iu
+];
+
+/** R2: a hedge that opens the sentence ("Maybe the answer is 42."). */
+const BODY_POLISH_EN_HEDGE_LEAD_RE =
+	/^(?:maybe|perhaps|probably|possibly|i\s+(?:think|guess|believe|suppose|reckon|assume)|it\s+(?:seems|appears))\b(?:\s+that\b)?\s*[,，:：]?\s*/iu;
+/** R2: a hedge fenced by commas ("…, I think, …") is a side remark. */
+const BODY_POLISH_EN_HEDGE_ASIDE_RE =
+	/(,\s*)(?:i\s+(?:think|guess|believe|suppose|reckon)|maybe|perhaps|probably|possibly|it\s+seems)(\s*,)\s*/giu;
+
+/** R3: asker commentary in front of the requirement, at the sentence start. */
+const BODY_POLISH_EN_ASKER_RE =
+	/^(?:(?:and|but|so|then)\s+)?(?:the|this)\s+user(?:['’]s)?\s+(?:likely|probably)\s+(?:wants?|needs?|would\s+like|is\s+asking\s+for)\b\s*/iu;
+
+/**
+ * A sentence that is only a verdict on the work: "This is a reasonable
+ * approach…". The words after the copula are a noun phrase with no trunk, so
+ * there is nothing to delete without leaving a label; the sentence stands and
+ * the selection layer decides what to do with it.
+ */
+const BODY_POLISH_SELF_EVAL_RE =
+	/^(?:this|that|it)(?:['’]s|\s+(?:is|was|seems|looks))\s+(?:like\s+)?(?:an?\s+|the\s+)?(?:reasonable|good|great|solid|sensible|valid|nice|interesting|tricky|hard|challenging|difficult|straightforward|simple|classic|common|typical|standard|important|useful|helpful|clever|elegant|promising)\b/iu;
+
+/**
+ * R1 Chinese openers, matched on the text but only when the frame ends on a
+ * whole `Intl.Segmenter` word: "我来" must not eat the first two characters of
+ * "我来自", and "我需要" must not leave "求" of "要求" behind.
+ */
+const BODY_POLISH_ZH_FRAMES: ReadonlyArray<string> = [
+	'首先我们需要',
+	'首先我需要',
+	'首先需要',
+	'首先我们',
+	'首先我',
+	'现在我们',
+	'现在我需要',
+	'现在需要',
+	'现在我',
+	'接下来我们',
+	'接下来需要',
+	'接下来',
+	'下一步',
+	'下面',
+	'我们需要',
+	'我需要',
+	'我们得',
+	'我得',
+	'我们先',
+	'我先',
+	'让我们',
+	'让我',
+	'我们来',
+	'我来',
+	'我们会',
+	'我会'
+];
+const BODY_POLISH_ZH_FRAMES_BY_LENGTH = [...BODY_POLISH_ZH_FRAMES].sort(
+	(a, b) => b.length - a.length
+);
+
+/**
+ * R3 Chinese asker commentary at a clause start (start of the sentence or after
+ * a stop, so "所以用户可能希望…" keeps its 所以). 希望/想要 are desire framing, so
+ * the asker and the verb go together and the requirement itself leads. 需要 is
+ * the requirement, not a comment about the asker, so only "用户可能" is lifted
+ * and 需要 stays as the lead ("用户可能需要一个结构化的流程" → "需要一个结构化的流程").
+ * A fact about the task — 用户输入/用户选择/用户启动 — states what the task is and
+ * stays untouched.
+ */
+const BODY_POLISH_ZH_ASKER_RE =
+	/(^|[，,；;：:、]|所以|因此|但|但是|不过|而且|同时|另外|然后|并且|而)(?:用户可能|可能)(?:想要|希望)/u;
+const BODY_POLISH_ZH_NEED_RE =
+	/(^|[，,；;：:、]|所以|因此|但|但是|不过|而且|同时|另外|然后|并且|而)用户可能需要/u;
+
+/** R2 Chinese hedge: sentence start only — a medial 可能 carries meaning. */
+const BODY_POLISH_ZH_HEDGE_RE = /^(?:可能|也许|大概)\s*[,，、:：]?\s*/u;
+
+/** A function word that cannot open a sentence after a strip. */
+const BODY_POLISH_EN_FRAGMENT_START_RE =
+	/^(?:to|of|and|or|but|that|which|with|for|in|on|at|as|by|from|is|are|was|were|be)\b/iu;
+/** A particle that cannot open a sentence after a strip. */
+const BODY_POLISH_ZH_FRAGMENT_START_RE = /^[的了着过吗呢吧啊]|^(?:而|并|且|之|其)/u;
+
+type BodyPolishedStrip = { text: string; rule: BodyPolishRule };
+
+/** Counts Han characters in a candidate. */
+function hanCharCount(text: string): number {
+	let count = 0;
+	for (const char of text) {
+		if (CJK_RUN_RE.test(char)) {
+			count++;
+		}
+	}
+	return count;
+}
+
+/** Counts word-like English tokens, the unit the half-sentence guard uses. */
+function englishWordCount(text: string): number {
+	let count = 0;
+	for (const token of englishTokens(text)) {
+		if (/[\p{L}\p{N}]/u.test(token.text)) {
+			count++;
+		}
+	}
+	return count;
+}
+
+/**
+ * Restores the capital a deletion removed: "count arrangements of 6 people…"
+ * becomes "Count arrangements of 6 people…". Presentation only — the letter's
+ * case changes, no word is added, moved or replaced — and it only fires when the
+ * sentence as written opened on a capital, so a number, a quote or a code lead
+ * is left alone and a Chinese remainder is untouched.
+ */
+function restoreBodyLeadCapital(original: string, text: string): string {
+	if (!/^[A-Z]/u.test(original) || !/^[a-z]/u.test(text)) {
+		return text;
+	}
+	return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
+
+/** The end of the longest Chinese process frame that opens `text`, or null. */
+function matchChineseBodyFrame(text: string): number | null {
+	for (const frame of BODY_POLISH_ZH_FRAMES_BY_LENGTH) {
+		if (!text.startsWith(frame)) {
+			continue;
+		}
+		// The strip must end on a whole word: cutting inside 来自/要求 would eat
+		// the sentence's own verb.
+		if (segmentWords(text).some((segment) => segment.end === frame.length)) {
+			return frame.length;
+		}
+	}
+	return null;
+}
+
+/**
+ * One strip, the first rule that applies. R1 is tried first because it is
+ * anchored to the sentence start and names the framing that nests the others
+ * ("First, let me…").
+ */
+function stripBodyPolishPrefix(text: string, chinese: boolean): BodyPolishedStrip | null {
+	if (chinese) {
+		const frameEnd = matchChineseBodyFrame(text);
+		if (frameEnd !== null) {
+			const rest = text.slice(frameEnd).replace(/^[\s，,、；;：:]+/u, '');
+			if (rest && rest !== text) {
+				return { text: rest, rule: 'R1' };
+			}
+		}
+		const asker = BODY_POLISH_ZH_ASKER_RE.exec(text);
+		if (asker) {
+			const rest =
+				text.slice(0, asker.index) + asker[1] + text.slice(asker.index + asker[0].length);
+			if (rest && rest !== text) {
+				return { text: rest, rule: 'R3' };
+			}
+		}
+		const need = BODY_POLISH_ZH_NEED_RE.exec(text);
+		if (need) {
+			// The modal frame goes; 需要 itself is the requirement and stays.
+			const rest =
+				text.slice(0, need.index) + need[1] + '需要' + text.slice(need.index + need[0].length);
+			if (rest && rest !== text) {
+				return { text: rest, rule: 'R3' };
+			}
+		}
+		const hedge = BODY_POLISH_ZH_HEDGE_RE.exec(text);
+		if (hedge) {
+			const rest = text.slice(hedge[0].length);
+			if (rest && rest !== text) {
+				return { text: rest, rule: 'R2' };
+			}
+		}
+		return null;
+	}
+
+	for (const pattern of BODY_POLISH_EN_PREAMBLE_RES) {
+		const match = pattern.exec(text);
+		if (match?.[0]) {
+			const rest = text.slice(match[0].length).trimStart();
+			if (rest && rest !== text) {
+				return { text: rest, rule: 'R1' };
+			}
+		}
+	}
+	const asker = BODY_POLISH_EN_ASKER_RE.exec(text);
+	if (asker?.[0]) {
+		const rest = text.slice(asker[0].length).trimStart();
+		if (rest && rest !== text) {
+			return { text: rest, rule: 'R3' };
+		}
+	}
+	const hedge = BODY_POLISH_EN_HEDGE_LEAD_RE.exec(text);
+	if (hedge?.[0]) {
+		const rest = text.slice(hedge[0].length).trimStart();
+		if (rest && rest !== text) {
+			return { text: rest, rule: 'R2' };
+		}
+	}
+	const aside = text.replace(
+		BODY_POLISH_EN_HEDGE_ASIDE_RE,
+		(_match: string, lead: string, trail: string) =>
+			/\s$/u.test(lead) || /^\s/u.test(trail) ? ', ' : ','
+	);
+	if (aside !== text) {
+		return { text: aside, rule: 'R2' };
+	}
+	return null;
+}
+
+/**
+ * Whether a strip may stand: the remainder has to read as a sentence and keep
+ * the original's ending. Anything else is a fragment, and the original is
+ * returned instead.
+ */
+function bodyPolishRejection(
+	original: string,
+	polished: string,
+	chinese: boolean
+): BodyPolishRevert | null {
+	const text = polished.trim();
+	if (!text) {
+		return 'empty';
+	}
+	if (
+		chinese
+			? hanCharCount(text) < BODY_POLISH_ZH_MIN_CHARS
+			: englishWordCount(text) < BODY_POLISH_EN_MIN_WORDS
+	) {
+		return 'short';
+	}
+	if (
+		BODY_BAD_START_RE.test(text) ||
+		BODY_POLISH_EN_FRAGMENT_START_RE.test(text) ||
+		BODY_POLISH_ZH_FRAGMENT_START_RE.test(text)
+	) {
+		return 'start';
+	}
+	if (endsAsSentence(original) && !endsAsSentence(text)) {
+		return 'terminal';
+	}
+	if (hasBalancedBrackets(original) && !hasBalancedBrackets(text)) {
+		return 'brackets';
+	}
+	if (BODY_POLISH_SELF_EVAL_RE.test(text)) {
+		return 'self-eval';
+	}
+	return null;
+}
+
+/** Polishes one sentence of a body unit; its edge whitespace is kept. */
+function polishBodySpan(raw: string): BodyPolishOutcome {
+	const trimmed = raw.trim();
+	if (!trimmed) {
+		return { text: raw, rules: [], reverted: null };
+	}
+	// A verdict on the work has no trunk to keep; F1 does not rewrite it. Checked
+	// before the trigger gate, so the acceptance pass can count the refusal.
+	if (BODY_POLISH_SELF_EVAL_RE.test(trimmed)) {
+		return { text: raw, rules: [], reverted: 'self-eval' };
+	}
+	if (!BODY_POLISH_TRIGGER_RE.test(trimmed)) {
+		return { text: raw, rules: [], reverted: null };
+	}
+
+	const chinese = templateSpeaksChinese(trimmed);
+	const rules: BodyPolishRule[] = [];
+	let current = trimmed;
+	for (let pass = 0; pass < BODY_POLISH_MAX_PASSES; pass++) {
+		const strip = stripBodyPolishPrefix(current, chinese);
+		if (!strip) {
+			break;
+		}
+		current = strip.text;
+		if (!rules.includes(strip.rule)) {
+			rules.push(strip.rule);
+		}
+	}
+	if (current === trimmed) {
+		return { text: raw, rules: [], reverted: null };
+	}
+
+	const reverted = bodyPolishRejection(trimmed, current, chinese);
+	if (reverted) {
+		return { text: raw, rules, reverted };
+	}
+
+	const lead = raw.slice(0, raw.length - raw.trimStart().length);
+	const trail = raw.slice(raw.trimEnd().length);
+	return {
+		text: `${lead}${restoreBodyLeadCapital(trimmed, current.trim())}${trail}`,
+		rules,
+		reverted: null
+	};
+}
+
+/** Polishes every sentence of `text`; separators between sentences are kept. */
+function polishBodyTextOutcome(text: string): BodyPolishOutcome {
+	const trimmed = text.trim();
+	const selfEvaluation = trimmed !== '' && BODY_POLISH_SELF_EVAL_RE.test(trimmed);
+	if (!BODY_POLISH_TRIGGER_RE.test(text) && !selfEvaluation) {
+		return { text, rules: [], reverted: null };
+	}
+
+	let rebuilt = '';
+	let groupStart = 0;
+	let cursor = 0;
+	let previous = '';
+	const rules: BodyPolishRule[] = [];
+	let reverted: BodyPolishRevert | null = null;
+	const flush = (end: number) => {
+		if (end <= groupStart) {
+			return;
+		}
+		const outcome = polishBodySpan(text.slice(groupStart, end));
+		rebuilt += outcome.text;
+		for (const rule of outcome.rules) {
+			if (!rules.includes(rule)) {
+				rules.push(rule);
+			}
+		}
+		reverted ??= outcome.reverted;
+	};
+
+	for (const span of splitSentences(text)) {
+		const gap = text.slice(cursor, span.start);
+		// `splitSentences` also cuts at a Chinese comma. A comma clause is not a
+		// sentence start, so spans are grouped until a real stop or a newline:
+		// "我需要拆解…，分析…。" is one sentence, and only its first word opens it.
+		if (cursor > groupStart && (gap.includes('\n') || endsAsSentence(previous))) {
+			flush(span.start);
+			groupStart = span.start;
+		}
+		previous = span.text;
+		cursor = span.end;
+	}
+	flush(text.length);
+	return { text: rebuilt, rules, reverted };
+}
+
+/**
+ * The effective text of a candidate body sentence. The text is grouped into
+ * real sentences (a Chinese comma clause stays with its sentence) and polished
+ * one sentence at a time; every separator between sentences is copied through,
+ * so the sentence structure the scorer sees is exactly the structure the block
+ * was split into. Cached per input: the streaming path renders a draft once,
+ * but the repeat gate and the fill pass ask for the same sentence again.
+ */
+function polishBodyText(text: string): string {
+	const cached = bodyPolishCache.get(text);
+	if (cached) {
+		return cached.text;
+	}
+	const outcome = polishBodyTextOutcome(text);
+	if (bodyPolishCache.size >= BODY_POLISH_CACHE_LIMIT) {
+		bodyPolishCache.clear();
+	}
+	bodyPolishCache.set(text, outcome);
+	return outcome.text;
+}
+
+/**
+ * Polishes one candidate sentence and reports what fired. Exported for the
+ * rule-level tests: the pipeline only needs the text (`polishBodyText`), but the
+ * acceptance pass counts R1/R2/R3 per draft and the refusals by reason.
+ */
+export function polishReasoningBodySentence(text: string): BodyPolishOutcome {
+	const outcome = polishBodyTextOutcome(text);
+	return { text: outcome.text, rules: [...outcome.rules], reverted: outcome.reverted };
+}
+
+// ---------------------------------------------------------------------------
+// Body smoothing (F2 layer 3)
+//
+// The chosen sentences are read as one body, so its joins are fixed at assembly
+// time, after scoring:
+//
+// - the first sentence loses a leading connective ("But the count…" -> "The
+//   count…", "不过，每个文件需要…" -> "每个文件需要…"): nothing precedes it, so the
+//   join points at a thought the reader never saw. "Since"/"因为" stay — a causal
+//   premise carries the argument, only contrast, continuation and conclusion are
+//   empty. A strip that would leave a fragment is refused, like F1's;
+// - a non-final sentence loses 所以/因此 (and "so"), which read as the join back
+//   to the previous sentence; the final sentence keeps them, because the body
+//   ends on that join and the connective is what makes it read as a conclusion.
+//   A conclusion connective never opens the first sentence (the pair rule shows
+//   it last and the lead penalty leaves it alone), so the two rules cannot
+//   contradict each other;
+// - English regains the capital a strip removed. This runs in both layers (F1's
+//   per-candidate strip and this one), is idempotent, and never fires on a
+//   number, a quote or a code lead.
+//
+// Text scoping. Scoring still reads the candidate text — F1's polish, never the
+// smoothed body: a "So the answer is 720." candidate keeps its conclusion signal,
+// so the pair rule and the tail preference see what the model wrote. Smoothing is
+// a display step over the assembled body, a pure function of that text, so the
+// streaming preview and the settled body cannot disagree.
+// ---------------------------------------------------------------------------
+
+/** A presentation change the smoothing pass made, for the rule-level tests. */
+export type BodySmoothRule = 'connective' | 'mid';
+
+export type BodySmoothOutcome = {
+	/** The body as shown. */
+	text: string;
+	/** Rules that changed the text, deduplicated, in application order. */
+	rules: BodySmoothRule[];
+};
+
+/**
+ * Connectives the first sentence may lose. A word boundary keeps "Now" out of
+ * "Nowhere" and "So" out of "Source"; 不过 is guarded against 不过于, which is a
+ * comparative, not a contrast.
+ */
+const BODY_SMOOTH_LEAD_RE =
+	/^(?:(?:but|however|so|therefore|now)\b|于是|但是|然而|不过(?!于)|那么)\s*[,，、:：]?\s*/iu;
+
+/** Connectives a non-final sentence may lose: the join back to the previous one. */
+const BODY_SMOOTH_MID_RE = /^(?:(?:so)\b|因此|所以)\s*[,，、:：]?\s*/iu;
+
+/**
+ * What a smoothing strip may not leave in front: a conjunction that needs the
+ * clause it coordinated, or a bare particle. F1's list also refuses prepositions
+ * ("on most compilers", "at index 30-33"), which is right for a deleted subject
+ * and wrong here — those open a sentence properly, so the check is narrower.
+ */
+const BODY_SMOOTH_FRAGMENT_START_RE =
+	/^(?:and|or|but|that|which|because|then|also|however|therefore|so)\b|^[的了着过吗呢吧啊]|^(?:而|并|且|之|其)/iu;
+
+/**
+ * Real sentence groups of a body: `splitSentences` also cuts at a Chinese comma,
+ * but a comma clause is not a sentence start, so spans are grouped until a real
+ * stop or a newline — the same grouping `polishBodyTextOutcome` uses, kept here
+ * because smoothing must count sentences the way the reader does. A group that is
+ * only whitespace is dropped: the body is a joined string, so the separator
+ * between two sentences would otherwise take the first or the last slot and the
+ * real opening (or closing) sentence would be read as a middle one.
+ */
+function bodySentenceGroups(text: string): Array<{ start: number; end: number }> {
+	const groups: Array<{ start: number; end: number }> = [];
+	let start = 0;
+	let cursor = 0;
+	let previous = '';
+	for (const span of splitSentences(text)) {
+		if (
+			cursor > start &&
+			(text.slice(cursor, span.start).includes('\n') || endsAsSentence(previous))
+		) {
+			groups.push({ start, end: span.start });
+			start = span.start;
+		}
+		previous = span.text;
+		cursor = span.end;
+	}
+	groups.push({ start, end: text.length });
+	return groups.filter((group) => text.slice(group.start, group.end).trim() !== '');
+}
+
+/**
+ * One strip, or null when nothing applies or the remainder cannot stand. The
+ * rules delete only, so a refused strip leaves the sentence exactly as chosen.
+ */
+function stripBodySmoothPrefix(text: string, pattern: RegExp): string | null {
+	const match = pattern.exec(text);
+	if (!match?.[0]) {
+		return null;
+	}
+	const rest = text.slice(match[0].length);
+	if (!rest.trim() || rest === text) {
+		return null;
+	}
+	const trimmed = rest.trim();
+	const chinese = templateSpeaksChinese(text);
+	if (
+		chinese
+			? hanCharCount(trimmed) < BODY_POLISH_ZH_MIN_CHARS
+			: englishWordCount(trimmed) < BODY_POLISH_EN_MIN_WORDS
+	) {
+		return null;
+	}
+	if (BODY_BAD_START_RE.test(trimmed) || BODY_SMOOTH_FRAGMENT_START_RE.test(trimmed)) {
+		return null;
+	}
+	// The strip never touches the end, but a bracket opened before the removed
+	// connective must still be closed.
+	if (hasBalancedBrackets(text) && !hasBalancedBrackets(trimmed)) {
+		return null;
+	}
+	return rest;
+}
+
+function smoothBodyTextOutcome(text: string): BodySmoothOutcome {
+	if (!text.trim()) {
+		return { text, rules: [] };
+	}
+
+	const groups = bodySentenceGroups(text);
+	const rules: BodySmoothRule[] = [];
+	let rebuilt = '';
+	let cursor = 0;
+	for (let index = 0; index < groups.length; index++) {
+		const group = groups[index];
+		const raw = text.slice(group.start, group.end);
+		rebuilt += text.slice(cursor, group.start);
+		cursor = group.end;
+
+		const lead = raw.length - raw.trimStart().length;
+		const body = raw.slice(lead);
+		// The first sentence has nothing to continue; a middle one joins back to
+		// the previous sentence; the last one keeps its join as the conclusion.
+		const pattern =
+			index === 0 ? BODY_SMOOTH_LEAD_RE : index < groups.length - 1 ? BODY_SMOOTH_MID_RE : null;
+		let next = body;
+		if (pattern) {
+			const stripped = stripBodySmoothPrefix(body, pattern);
+			if (stripped !== null) {
+				next = stripped.trimStart();
+				const rule: BodySmoothRule = index === 0 ? 'connective' : 'mid';
+				if (!rules.includes(rule)) {
+					rules.push(rule);
+				}
+			}
+		}
+		rebuilt += raw.slice(0, lead) + restoreBodyLeadCapital(body, next);
+	}
+	rebuilt += text.slice(cursor);
+	return { text: rebuilt, rules };
+}
+
+/**
+ * The body as the reader sees it: dangling joins removed and English capitals
+ * restored. Exported for the rule-level tests; the pipeline applies it in
+ * `draftBody`, after the body has been chosen and cut.
+ */
+export function smoothReasoningBodyText(text: string): BodySmoothOutcome {
+	return smoothBodyTextOutcome(text);
+}
+
+/** The smoothed body text, the one value the pipeline renders. */
+function smoothBodyText(text: string): string {
+	return smoothBodyTextOutcome(text).text;
+}
 
 type BodySentence = {
 	index: number;
@@ -8369,6 +9205,72 @@ function applyFramingPenalty(score: number, text: string, conclusion: number): n
 	return next;
 }
 
+/**
+ * Topic words left once a meta frame, the register vocabulary and discourse glue
+ * are lifted. The frame's own words are read with the same tokenizer, so "总结下来"
+ * contributes 总结/下来 and not a topic.
+ */
+function bodyMetaTopicWords(text: string, frame: string): string[] {
+	const lifted = new Set<string>([
+		...contentWordTerms(frame),
+		...BODY_META_REGISTER_TERMS,
+		...BODY_META_DISCOURSE_TERMS
+	]);
+	return contentWordTerms(text).filter((term) => !lifted.has(term));
+}
+
+/**
+ * Points the perspective-sentence penalty takes off a candidate: zero for a
+ * sentence that opens anywhere else, or that opens on a profile/register frame
+ * but goes on to name the topic.
+ */
+function perspectiveMetaPenalty(text: string): number {
+	const trimmed = text.trim();
+	if (BODY_META_STATE_RE.test(trimmed)) {
+		return BODY_PENALTY_PERSPECTIVE_META;
+	}
+	const frame = BODY_META_FRAME_RE.exec(trimmed);
+	if (!frame) {
+		return 0;
+	}
+	return bodyMetaTopicWords(trimmed, frame[0]).length <= BODY_META_TOPIC_WORD_LIMIT
+		? BODY_PENALTY_PERSPECTIVE_META
+		: 0;
+}
+
+/** Whether the sentence's last third names a result. */
+function closesOnConclusion(text: string): boolean {
+	const trimmed = text.trim();
+	if (trimmed.length < 4) {
+		return false;
+	}
+	const window = Math.max(4, Math.ceil(trimmed.length * BODY_CONCLUSION_TAIL_SHARE));
+	return BODY_CONCLUSION_TAIL_RE.test(trimmed.slice(-window));
+}
+
+/** Whether the sentence opens on a connective a reader would expect to continue. */
+function opensWithBodyConnective(text: string): boolean {
+	return BODY_LEAD_CONNECTIVE_RE.test(text.trim());
+}
+
+/**
+ * The three layer-2 terms one candidate pays: `tail` adds, `meta` and `lead`
+ * take. Exported for the rule-level tests; the scorer reads exactly this, so a
+ * test can state the terms instead of reverse-engineering a body.
+ */
+export function reasoningBodyPreferences(text: string): {
+	tail: number;
+	meta: number;
+	lead: number;
+} {
+	const conclusion = conclusionSignal(text);
+	return {
+		tail: conclusion === 0 && closesOnConclusion(text) ? BODY_SCORE_CONCLUSION_TAIL : 0,
+		meta: perspectiveMetaPenalty(text),
+		lead: conclusion === 0 && opensWithBodyConnective(text) ? BODY_PENALTY_LEAD_CONNECTIVE : 0
+	};
+}
+
 /** One candidate sentence with its body score. */
 function scoreBodySentence(args: {
 	index: number;
@@ -8400,6 +9302,16 @@ function scoreBodySentence(args: {
 	score -= BODY_PENALTY_REPEAT * repeated;
 	score = applyOverLimitPenalty(score, text, tokenLimit);
 	score = applyFramingPenalty(score, text, conclusion);
+	// F2 preferences, appended last so every existing term accumulates in the
+	// same order it always has. The tail bonus and the opener penalty skip a
+	// sentence the conclusion terms already priced: a second pay for 所以/因此/So
+	// would demote the very sentence the pair rule then shows last, and the
+	// demotion costs a better pair (measured on corpus zh:6140 #1 and zh:27651 #0,
+	// where the flip also pushed the pair over the token budget).
+	const preferences = reasoningBodyPreferences(text);
+	score += preferences.tail;
+	score -= preferences.meta;
+	score -= preferences.lead;
 	return { index, text, bag, norm, score, conclusion };
 }
 
@@ -8412,7 +9324,11 @@ function showsRepeatedSentence(content: string, displayed: BodyContext['displaye
 	if (!displayed.length) {
 		return false;
 	}
-	return splitSentences(content).some((sentence) =>
+	// The digest is taken on the effective text, matching what a body registers
+	// when it is shown: a frame the polish layer removes must not hide a repeat.
+	// The whole prefix is polished first, so a comma clause is never mistaken for
+	// a sentence opening (which would strip a real 可能/hedge and change the bag).
+	return splitSentences(polishBodyText(content)).some((sentence) =>
 		restatesShownBody(bodyDigest(sentence.text), displayed)
 	);
 }
@@ -8449,10 +9365,14 @@ function collectBodyCandidates(args: {
 		if (isStructuralBodyLine(unit.text.trim())) {
 			continue;
 		}
-		const text = stripBodyMarkdown(unit.text).trim();
-		if (!isBodySentence(text)) {
+		const stripped = stripBodyMarkdown(unit.text).trim();
+		if (!isBodySentence(stripped)) {
 			continue;
 		}
+		// Membership is decided on the sentence as written; the polish layer only
+		// rewrites the effective text afterwards, so it can never add or drop a
+		// candidate (and `bodyWouldBeEmpty` keeps agreeing with this pass).
+		const text = polishBodyText(stripped);
 		const digest = bodyDigest(text);
 		candidates.push(
 			scoreBodySentence({
@@ -9021,14 +9941,22 @@ function draftBody(
 		bodyContext
 	);
 	if (extracted) {
-		return extracted;
+		// Selection and the repeat set read the candidate text; only what is shown
+		// is smoothed (F2 layer 3).
+		return { text: smoothBodyText(extracted.text), truncated: extracted.truncated };
 	}
-	const cut = truncateReasoningTokens(content, tokenLimit);
-	// A fallback body is on screen too: a later block must see it as a repeat.
-	if (cut.text) {
-		recordDisplayedBody(bodyContext.displayed, bodyDigest(cut.text));
+	// The fallback is the block's own prefix, so it carries the same process
+	// framing the candidates do. Polish it before the cut: the sentence frames
+	// and the asker commentary are gone from what the reader sees, and the cut
+	// still lands on the same sentence structure (polish never moves a boundary).
+	const cut = truncateReasoningTokens(polishBodyText(content), tokenLimit);
+	const text = smoothBodyText(cut.text);
+	// A fallback body is on screen too: a later block must see it as a repeat, and
+	// the digest is taken on the text as shown.
+	if (text) {
+		recordDisplayedBody(bodyContext.displayed, bodyDigest(text));
 	}
-	return cut;
+	return { text, truncated: cut.truncated };
 }
 
 /**
