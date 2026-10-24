@@ -1466,7 +1466,14 @@ function unpairedQuoteMarkPositions(text: string): Set<number> {
 // Stray marks at either edge of a title source: a marker or punctuation left
 // in front of the lead ("✓.", "!"), a heading marker that survived a broken
 // bold label ("**## Title **…"), or a truncated quote.
-const TITLE_EDGE_LEADING_MARKS_RE = /^[\s#.*_~…。！？；：，、;:!?,～\-—–"'“”‘’✓✗✔]+/u;
+//
+// The leading set also holds closers with no opener in the title: a block cut
+// mid-expression can start a span on the orphan `)` of `(1/u-1/v?)`. Sentence
+// splitting now keeps a bracketed group whole, so this case no longer reaches a
+// title, but an expansion window or a structural cut can still begin on a
+// leftover closer; a title that opens on one is noise, not a phrase. Only the
+// closers are listed: an opening bracket belongs to the expression it starts.
+const TITLE_EDGE_LEADING_MARKS_RE = /^[\s#.*_~…。！？；：，、;:!?,～\-—–"'“”‘’✓✗✔)\]})）】｝]+/u;
 const TITLE_EDGE_TRAILING_MARKS_RE = /[\s.*_~…。！？；：，、;:!?,～\-—–"'“”‘’✓✗✔]+$/u;
 
 /**
@@ -3322,10 +3329,22 @@ function isUsableLabelTitle(title: string): boolean {
 
 const CJK_RUN_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u;
 
-type SentenceSpan = { start: number; end: number; text: string };
+export type SentenceSpan = { start: number; end: number; text: string };
 
 const SENTENCE_END_CHARS = '。！？!?…；;';
 const SENTENCE_CLOSE_CHARS = '”"’\'）」』）';
+
+// A terminator inside brackets belongs to the bracketed expression, not to the
+// sentence: the `?` in `(1/u-1/v?)` is a stray mark inside a formula, and cutting
+// there leaves the closer to open the next span as an orphan. One depth counter
+// covers every pair, so `[x?]` and `(a (b? c) d)` nest without a stack; an
+// unmatched opener is forgotten at the newline, exactly like an open quote.
+// Full-width pairs are the CJK formulas' own brackets: `）` is also in the
+// terminator's closing-run set below, but there it only trails a terminator and
+// never acts as one; the other pairs appear in no terminator set, so the depth
+// bookkeeping lives only here.
+const SENTENCE_BRACKET_OPEN_CHARS = '([{（【｛';
+const SENTENCE_BRACKET_CLOSE_CHARS = ')]}）】｝';
 
 // "vs.", "e.g.", "Dr." — an abbreviation dot never ends a sentence or a title.
 // One helper for both passes, so they agree on where it ends.
@@ -3398,11 +3417,12 @@ function quoteClosesSentence(text: string, i: number, endChars: string): boolean
 }
 
 // The sentence scanner's moving state: the text being cut, the terminators it
-// honors, the quote currently open and the span being loaded.
+// honors, the quote currently open, the bracket depth and the span being loaded.
 type SentenceScan = {
 	text: string;
 	endChars: string;
 	quoteClose: string | null;
+	bracketDepth: number;
 	start: number;
 	sentences: SentenceSpan[];
 };
@@ -3412,15 +3432,24 @@ function closeSentenceAt(scan: SentenceScan, end: number): void {
 	scan.start = end;
 }
 
-// One unit of the scan — the quote state machine and the push decision — and
-// the index the loop continues from. Inside an open quote only its closer acts:
-// a newline ends the sentence and abandons the quote, so a stray open mark
-// cannot poison the lines after it.
+// One unit of the scan — the quote state machine, the bracket depth and the push
+// decision — and the index the loop continues from.
+//
+// Order of judgment: an open quote owns the scan, so brackets inside it are just
+// text ("(x" opens a quote with a bracket in it); a quote opened inside brackets
+// still owns the scan until it closes, but its closer never ends the sentence
+// while the depth is positive ("…(see "a?" here)…"). A newline ends the sentence
+// and abandons both the quote and the depth, so a stray opener cannot poison the
+// lines after it. Outside a quote, a bracket opener raises the depth, a closer
+// lowers it (never below zero, so an orphan closer stays ordinary text), and a
+// positive depth suppresses every terminator: bracketed punctuation is part of
+// the formula or enumeration it sits in. At depth zero the ordinary end-of-
+// sentence rules apply.
 function scanSentenceAt(scan: SentenceScan, i: number): number {
 	const char = scan.text[i];
 	if (scan.quoteClose) {
 		if (char === scan.quoteClose) {
-			if (quoteClosesSentence(scan.text, i, scan.endChars)) {
+			if (scan.bracketDepth === 0 && quoteClosesSentence(scan.text, i, scan.endChars)) {
 				closeSentenceAt(scan, i + 1);
 			}
 			scan.quoteClose = null;
@@ -3430,6 +3459,7 @@ function scanSentenceAt(scan: SentenceScan, i: number): number {
 			return i;
 		}
 		scan.quoteClose = null;
+		scan.bracketDepth = 0;
 		closeSentenceAt(scan, i + 1);
 		return i;
 	}
@@ -3440,7 +3470,21 @@ function scanSentenceAt(scan: SentenceScan, i: number): number {
 		return i;
 	}
 	if (char === '\n') {
+		scan.bracketDepth = 0;
 		closeSentenceAt(scan, i + 1);
+		return i;
+	}
+	if (SENTENCE_BRACKET_OPEN_CHARS.includes(char)) {
+		scan.bracketDepth++;
+		return i;
+	}
+	if (SENTENCE_BRACKET_CLOSE_CHARS.includes(char)) {
+		if (scan.bracketDepth > 0) {
+			scan.bracketDepth--;
+		}
+		return i;
+	}
+	if (scan.bracketDepth > 0) {
 		return i;
 	}
 	const end = endsSentenceAt(scan.text, i, scan.endChars);
@@ -3451,11 +3495,17 @@ function scanSentenceAt(scan: SentenceScan, i: number): number {
 	return end - 1;
 }
 
-function splitSentences(text: string): SentenceSpan[] {
+/**
+ * Cuts `text` into sentence spans; offsets point into `text`. Exported because
+ * this segmentation is the module's contract: terminator handling inside quotes
+ * and brackets decides which phrases a title can be built from.
+ */
+export function splitSentences(text: string): SentenceSpan[] {
 	const scan: SentenceScan = {
 		text,
 		endChars: CJK_RUN_RE.test(text) ? `${SENTENCE_END_CHARS}，` : SENTENCE_END_CHARS,
 		quoteClose: null,
+		bracketDepth: 0,
 		start: 0,
 		sentences: []
 	};
