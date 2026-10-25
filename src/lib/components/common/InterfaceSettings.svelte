@@ -101,6 +101,7 @@
 	let chatHoverPreview = true;
 	let renderMarkdownInPreviews = true;
 	let showChatTitleInTab = true;
+	let chatMessageRail = true;
 
 	let showFloatingActionButtons = true;
 	let floatingActionButtons: any = null;
@@ -382,6 +383,7 @@
 		keepReasoningAfterCompletion = currentSettings?.keepReasoningAfterCompletion ?? false;
 		chatHoverPreview = currentSettings?.chatHoverPreview ?? true;
 		renderMarkdownInPreviews = currentSettings?.renderMarkdownInPreviews ?? true;
+		chatMessageRail = currentSettings?.chatMessageRail ?? true;
 
 		landingPageMode = currentSettings?.landingPageMode ?? '';
 		chatBubble = currentSettings?.chatBubble ?? true;
@@ -998,6 +1000,29 @@
 			</p>
 		</div>
 	{/if}
+
+	<div>
+		<div class={settingRowClass}>
+			<div id="chat-message-rail-label" class={settingLabelClass}>
+				{$i18n.t('settings.personal.interface.chatMessageRail.label')}
+			</div>
+
+			<div class={settingControlClass}>
+				<Switch
+					tooltip={true}
+					ariaLabelledbyId="chat-message-rail-label"
+					bind:state={chatMessageRail}
+					inherited={isDefaultSetting('chatMessageRail')}
+					on:change={() => {
+						saveSettings({ chatMessageRail });
+					}}
+				/>
+			</div>
+		</div>
+		<p class={settingDescriptionClass}>
+			{$i18n.t('settings.personal.interface.chatMessageRail.description')}
+		</p>
+	</div>
 
 	{#if !chatBubble}
 		<div>

@@ -102,6 +102,7 @@ class InterfaceSettings(BaseModel):
     keepReasoningAfterCompletion: bool | None = None
     chatHoverPreview: bool | None = None
     renderMarkdownInPreviews: bool | None = None
+    chatMessageRail: bool | None = None
     chatBubble: bool | None = None
     widescreenMode: bool | None = None
     splitLargeChunks: bool | None = None

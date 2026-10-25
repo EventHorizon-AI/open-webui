@@ -367,6 +367,7 @@ type Settings = {
 	combineQueuedMessages?: boolean;
 	keyboardShortcuts?: boolean;
 	chatHoverPreview?: boolean;
+	chatMessageRail?: boolean;
 	chatFadeStreamingText?: boolean;
 	renderMarkdownInPreviews?: boolean;
 	renderMarkdownInUserMessages?: boolean;

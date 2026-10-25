@@ -11,6 +11,7 @@
 	import { getOutputText } from './Messages/structuredOutput';
 
 	import Message from './Messages/Message.svelte';
+	import MessageRail from './MessageRail.svelte';
 	import Loader from '../common/Loader.svelte';
 	import Spinner from '../common/Spinner.svelte';
 
@@ -54,6 +55,7 @@
 	export let bottomPadding = false;
 	export let autoScroll;
 	export let messagesContainerId = 'messages-container';
+	export let messageRail = false;
 
 	export let onSelect = (e) => {};
 	export let onInsertToNote: ((content: string) => void) | null = null;
@@ -554,6 +556,11 @@
 						{/each}
 					</ul>
 				</section>
+
+				{#if messageRail}
+					<MessageRail {messages} {messagesContainerId} />
+				{/if}
+
 				<div class="pb-18" />
 				{#if bottomPadding}
 					<div class="  pb-6" />

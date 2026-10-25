@@ -80,6 +80,7 @@
 	import {
 		createTemporaryChatId,
 		getChatIdFromLocation,
+		isSavedChatId,
 		isTemporaryChatId
 	} from '$lib/utils/chatId';
 	import {
@@ -5440,6 +5441,10 @@
 										bottomPadding={files.length > 0}
 										{onSelect}
 										{onInsertToNote}
+										messageRail={!embedded &&
+											!isShared &&
+											!$temporaryChatEnabled &&
+											isSavedChatId($chatId)}
 									/>
 								</div>
 							</div>
