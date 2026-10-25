@@ -74,7 +74,7 @@ export type OutputDisplayItem =
 			// interpreter, …); a run of reasoning alone stays flat. A content message
 			// only becomes a final answer when nothing after it can still be a tool
 			// step; a preceding run is folded here only when the output ends in a
-			// message.
+			// message; the output ending on anything else never folds.
 			type: 'process_group';
 			id: string;
 			items: OutputDisplayItem[];
@@ -496,7 +496,8 @@ export function buildOutputDisplayItems(
 	// group; a run of reasoning alone stays flat, since reasoning already renders
 	// as its own collapsible block. A run of pure content (the final answer) also
 	// stays flat. When a run does fold, the whole run — reasoning included — goes
-	// into the group. The response must end with a message before any run folds.
+	// into the group. The response must end with a message before anything folds;
+	// an output that ends on anything else stays flat entirely.
 	const flushProcess = () => {
 		flushDetails();
 		if (processItems.length === 0) {
