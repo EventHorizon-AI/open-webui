@@ -9,20 +9,23 @@
 		config,
 		terminalServers,
 		showControls,
+		showSidebar,
+		mobile,
+		openControlsForFeature,
+		closeControls,
 		showCallOverlay,
 		showArtifacts,
 		showEmbeds,
 		settings,
 		showFileNavPath,
 		selectedTerminalId,
-		user,
-		openControlsForFeature,
-		closeControls
+		user
 	} from '$lib/stores';
 
 	import Controls from './Controls/Controls.svelte';
 	import CallPanel from './MessageInput/CallPanel.svelte';
 	import Drawer from '../common/Drawer.svelte';
+	import MobileSwipePanel from '../common/MobileSwipePanel.svelte';
 	import ResizableSidePanel from '../common/ResizableSidePanel.svelte';
 	import Artifacts from './Artifacts.svelte';
 	import Embeds from './ChatControls/Embeds.svelte';
@@ -42,6 +45,7 @@
 
 	export let chatFiles = [];
 	export let params = {};
+	export let onParamChange: (key: string, value: unknown) => void = () => {};
 
 	export let bridge: import('$lib/utils/realtime').RealtimeCall;
 	export let callMode = 'current';
@@ -61,6 +65,7 @@
 	let dragged = false;
 	let mounted = false;
 	let controlsWidth = 350;
+	let viewportWidth = 0;
 
 	// Tab state for Controls+Files panel
 	let activeTab = savedTab;
@@ -88,6 +93,7 @@
 		$selectedTerminalId &&
 		(selectedSystemTerminalAvailable ||
 			(!selectedSystemTerminal &&
+				$config?.features?.enable_direct_integrations &&
 				($user?.role === 'admin' || ($user?.permissions?.features?.direct_tool_servers ?? true))))
 	);
 	$: showFilesTab =
@@ -105,7 +111,7 @@
 
 	// Auto-close if there are no visible tabs
 	$: if (!showControlsTab && !showFilesTab && !showOverviewTab) {
-		showControls.set(false);
+		closeControls();
 	}
 
 	// Auto-switch to Files tab when display_file is triggered
@@ -114,9 +120,7 @@
 		openControlsForFeature();
 	}
 
-	// Keep Files selected when a terminal is active and the user opted into
-	// opening the file browser on terminal select; opening the panel itself is
-	// handled by the selection UI.
+	// Keep Files selected when a terminal is active; opening the panel is handled by selection UI.
 	$: if (
 		$selectedTerminalId &&
 		terminalFilesAvailable &&
@@ -130,7 +134,10 @@
 		$selectedTerminalId &&
 		$terminalServers !== null &&
 		!($terminalServers ?? []).some((t) => t.id && t.id === $selectedTerminalId) &&
-		!($user?.role === 'admin' || ($user?.permissions?.features?.direct_tool_servers ?? true))
+		!(
+			$config?.features?.enable_direct_integrations &&
+			($user?.role === 'admin' || ($user?.permissions?.features?.direct_tool_servers ?? true))
+		)
 	) {
 		selectedTerminalId.set(null);
 	}
@@ -185,7 +192,7 @@
 			isDestroyed = true;
 			mounted = false;
 			if (!largeScreen) {
-				showControls.set(false);
+				closeControls();
 			}
 			mediaQuery.removeEventListener('change', handleMediaQuery);
 			document.removeEventListener('mousedown', onMouseDown);
@@ -195,7 +202,7 @@
 
 	const closeHandler = () => {
 		if (!largeScreen) {
-			showControls.set(false);
+			closeControls();
 		}
 		showArtifacts.set(false);
 		showEmbeds.set(false);
@@ -208,128 +215,147 @@
 	$: specialPanel = $showCallOverlay || $showArtifacts || $showEmbeds;
 </script>
 
+<svelte:window bind:innerWidth={viewportWidth} />
+
 {#if !largeScreen}
-	{#if $showControls}
-		<Drawer
-			show={$showControls}
-			onClose={closeControls}
-			className="min-h-[100dvh] !bg-white dark:!bg-gray-850"
-		>
-			<div class="h-[100dvh] flex flex-col">
-				{#if $showCallOverlay}
-					<div
-						class="h-full max-h-[100dvh] bg-white text-gray-700 dark:bg-black dark:text-gray-300 flex justify-center"
-					>
-						<CallPanel
-							{bridge}
-							bind:callMode
-							bind:files
-							{submitPrompt}
-							{stopResponse}
-							{modelId}
-							{chatId}
-							{eventTarget}
-							on:close={closeControls}
-						/>
-					</div>
-				{:else if $showEmbeds}
-					<Embeds />
-				{:else if $showArtifacts}
-					<Artifacts {history} />
-				{:else}
-					<!-- Controls + Files tabs -->
-					<div class="flex flex-col h-full min-h-0">
-						<!-- Tab bar -->
-						<div class="flex items-center justify-between px-2 pt-2 pb-2 shrink-0">
-							<div class="flex gap-1 min-w-0 overflow-x-auto scrollbar-hidden">
-								{#if showControlsTab}
-									<button
-										class="px-2.5 py-0.5 text-sm rounded-lg transition whitespace-nowrap {activeTab ===
-										'controls'
-											? 'bg-gray-100/40 dark:bg-gray-800/25 font-normal text-gray-700 dark:text-gray-200'
-											: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/30 dark:hover:bg-gray-800/20 hover:text-gray-600 dark:hover:text-gray-300'}"
-										on:click={() => (activeTab = 'controls')}
+	<MobileSwipePanel
+		open={$showControls}
+		enabled={$mobile}
+		side="right"
+		blocked={$showSidebar || (!showControlsTab && !showFilesTab && !showOverviewTab)}
+		startTarget="#chat-container"
+		width={viewportWidth}
+		onOpenChange={(open) => showControls.set(open)}
+		let:visible
+		let:panelStyle
+		let:backdropStyle
+	>
+		{#if visible}
+			<Drawer
+				show={true}
+				onClose={() => closeControls()}
+				onRequestClose={() => closeControls()}
+				panelStyle={$mobile ? panelStyle : ''}
+				backdropStyle={$mobile ? backdropStyle : ''}
+				swipeSide={$mobile ? 'right' : undefined}
+				className="min-h-[100dvh] !bg-white dark:!bg-gray-850"
+			>
+				<div class="h-[100dvh] flex flex-col">
+					{#if $showCallOverlay}
+						<div
+							class="h-full max-h-[100dvh] bg-white text-gray-700 dark:bg-black dark:text-gray-300 flex justify-center"
+						>
+							<CallPanel
+								{bridge}
+								bind:callMode
+								bind:files
+								{submitPrompt}
+								{stopResponse}
+								{modelId}
+								{chatId}
+								{eventTarget}
+								on:close={() => closeControls()}
+							/>
+						</div>
+					{:else if $showEmbeds}
+						<Embeds />
+					{:else if $showArtifacts}
+						<Artifacts {history} />
+					{:else}
+						<!-- Controls + Files tabs -->
+						<div class="flex flex-col h-full min-h-0">
+							<!-- Tab bar -->
+							<div class="flex items-center justify-between px-2 pt-2 pb-2 shrink-0">
+								<div class="flex gap-1 min-w-0 overflow-x-auto scrollbar-hidden">
+									{#if showControlsTab}
+										<button
+											class="px-2.5 py-0.5 text-sm rounded-lg transition whitespace-nowrap {activeTab ===
+											'controls'
+												? 'bg-gray-100/40 dark:bg-gray-800/25 font-normal text-gray-700 dark:text-gray-200'
+												: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/30 dark:hover:bg-gray-800/20 hover:text-gray-600 dark:hover:text-gray-300'}"
+											on:click={() => (activeTab = 'controls')}
+										>
+											{$i18n.t('Controls')}
+										</button>
+									{/if}
+									{#if showFilesTab}
+										<button
+											class="px-2.5 py-0.5 text-sm rounded-lg transition whitespace-nowrap {activeTab ===
+											'files'
+												? 'bg-gray-100/40 dark:bg-gray-800/25 font-normal text-gray-700 dark:text-gray-200'
+												: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/30 dark:hover:bg-gray-800/20 hover:text-gray-600 dark:hover:text-gray-300'}"
+											on:click={() => (activeTab = 'files')}
+										>
+											{$i18n.t('Files')}
+										</button>
+									{/if}
+									{#if showOverviewTab}
+										<button
+											class="px-2.5 py-0.5 text-sm rounded-lg transition whitespace-nowrap {activeTab ===
+											'overview'
+												? 'bg-gray-100/40 dark:bg-gray-800/25 font-normal text-gray-700 dark:text-gray-200'
+												: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/30 dark:hover:bg-gray-800/20 hover:text-gray-600 dark:hover:text-gray-300'}"
+											on:click={() => (activeTab = 'overview')}
+										>
+											{$i18n.t('Overview')}
+										</button>
+									{/if}
+								</div>
+								<button
+									class="p-1 rounded-lg text-gray-500 dark:text-gray-400"
+									on:click={() => closeControls()}
+									aria-label={$i18n.t('Close')}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="1.5"
+										class="size-4"
 									>
-										{$i18n.t('Controls')}
-									</button>
-								{/if}
-								{#if showFilesTab}
-									<button
-										class="px-2.5 py-0.5 text-sm rounded-lg transition whitespace-nowrap {activeTab ===
-										'files'
-											? 'bg-gray-100/40 dark:bg-gray-800/25 font-normal text-gray-700 dark:text-gray-200'
-											: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/30 dark:hover:bg-gray-800/20 hover:text-gray-600 dark:hover:text-gray-300'}"
-										on:click={() => (activeTab = 'files')}
-									>
-										{$i18n.t('Files')}
-									</button>
-								{/if}
-								{#if showOverviewTab}
-									<button
-										class="px-2.5 py-0.5 text-sm rounded-lg transition whitespace-nowrap {activeTab ===
-										'overview'
-											? 'bg-gray-100/40 dark:bg-gray-800/25 font-normal text-gray-700 dark:text-gray-200'
-											: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100/30 dark:hover:bg-gray-800/20 hover:text-gray-600 dark:hover:text-gray-300'}"
-										on:click={() => (activeTab = 'overview')}
-									>
-										{$i18n.t('Overview')}
-									</button>
+										<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+									</svg>
+								</button>
+							</div>
+
+							<div
+								class="flex-1 min-h-0 {activeTab === 'overview'
+									? 'h-full'
+									: activeTab === 'controls'
+										? 'overflow-y-auto px-3 pt-1'
+										: ''}"
+							>
+								{#if activeTab === 'overview'}
+									<Overview
+										{history}
+										{chatUser}
+										onNodeClick={(e) => {
+											const node = e.node;
+											showMessage(node.data.message, true);
+										}}
+									/>
+								{:else if activeTab === 'files' && terminalFilesAvailable && $selectedTerminalId}
+									<FileNav {onAskFile} {chatId} bind:terminalContext />
+								{:else if activeTab === 'files' && codeInterpreterEnabled}
+									<PyodideFileNav />
+								{:else}
+									<Controls embed={true} {models} bind:chatFiles bind:params {onParamChange} />
 								{/if}
 							</div>
-							<button
-								class="p-1 rounded-lg text-gray-500 dark:text-gray-400"
-								on:click={closeControls}
-								aria-label={$i18n.t('Close')}
-							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									viewBox="0 0 24 24"
-									fill="none"
-									stroke="currentColor"
-									stroke-width="1.5"
-									class="size-4"
-								>
-									<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-								</svg>
-							</button>
 						</div>
-
-						<div
-							class="flex-1 min-h-0 {activeTab === 'overview'
-								? 'h-full'
-								: activeTab === 'controls'
-									? 'overflow-y-auto px-3 pt-1'
-									: ''}"
-						>
-							{#if activeTab === 'overview'}
-								<Overview
-									{history}
-									{chatUser}
-									onNodeClick={(e) => {
-										const node = e.node;
-										showMessage(node.data.message, true);
-									}}
-								/>
-							{:else if activeTab === 'files' && terminalFilesAvailable && $selectedTerminalId}
-								<FileNav {onAskFile} {chatId} bind:terminalContext />
-							{:else if activeTab === 'files' && codeInterpreterEnabled}
-								<PyodideFileNav />
-							{:else}
-								<Controls embed={true} {models} bind:chatFiles bind:params />
-							{/if}
-						</div>
-					</div>
-				{/if}
-			</div>
-		</Drawer>
-	{/if}
+					{/if}
+				</div>
+			</Drawer>
+		{/if}
+	</MobileSwipePanel>
 {:else}
 	<ResizableSidePanel
 		open={$showControls}
 		bind:width={controlsWidth}
 		minWidth={350}
 		minSiblingWidth={360}
-		onClose={closeControls}
+		onClose={() => closeControls()}
 		storageKey="chatControlsSize"
 		className="h-full z-10 bg-white dark:bg-gray-900"
 	>
@@ -353,7 +379,7 @@
 							{modelId}
 							{chatId}
 							{eventTarget}
-							on:close={closeControls}
+							on:close={() => closeControls()}
 						/>
 					</div>
 				{:else if $showEmbeds}
@@ -402,7 +428,7 @@
 							</div>
 							<button
 								class="p-1 rounded-lg text-gray-500 dark:text-gray-400"
-								on:click={closeControls}
+								on:click={() => closeControls()}
 								aria-label={$i18n.t('Close')}
 							>
 								<svg
@@ -444,7 +470,7 @@
 							{:else if activeTab === 'files' && codeInterpreterEnabled}
 								<PyodideFileNav overlay={dragged} />
 							{:else}
-								<Controls embed={true} {models} bind:chatFiles bind:params />
+								<Controls embed={true} {models} bind:chatFiles bind:params {onParamChange} />
 							{/if}
 						</div>
 					</div>

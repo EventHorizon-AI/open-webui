@@ -990,6 +990,13 @@
 										placeholder={searchPlaceholder ?? $i18n.t('Search a model')}
 										autocomplete="off"
 										aria-label={$i18n.t('Search In Models')}
+										role="combobox"
+										aria-autocomplete="list"
+										aria-expanded={filteredItems.length + downloadTargets.length > 0}
+										aria-controls="model-selector-list"
+										aria-activedescendant={filteredItems.length + downloadTargets.length > 0
+											? `model-option-${selectedModelIdx}`
+											: undefined}
 										on:keydown={(e) => {
 											if (e.code === 'Enter') {
 												if (selectedModelIdx >= filteredItems.length) {
@@ -1071,6 +1078,16 @@
 								</div>
 							{/if}
 
+							<div class="sr-only" aria-live="polite" aria-atomic="true">
+								{#if sanitizedSearchValue}
+									{filteredItems.length === 0
+										? $i18n.t('No results found')
+										: filteredItems.length === 1
+											? $i18n.t('1 item')
+											: $i18n.t('{{count}} items', { count: filteredItems.length })}
+								{/if}
+							</div>
+
 							<div class="group relative flex min-h-0 flex-1 flex-col">
 								{#if filteredItems.length === 0}
 									{#if items.length === 0 && $user?.role === 'admin'}
@@ -1112,6 +1129,7 @@
 									<div
 										class="min-h-0 flex-1 overflow-y-auto"
 										style="max-height: 18rem;"
+										id="model-selector-list"
 										role="listbox"
 										aria-label={$i18n.t('Available models')}
 										bind:this={listContainer}
@@ -1305,10 +1323,17 @@
 							</div>
 
 							{#if showSetDefault}
-								<div class="flex shrink-0 items-center justify-end px-2 py-1 leading-none">
+								<div
+									class="flex shrink-0 items-center justify-end px-2 leading-none {($settings?.highContrastMode ??
+									false)
+										? ''
+										: 'py-1'}"
+								>
 									<button
 										type="button"
-										class="focus-ring text-[0.65rem] font-normal leading-none text-gray-500 underline-offset-2 transition-colors duration-100 hover:text-gray-700 hover:underline dark:text-gray-500 dark:hover:text-gray-300"
+										class="focus-ring {($settings?.highContrastMode ?? false)
+											? 'inline-flex min-h-6 items-center'
+											: ''} text-[0.65rem] font-normal leading-none text-gray-500 underline-offset-2 transition-colors duration-100 hover:text-gray-700 hover:underline dark:text-gray-500 dark:hover:text-gray-300"
 										on:click|stopPropagation={setDefaultHandler}
 									>
 										{$i18n.t('Set as default')}

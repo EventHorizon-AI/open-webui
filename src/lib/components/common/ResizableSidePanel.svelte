@@ -138,6 +138,9 @@
 			tabindex="0"
 			aria-label={$i18n.t('Resize panel')}
 			aria-orientation="vertical"
+			aria-valuenow={width}
+			aria-valuemin={minWidth}
+			aria-valuemax={maxWidth ?? undefined}
 		>
 			<span
 				class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"
@@ -161,6 +164,9 @@
 			tabindex="0"
 			aria-label={$i18n.t('Resize panel')}
 			aria-orientation="vertical"
+			aria-valuenow={width}
+			aria-valuemin={minWidth}
+			aria-valuemax={maxWidth ?? undefined}
 		>
 			<span
 				class="absolute -left-1.5 -right-1.5 -top-0 -bottom-0 z-20 cursor-col-resize bg-transparent"
