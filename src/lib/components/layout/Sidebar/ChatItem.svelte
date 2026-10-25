@@ -15,11 +15,16 @@
 </script>
 
 <script lang="ts">
+	import { visibleControls } from '$lib/stores';
 	import { toast } from 'svelte-sonner';
+	import dayjs, { getDayjsLocale } from '$lib/dayjs';
+	import relativeTime from 'dayjs/plugin/relativeTime';
 	import type { ChatParticipant } from '$lib/apis/folders';
 	import { goto, invalidate, invalidateAll } from '$app/navigation';
 	import { onMount, getContext, createEventDispatcher, tick } from 'svelte';
 	import { LinkPreview } from 'bits-ui';
+	import { readable, type Readable } from 'svelte/store';
+	import CheckIcon from '$lib/components/icons/Check.svelte';
 	import {
 		archiveChatById,
 		cloneChatById,
@@ -54,6 +59,7 @@
 	import ChatParticipants from '$lib/components/common/ChatParticipants.svelte';
 	import ChatIcon from './icons/Chat.svelte';
 	import MoreHorizontalIcon from './icons/MoreHorizontal.svelte';
+	import EditPencilIcon from './icons/EditPencil.svelte';
 	import SparklesIcon from './icons/Sparkles.svelte';
 	import ArchiveBoxIcon from '$lib/components/icons/ArchiveBox.svelte';
 	import GarbageBinIcon from '$lib/components/icons/GarbageBin.svelte';
@@ -61,6 +67,8 @@
 	import { createMessagesList } from '$lib/utils';
 	import { getChatIdFromLocation } from '$lib/utils/chatId';
 	import { getOutputText } from '$lib/components/chat/Messages/structuredOutput';
+
+	dayjs.extend(relativeTime);
 
 	const i18n = getContext('i18n');
 
@@ -71,6 +79,20 @@
 	const isCurrentChat = (id: string) => id === $chatId || id === getChatIdFromLocation();
 
 	const dispatch = createEventDispatcher();
+	const chatSelection = getContext<
+		| {
+				ids: Readable<Set<string>>;
+				busy: Readable<boolean>;
+				setAnchor: (id: string) => void;
+				select: (id: string, shift?: boolean) => void;
+		  }
+		| undefined
+	>('sidebar-chat-selection');
+	const selectedChatIds = chatSelection?.ids ?? readable(new Set<string>());
+	const selectionBusy = chatSelection?.busy ?? readable(false);
+	$: selecting = $selectedChatIds.size > 0;
+	$: multiSelected = $selectedChatIds.has(id);
+	$: if (selecting) openPreview = false;
 
 	export let className = '';
 
@@ -84,6 +106,8 @@
 	export let selected = false;
 	export let shiftKey = false;
 	export let readonly = false;
+	export let canMove = false;
+	export let canRename = false;
 
 	export let ownerName: string | null = null;
 	export let ownerUserId: string | null = null;
@@ -149,13 +173,19 @@
 		!active &&
 		(effectiveReadAt === null || (updatedAt !== null && updatedAt > effectiveReadAt));
 	$: showInlineActions =
-		id === $chatId || confirmEdit || mouseOver || focusWithin || menuOpen || selected;
+		id === $chatId ||
+		confirmEdit ||
+		mouseOver ||
+		focusWithin ||
+		menuOpen ||
+		selected ||
+		multiSelected;
 	$: chatItemClass = ` w-full flex justify-between rounded-xl px-2 py-1.5 ${
 		id === $chatId || confirmEdit
 			? ($settings?.highContrastMode ?? false)
 				? 'bg-black/[0.035] dark:bg-white/[0.06] selected'
 				: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
-			: selected
+			: selected || multiSelected
 				? ($settings?.highContrastMode ?? false)
 					? 'bg-black/[0.035] dark:bg-white/[0.055] selected'
 					: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
@@ -166,6 +196,15 @@
 
 	const selectChatHandler = (event?: MouseEvent) => {
 		openPreview = false;
+		if (event && chatSelection && !event.metaKey && !event.ctrlKey && !event.altKey) {
+			if (event.shiftKey || selecting) {
+				event.preventDefault();
+				event.stopPropagation();
+				if (!readonly) chatSelection.select(id, event.shiftKey);
+				return;
+			}
+			chatSelection.setAnchor(id);
+		}
 		dispatch('select');
 
 		if ($selectedFolder) {
@@ -184,7 +223,7 @@
 	};
 
 	const renameChatFromDoubleClick = async (e: MouseEvent) => {
-		if (readonly) return;
+		if ((readonly && !canRename) || selecting || e.shiftKey) return;
 		e.preventDefault();
 		e.stopPropagation();
 
@@ -218,12 +257,17 @@
 	let chatTitle = title;
 
 	const editChatTitle = async (id, title) => {
-		if (title === '') {
+		title = title?.trim();
+		if (!title) {
 			toast.error($i18n.t('Title cannot be an empty string.'));
 		} else {
-			await updateChatById(localStorage.token, id, {
+			const res = await updateChatById(localStorage.token, id, {
 				title: title
+			}).catch((error) => {
+				toast.error(`${error}`);
+				return null;
 			});
+			if (!res) return;
 
 			if (id === $chatId) {
 				_chatTitle.set(title);
@@ -547,15 +591,28 @@
 			dir="auto"
 			class="text-left self-center overflow-hidden w-full h-5 truncate {unread
 				? 'font-normal text-gray-800 dark:text-gray-200'
-				: ''} {($mobile || showInlineActions) && !readonly ? 'pr-12' : ''}"
+				: ''} {($mobile || showInlineActions) && (!readonly || canRename) && !selecting
+				? 'pr-12'
+				: ''}"
 		>
 			{title}
 		</div>
 	</div>
 
+	{#if updatedAt ?? createdAt}
+		<span class="sr-only">
+			{dayjs(((updatedAt ?? createdAt) as number) * 1000)
+				.locale(getDayjsLocale($i18n.language))
+				.fromNow()}
+		</span>
+	{/if}
+
 	<!-- Time ago indicator -->
-	{#if (updatedAt ?? createdAt) && !showInlineActions && !($mobile && !readonly)}
-		<div class="shrink-0 self-center text-[0.625rem] text-gray-400 dark:text-gray-500 pl-2">
+	{#if (updatedAt ?? createdAt) && !showInlineActions && !($mobile && (!readonly || canRename))}
+		<div
+			class="shrink-0 self-center text-[0.625rem] text-gray-400 dark:text-gray-500 pl-2"
+			aria-hidden="true"
+		>
 			{formatTimeAgo((updatedAt ?? createdAt) as number)}
 		</div>
 	{/if}
@@ -591,9 +648,11 @@
 <!-- svelte-ignore a11y-no-static-element-interactions -->
 <div
 	id="sidebar-chat-group"
+	data-sidebar-chat-id={id}
+	data-sidebar-chat-readonly={readonly}
 	bind:this={itemElement}
 	class=" w-full {className} relative group"
-	draggable={!confirmEdit && !readonly}
+	draggable={!confirmEdit && (!readonly || canMove) && !selecting}
 	on:mouseenter={() => {
 		mouseOver = true;
 	}}
@@ -614,7 +673,7 @@
 				? ($settings?.highContrastMode ?? false)
 					? 'bg-black/[0.035] dark:bg-white/[0.06] selected'
 					: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
-				: selected
+				: selected || multiSelected
 					? ($settings?.highContrastMode ?? false)
 						? 'bg-black/[0.035] dark:bg-white/[0.055] selected'
 						: 'bg-black/[0.035] dark:bg-white/[0.045] selected'
@@ -648,6 +707,21 @@
 		</div>
 	{:else}
 		<div id="sidebar-chat-item" class={chatItemClass}>
+			{#if selecting}
+				<button
+					type="button"
+					role="checkbox"
+					aria-checked={multiSelected}
+					disabled={readonly || $selectionBusy}
+					aria-label={$i18n.t('Select {{name}}', { name: title })}
+					class="mr-2 flex size-3.5 shrink-0 self-center items-center justify-center rounded border disabled:opacity-40 {multiSelected
+						? 'border-gray-900 bg-gray-900 text-white dark:border-gray-200 dark:bg-gray-200 dark:text-gray-900'
+						: 'border-gray-300 dark:border-gray-600'}"
+					on:click|stopPropagation={(event) => chatSelection?.select(id, event.shiftKey)}
+				>
+					{#if multiSelected}<CheckIcon className="size-2.5" strokeWidth="2" />{/if}
+				</button>
+			{/if}
 			{#if ownerUserId || participants.length > 1}
 				<div class="flex items-center self-center shrink-0 mr-2">
 					<ChatParticipants
@@ -673,7 +747,11 @@
 				<LinkPreview.Root
 					openDelay={300}
 					closeDelay={0}
-					disabled={confirmEdit || dragged || !($settings?.chatHoverPreview ?? true)}
+					disabled={confirmEdit ||
+						dragged ||
+						selecting ||
+						shiftKey ||
+						!($settings?.chatHoverPreview ?? true)}
 					bind:open={openPreview}
 					onOpenChange={(open) => {
 						if (open) {
@@ -705,7 +783,7 @@
 		</div>
 	{/if}
 
-	{#if !readonly}
+	{#if (!readonly || canRename) && !selecting}
 		<div
 			id="sidebar-chat-item-menu"
 			class="{$mobile
@@ -716,7 +794,20 @@
 				? 'right-[0.5rem]'
 				: 'right-1'} inset-y-0 mr-1.5 flex items-center"
 		>
-			{#if confirmEdit}
+			{#if readonly}
+				{#if !confirmEdit}
+					<Tooltip content={$i18n.t('Rename')} className="flex self-center z-10 items-end">
+						<button
+							type="button"
+							aria-label={$i18n.t('Rename')}
+							class="flex size-5 items-center justify-center self-center dark:hover:text-white transition"
+							on:click={renameHandler}
+						>
+							<EditPencilIcon className="size-3.5" strokeWidth="1.5" />
+						</button>
+					</Tooltip>
+				{/if}
+			{:else if confirmEdit}
 				<div
 					class="flex self-center items-center space-x-1.5 z-10 translate-y-[0.5px] -translate-x-[0.5px]"
 				>
@@ -733,20 +824,22 @@
 						</button>
 					</Tooltip>
 				</div>
-			{:else if shiftKey && mouseOver}
+			{:else if shiftKey && mouseOver && !chatSelection}
 				<div class=" flex items-center self-center space-x-1.5">
-					<Tooltip content={$i18n.t('Archive')} className="flex items-center">
-						<button
-							class="flex size-5 items-center justify-center self-center dark:hover:text-white transition disabled:cursor-not-allowed"
-							disabled={archiving}
-							on:click={() => {
-								archiveChatHandler(id);
-							}}
-							type="button"
-						>
-							<ArchiveBoxIcon className="size-3.5" strokeWidth="1.7" />
-						</button>
-					</Tooltip>
+					{#if $visibleControls['chat.archive']}
+						<Tooltip content={$i18n.t('Archive')} className="flex items-center">
+							<button
+								class="flex size-5 items-center justify-center self-center dark:hover:text-white transition disabled:cursor-not-allowed"
+								disabled={archiving}
+								on:click={() => {
+									archiveChatHandler(id);
+								}}
+								type="button"
+							>
+								<ArchiveBoxIcon className="size-3.5" strokeWidth="1.7" />
+							</button>
+						</Tooltip>
+					{/if}
 
 					{#if $user?.role === 'admin' || ($user?.permissions?.chat?.delete ?? true)}
 						<Tooltip content={$i18n.t('Delete')}>
@@ -797,7 +890,9 @@
 						<button
 							type="button"
 							aria-label={$i18n.t('Chat Menu')}
-							class="flex size-5 items-center justify-center self-center dark:hover:text-white transition m-0"
+							class="flex {($settings?.highContrastMode ?? false)
+								? 'size-6'
+								: 'size-5'} items-center justify-center self-center dark:hover:text-white transition m-0"
 						>
 							<MoreHorizontalIcon className="size-3.5" strokeWidth="2" />
 						</button>

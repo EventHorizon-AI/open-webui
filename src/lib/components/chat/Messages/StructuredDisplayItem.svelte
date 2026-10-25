@@ -12,6 +12,7 @@
 	import Collapsible from '$lib/components/common/Collapsible.svelte';
 	import ToolCallDisplay from '$lib/components/common/ToolCallDisplay.svelte';
 	import ReasoningDisplay from '$lib/components/common/ReasoningDisplay.svelte';
+	import ContextCompactionLabel from './ContextCompactionLabel.svelte';
 	import TerminalOutputFile from './TerminalOutputFile.svelte';
 	import { resolveChatMessageToolCall } from '$lib/apis/chats';
 	import { settings } from '$lib/stores';
@@ -379,6 +380,8 @@
 	{#if displayItem.item?.displayed || $settings?.terminalFileDisplay === 'inline'}
 		<TerminalOutputFile item={displayItem.item} {chatId} />
 	{/if}
+{:else if displayItem.type === 'context_compaction'}
+	<ContextCompactionLabel summary={displayItem.summary} {compactPreview} />
 {:else if (displayItem.type === 'detail_group' && !detailGroupSingleToken) || displayItem.type === 'process_group'}
 	<!-- The group held nothing but reasoning, which "summary only" hides once the
 	     message is done (unless "show reasoning after completion" keeps it), so

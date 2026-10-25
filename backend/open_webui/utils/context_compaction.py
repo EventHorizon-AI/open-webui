@@ -142,6 +142,10 @@ async def compact_messages_for_request(
                     'action': 'context_compaction',
                     'description': 'Context compacted',
                     'done': True,
+                    'checkpoint_message_id': (
+                        recent_messages[0].get('id') if recent_messages[0].get('role') == 'user' else None
+                    ),
+                    'context_summary': summary,
                 },
             }
         )
@@ -401,6 +405,11 @@ def _find_compaction_boundary(messages: list[dict], retention_percentage: int = 
         # too few tool blocks): fall back to the last whole-turn boundary below
         # so the run still compacts. Turn-level cuts carry no tool-call anchor,
         # so callers must not emit a mid-turn output marker for them.
+    else:
+        # The first later user turn stays a valid boundary even inside the retained share.
+        target = max(
+            target, min([idx for idx, message in enumerate(messages) if message.get('role') == 'user'][1:], default=0)
+        )
     return _last_boundary_at_or_before(
         [idx for idx, message in enumerate(messages) if message.get('role') == 'user'][1:]
     )

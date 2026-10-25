@@ -9,7 +9,7 @@
 	import ArrowUpTray from '$lib/components/icons/ArrowUpTray.svelte';
 	import Link from '$lib/components/icons/Link.svelte';
 	import Pencil from '$lib/components/icons/Pencil.svelte';
-	import { config, pinnedModels, showSettings, user } from '$lib/stores';
+	import { config, pinnedModels, showSettings, user, visibleControls } from '$lib/stores';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
 
 	const i18n = getContext('i18n');
@@ -138,32 +138,34 @@
 				<hr class="border-gray-50 dark:border-gray-800/30 mx-1 my-0.5" />
 			{/if}
 
-			<button
-				type="button"
-				aria-pressed={$pinnedModels.includes(model?.id)}
-				class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
-				on:click={(e) => {
-					e.stopPropagation();
-					e.preventDefault();
+			{#if $visibleControls['models.pin']}
+				<button
+					type="button"
+					aria-pressed={$pinnedModels.includes(model?.id)}
+					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+					on:click={(e) => {
+						e.stopPropagation();
+						e.preventDefault();
 
-					pinModelHandler(model?.id);
-					show = false;
-				}}
-			>
-				{#if $pinnedModels.includes(model?.id)}
-					<PinSlash className="size-3" />
-				{:else}
-					<Pin className="size-3" />
-				{/if}
-
-				<div class="flex items-center">
+						pinModelHandler(model?.id);
+						show = false;
+					}}
+				>
 					{#if $pinnedModels.includes(model?.id)}
-						{$i18n.t('Hide from Sidebar')}
+						<PinSlash className="size-3" />
 					{:else}
-						{$i18n.t('Keep in Sidebar')}
+						<Pin className="size-3" />
 					{/if}
-				</div>
-			</button>
+
+					<div class="flex items-center">
+						{#if $pinnedModels.includes(model?.id)}
+							{$i18n.t('Hide from Sidebar')}
+						{:else}
+							{$i18n.t('Keep in Sidebar')}
+						{/if}
+					</div>
+				</button>
+			{/if}
 
 			<button
 				type="button"
