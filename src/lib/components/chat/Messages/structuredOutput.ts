@@ -579,10 +579,14 @@ export function buildOutputDisplayItems(
 		}
 
 		if (item.type === 'open_webui:context_compaction') {
+			// The divider folds into the process group with the narration and details
+			// around it, so buffer it like any other process item; only the detail
+			// runs need to settle first. StructuredDisplayItem renders buffered
+			// context_compaction items through its own recursive branch.
 			flushDetails();
-			displayItems.push({
+			processItems.push({
 				type: 'context_compaction',
-				id: item.id ?? `context-compaction-${index}`,
+				id: item.id ?? nextId('context-compaction'),
 				summary: typeof item.summary === 'string' ? item.summary : ''
 			});
 			return;
