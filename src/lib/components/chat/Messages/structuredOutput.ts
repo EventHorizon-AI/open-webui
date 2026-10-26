@@ -436,6 +436,42 @@ export function getDetailCallCount(tokens: OutputDetailToken[] = []): number {
 }
 
 /**
+ * Mid-turn compaction appends its output marker at the moment the summary is
+ * ready, but the marker chains to the oldest tool call that survived the cut
+ * (`call_id`). Relocate the marker right above that call so the dashed line
+ * marks the actual context boundary instead of trailing the rounds that were
+ * emitted after the compaction ran. Markers without an anchor in this output
+ * keep their original position.
+ */
+function anchorCompactionMarkers(output: OutputItem[]): OutputItem[] {
+	const markerCount = output.filter(
+		(item) => item?.type === 'open_webui:context_compaction' && item.call_id
+	).length;
+	if (!markerCount) {
+		return output;
+	}
+
+	const anchored = [...output];
+	for (const marker of output.filter(
+		(item) => item?.type === 'open_webui:context_compaction' && item.call_id
+	)) {
+		const markerIndex = anchored.indexOf(marker);
+		const anchorIndex = anchored.findIndex(
+			(item) =>
+				item?.type === 'function_call' &&
+				(item.call_id === marker.call_id || item.id === marker.call_id)
+		);
+		// Only an earlier anchor is meaningful: the append position otherwise
+		// already sits above the retained call.
+		if (markerIndex >= 0 && anchorIndex >= 0 && anchorIndex < markerIndex) {
+			anchored.splice(markerIndex, 1);
+			anchored.splice(anchorIndex, 0, marker);
+		}
+	}
+	return anchored;
+}
+
+/**
  * `group` mirrors the message lifecycle: while a reply is still streaming the
  * caller passes `false`, so the run renders the way it always did (narrated
  * content inline, consecutive details folded into a plain `detail_group`) and
@@ -446,6 +482,8 @@ export function buildOutputDisplayItems(
 	forceInlineFiles = false,
 	group = true
 ): OutputDisplayItem[] {
+	output = anchorCompactionMarkers(output);
+
 	const displayItems: OutputDisplayItem[] = [];
 	// Details and narration accumulate here until it is known whether the run ends
 	// in a final answer or keeps going through more tool steps.
