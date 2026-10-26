@@ -4,15 +4,26 @@
 	import type { i18n as i18nType } from 'i18next';
 
 	import { settings } from '$lib/stores';
-	import { buildExcerptHtml, excerptText, truncateText } from '$lib/utils/message-rail';
+	import {
+		buildExcerptHtml,
+		collectRailResponseParts,
+		excerptText,
+		truncateText,
+		type RailOutputMessage
+	} from '$lib/utils/message-rail';
+	import Markdown from './Messages/Markdown.svelte';
 
 	type RailMessage = {
 		id?: string;
 		role?: string;
+		done?: boolean;
+		content?: unknown;
+		output?: unknown[] | null;
 	};
 
 	export let messages: RailMessage[] = [];
 	export let containerId = 'messages-container';
+	export let chatId = '';
 
 	const i18n: Writable<i18nType> = getContext('i18n');
 
@@ -63,8 +74,11 @@
 	let previewTop = 0;
 	let previewRole = 'Assistant';
 	let promptText = '';
-	let snippetHtml = '';
-	let snippetFallback = '';
+	let responseParts: string[] = [];
+	let responseDone = true;
+	let responseMessageId = '';
+	let responseHtml = '';
+	let responseText = '';
 	let outputs: string[] = [];
 	let moreOutputs = 0;
 	let previewDirty = true;
@@ -89,6 +103,7 @@
 		messageById = nextMessages;
 		resolveItemIds();
 		draw();
+		schedulePreviewRefresh();
 	}
 
 	let logObserver: MutationObserver | null = null;
@@ -100,20 +115,26 @@
 		logObserver = new MutationObserver((records) => {
 			previewDirty = true;
 			if (records.some((record) => record.target === log)) scheduleBuild();
-			if (hovered >= 0 && !previewRefresh) {
-				previewRefresh = window.setTimeout(() => {
-					previewRefresh = 0;
-					if (hovered >= 0 && previewVisible) {
-						previewDirty = true;
-						showPreview(hovered, markerClientY(hovered));
-					}
-				}, 120);
-			}
+			if (hovered >= 0) schedulePreviewRefresh();
 		});
 
 		sizeObserver = new ResizeObserver(scheduleBuild);
 		pageObserver = new MutationObserver(scheduleSync);
 		themeObserver = new MutationObserver(draw);
+	}
+
+	// While a preview is open the streamed message keeps changing, so its data
+	// (and with it the markdown excerpt) is re-collected a beat after each
+	// update instead of on every token.
+	function schedulePreviewRefresh() {
+		if (hovered < 0 || previewRefresh) return;
+		previewRefresh = window.setTimeout(() => {
+			previewRefresh = 0;
+			if (hovered >= 0 && previewVisible) {
+				previewDirty = true;
+				showPreview(hovered, markerClientY(hovered));
+			}
+		}, 120);
 	}
 
 	function portal(node: HTMLElement) {
@@ -476,8 +497,26 @@
 			190
 		);
 
-		snippetHtml = buildExcerptHtml(contentOf(responseItem, 'Assistant'));
-		snippetFallback = responseItem ? $i18n.t('No text response') : $i18n.t('No response yet');
+		// The assistant preview is built from the message data itself: every
+		// message output item no process group wraps (collected by
+		// `collectRailResponseParts`), rendered as markdown below. Tool calls,
+		// reasoning, code runs and compaction markers never enter the preview.
+		// When the rail cannot tie the item to a message it falls back to
+		// quoting the rendered DOM.
+		const responseId = responseItem ? itemIds[responseIndex] : '';
+		const responseMessage = responseId ? messageById.get(responseId) : null;
+		responseText = responseItem ? $i18n.t('No text response') : $i18n.t('No response yet');
+		if (responseMessage) {
+			responseParts = collectRailResponseParts(responseMessage as RailOutputMessage);
+			responseDone = responseMessage.done !== false;
+			responseMessageId = responseId;
+			responseHtml = '';
+		} else {
+			responseParts = [];
+			responseDone = true;
+			responseMessageId = '';
+			responseHtml = buildExcerptHtml(contentOf(responseItem, 'Assistant'));
+		}
 
 		collectOutputs(promptItem, responseItem);
 	}
@@ -909,16 +948,32 @@
 					<div class="mb-1.5 line-clamp-2 font-semibold whitespace-pre-wrap">{promptText}</div>
 				{/if}
 
-				<div
-					class="max-h-40 overflow-hidden text-xs leading-normal [&_blockquote]:my-1 [&_blockquote]:border-s-2 [&_blockquote]:border-white/25 [&_blockquote]:ps-2 [&_code]:font-mono [&_code]:text-[0.95em] [&_h3]:my-1 [&_h3]:text-xs [&_h3]:font-semibold [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:ps-4 [&_p]:mb-1 [&_pre]:my-1 [&_pre]:rounded-md [&_pre]:bg-white/5 [&_pre]:p-1.5 [&_pre]:text-[11px] [&_pre]:leading-snug [&_pre]:break-words [&_pre]:whitespace-pre-wrap [&_table]:w-full [&_table]:table-fixed [&_table]:border-collapse [&_table]:text-[11px] [&_td]:truncate [&_td]:border-b [&_td]:border-white/15 [&_td]:p-1 [&_td]:text-start [&_th]:truncate [&_th]:border-b [&_th]:border-white/15 [&_th]:p-1 [&_th]:text-start [&_ul]:my-1 [&_ul]:list-disc [&_ul]:ps-4"
-				>
-					{#if snippetHtml}
+				{#if responseParts.length}
+					<div class="max-h-40 overflow-hidden space-y-2">
+						{#each responseParts as part, partIndex (partIndex)}
+							<div
+								class="[&_p]:mb-1 [&_ul]:my-1 [&_ul]:list-disc [&_ul]:ps-4 [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:ps-4 [&_blockquote]:my-1 [&_blockquote]:border-s-2 [&_blockquote]:border-white/25 [&_blockquote]:ps-2 [&_h1]:my-1 [&_h1]:text-sm [&_h1]:font-semibold [&_h2]:my-1 [&_h2]:text-sm [&_h2]:font-semibold [&_h3]:my-1 [&_h3]:text-xs [&_h3]:font-semibold [&_h4]:my-1 [&_h4]:text-xs [&_h4]:font-semibold"
+							>
+								<Markdown
+									id={`rail-preview-${responseMessageId}-${partIndex}`}
+									{chatId}
+									messageId={responseMessageId}
+									content={part}
+									done={responseDone}
+								/>
+							</div>
+						{/each}
+					</div>
+				{:else if responseHtml}
+					<div
+						class="max-h-40 overflow-hidden text-xs leading-normal [&_blockquote]:my-1 [&_blockquote]:border-s-2 [&_blockquote]:border-white/25 [&_blockquote]:ps-2 [&_code]:font-mono [&_code]:text-[0.95em] [&_h3]:my-1 [&_h3]:text-xs [&_h3]:font-semibold [&_ol]:my-1 [&_ol]:list-decimal [&_ol]:ps-4 [&_p]:mb-1 [&_pre]:my-1 [&_pre]:rounded-md [&_pre]:bg-white/5 [&_pre]:p-1.5 [&_pre]:text-[11px] [&_pre]:leading-snug [&_pre]:break-words [&_pre]:whitespace-pre-wrap [&_table]:w-full [&_table]:table-fixed [&_table]:border-collapse [&_table]:text-[11px] [&_td]:truncate [&_td]:border-b [&_td]:border-white/15 [&_td]:p-1 [&_td]:text-start [&_th]:truncate [&_th]:border-b [&_th]:border-white/15 [&_th]:p-1 [&_th]:text-start [&_ul]:my-1 [&_ul]:list-disc [&_ul]:ps-4"
+					>
 						<!-- eslint-disable-next-line svelte/no-at-html-tags -- excerpt markup is built from a tag whitelist and escaped text -->
-						{@html snippetHtml}
-					{:else}
-						{snippetFallback}
-					{/if}
-				</div>
+						{@html responseHtml}
+					</div>
+				{:else}
+					{responseText}
+				{/if}
 
 				{#if outputs.length}
 					<div class="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-gray-400">

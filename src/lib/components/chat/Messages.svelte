@@ -558,7 +558,7 @@
 				</section>
 
 				{#if messageRail}
-					<MessageRail {messages} {messagesContainerId} />
+					<MessageRail {messages} {messagesContainerId} {chatId} />
 				{/if}
 
 				<div class="pb-18" />

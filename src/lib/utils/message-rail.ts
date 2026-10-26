@@ -1,3 +1,8 @@
+import {
+	buildOutputDisplayItems,
+	type OutputItem
+} from '$lib/components/chat/Messages/structuredOutput';
+
 const EXCERPT_TAGS = new Set([
 	'P',
 	'BR',
@@ -118,4 +123,95 @@ export function excerptText(html: string): string {
 export function truncateText(value: string, maxLength: number): string {
 	if (value.length <= maxLength) return value;
 	return `${value.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+type RailOutputItem = {
+	type?: string;
+	id?: string;
+	content?: unknown;
+	[key: string]: unknown;
+};
+
+type RailOutputMessage = {
+	done?: boolean;
+	content?: unknown;
+	output?: RailOutputItem[] | null;
+	[key: string]: unknown;
+};
+
+export type { RailOutputItem, RailOutputMessage };
+
+/**
+ * Strips every top-level `<details>…</details>` block (legacy reasoning, tool
+ * call and code-interpreter wrappers) from stored message content.
+ */
+export function stripDetailsBlocks(content: string): string {
+	const openTag = '<details';
+	const closeTag = '</details>';
+	const kept: string[] = [];
+
+	let remaining = content;
+	while (remaining) {
+		const start = remaining.indexOf(openTag);
+		if (start === -1) {
+			kept.push(remaining);
+			break;
+		}
+
+		kept.push(remaining.slice(0, start));
+
+		let depth = 1;
+		let index = start + openTag.length;
+		while (depth > 0 && index < remaining.length) {
+			if (remaining.startsWith(openTag, index)) depth++;
+			else if (remaining.startsWith(closeTag, index)) depth--;
+			if (depth > 0) index++;
+		}
+
+		if (depth === 0) {
+			remaining = remaining.slice(index + closeTag.length);
+			// The block is followed by a line break in storage; drop it too so the
+			// plain content before and after joins without a stray blank line.
+			if (remaining.startsWith('\n')) remaining = remaining.slice(1);
+		} else {
+			// Unmatched opening tag: keep the rest as plain text.
+			kept.push(remaining.slice(start));
+			remaining = '';
+		}
+	}
+
+	return kept.join('');
+}
+
+/**
+ * The markdown-only response shown in the rail preview: every `message` output
+ * item that is NOT wrapped in a process group. Narrated messages join the
+ * process group once the reply is done, so while it streams (or when the run
+ * holds no groupable detail at all) all message items show up; tool calls,
+ * reasoning, code runs, files and compaction markers are excluded either way.
+ * Legacy content falls back to the stored markdown with `<details>` blocks
+ * stripped.
+ */
+export function collectRailResponseParts(message: RailOutputMessage | null | undefined): string[] {
+	if (!message) return [];
+
+	if (Array.isArray(message.output) && message.output.length > 0) {
+		const displayItems = buildOutputDisplayItems(
+			message.output as OutputItem[],
+			false,
+			message.done !== false
+		);
+		const parts: string[] = [];
+		for (const item of displayItems) {
+			if (item.type === 'message' && item.text?.trim()) parts.push(item.text);
+		}
+		return parts;
+	}
+
+	if (typeof message.content === 'string' && message.content.trim()) {
+		const stripped = stripDetailsBlocks(message.content);
+		if (stripped.trim()) return [stripped];
+	}
+
+	return [];
 }
