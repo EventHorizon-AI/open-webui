@@ -150,7 +150,7 @@ async def compact_messages_for_request(
                     'description': 'Context compacted',
                     'done': True,
                     'checkpoint_message_id': (
-                        recent_messages[0].get('id') if recent_messages[0].get('role') == 'user' else None
+                        checkpoint_message_id if recent_messages[0].get('role') == 'user' else None
                     ),
                     'context_summary': summary,
                 },
