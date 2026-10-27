@@ -913,6 +913,7 @@
 
 	let showCodeInterpreterButton = false;
 	$: showCodeInterpreterButton =
+		!$selectedTerminalId &&
 		selectedModelIds.length === codeInterpreterCapableModels.length &&
 		$config?.features?.enable_code_interpreter &&
 		($_user.role === 'admin' || $_user?.permissions?.features?.code_interpreter);
