@@ -647,9 +647,13 @@
 
 	<div>
 		<div class={settingRowClass}>
-			<div id="compact-generation-info-label" class={settingLabelClass}>
+			<label
+				id="compact-generation-info-label"
+				class={settingLabelClass}
+				for="compact-generation-info-label-control"
+			>
 				{$i18n.t('settings.personal.interface.compactGenerationInfo.label')}
-			</div>
+			</label>
 
 			<div class={settingControlClass}>
 				<Switch
@@ -670,9 +674,13 @@
 
 	<div>
 		<div class={settingRowClass}>
-			<div id="use-chat-title-as-tab-title-label" class={settingLabelClass}>
+			<label
+				id="use-chat-title-as-tab-title-label"
+				class={settingLabelClass}
+				for="use-chat-title-as-tab-title-label-control"
+			>
 				{$i18n.t('settings.personal.interface.displayChatTitleInTab.label')}
-			</div>
+			</label>
 
 			<div class={settingControlClass}>
 				<Switch
@@ -858,9 +866,13 @@
 	{#if enableMessageQueue}
 		<div>
 			<div class={settingRowClass}>
-				<div id="combine-queued-messages-label" class={settingLabelClass}>
+				<label
+					id="combine-queued-messages-label"
+					class={settingLabelClass}
+					for="combine-queued-messages-label-control"
+				>
 					{$i18n.t('Combine Queued Messages')}
-				</div>
+				</label>
 
 				<div class={settingControlClass}>
 					<Switch
@@ -1003,9 +1015,13 @@
 
 	<div>
 		<div class={settingRowClass}>
-			<div id="chat-message-rail-label" class={settingLabelClass}>
+			<label
+				id="chat-message-rail-label"
+				class={settingLabelClass}
+				for="chat-message-rail-label-control"
+			>
 				{$i18n.t('settings.personal.interface.chatMessageRail.label')}
-			</div>
+			</label>
 
 			<div class={settingControlClass}>
 				<Switch
@@ -1537,9 +1553,13 @@
 
 	<div>
 		<div class={settingRowClass}>
-			<div id="reasoning-summary-only-label" class={settingLabelClass}>
+			<label
+				id="reasoning-summary-only-label"
+				class={settingLabelClass}
+				for="reasoning-summary-only-label-control"
+			>
 				{$i18n.t('settings.personal.interface.reasoningPreviewOnly.label')}
-			</div>
+			</label>
 
 			<div class={settingControlClass}>
 				<Switch
@@ -1561,9 +1581,13 @@
 	{#if reasoningPreviewOnly}
 		<div>
 			<div class={settingRowClass}>
-				<div id="keep-reasoning-after-completion-label" class={settingLabelClass}>
+				<label
+					id="keep-reasoning-after-completion-label"
+					class={settingLabelClass}
+					for="keep-reasoning-after-completion-label-control"
+				>
 					{$i18n.t('settings.personal.interface.keepReasoningAfterCompletion.label')}
-				</div>
+				</label>
 
 				<div class={settingControlClass}>
 					<Switch
@@ -1585,9 +1609,13 @@
 
 	<div>
 		<div class={settingRowClass}>
-			<div id="chat-hover-preview-label" class={settingLabelClass}>
+			<label
+				id="chat-hover-preview-label"
+				class={settingLabelClass}
+				for="chat-hover-preview-label-control"
+			>
 				{$i18n.t('settings.personal.interface.chatHoverPreviews.label')}
-			</div>
+			</label>
 
 			<div class={settingControlClass}>
 				<Switch
