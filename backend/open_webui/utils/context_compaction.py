@@ -16,6 +16,10 @@ log = logging.getLogger(__name__)
 
 BASE64_DATA_URI_RE = re.compile(r'data:[\w/+.;=%-]*;base64,[A-Za-z0-9+/=]*')
 
+# Begin compacting once the context reaches this share of the configured
+# threshold, leaving headroom for the summary itself before real overflow.
+COMPACTION_TRIGGER_RATIO = 0.9
+
 DEFAULT_CONTEXT_COMPACTION_PROMPT = """### Task:
 Summarize the conversation above that will be compacted out of the active chat context.
 
@@ -54,10 +58,13 @@ async def compact_messages_for_request(
     previous_summary = checkpoint_summary or previous_summary or existing_conversation_summary(system_messages)
     system_prompt = system_prompt or (get_content_from_message(system_messages[0]) if system_messages else '')
     token_threshold = _resolve_token_threshold(config['token_threshold'], config['token_cap'], metadata)
+    # Compaction starts early: at COMPACTION_TRIGGER_RATIO of the configured
+    # threshold, so the context is summarized before it fully overflows.
+    trigger_threshold = max(1, int(token_threshold * COMPACTION_TRIGGER_RATIO))
     # The tool loop knows the provider's real prompt size, which the local
     # estimate can miss (tool schemas, chat template, images); trust it when given.
-    over_threshold = _exceeds_token_threshold(messages, system_prompt, previous_summary, token_threshold) or (
-        prompt_tokens is not None and prompt_tokens > token_threshold
+    over_threshold = _exceeds_token_threshold(messages, system_prompt, previous_summary, trigger_threshold) or (
+        prompt_tokens is not None and prompt_tokens > trigger_threshold
     )
     if not over_threshold or len(messages) <= 3:
         return [*system_messages, *messages], checkpoint_summary, False
