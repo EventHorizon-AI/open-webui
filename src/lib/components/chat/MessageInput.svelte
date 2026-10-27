@@ -573,6 +573,8 @@
 			: `${contextTokens} ${$i18n.t('tokens')}`
 		: $i18n.t('unknown');
 	$: contextBarPercent = contextHasThreshold ? Math.min(contextPercent, 100) : 0;
+	// Mirrors the context ring shown on the /compact slash command row.
+	$: contextCircleOffset = 50.27 * (1 - contextBarPercent / 100);
 
 	const getCommand = () => {
 		const chatInput = document.getElementById('chat-input');
@@ -2763,6 +2765,42 @@
 								</div>
 
 								<div class="self-end flex space-x-1 mr-1 min-w-0 gap-[0.03125rem]">
+									{#if contextHasThreshold}
+										<Tooltip
+											content={contextValue}
+											placement="top"
+											tippyOptions={{ hideOnClick: false }}
+										>
+											<span
+												aria-label={$i18n.t('Context usage')}
+												class="app-icon-muted self-center flex items-center justify-center w-4 h-4 shrink-0"
+											>
+												<svg class="size-3.5 -rotate-90" viewBox="0 0 20 20" aria-hidden="true">
+													<circle
+														cx="10"
+														cy="10"
+														r="8"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														class="opacity-20"
+													/>
+													<circle
+														cx="10"
+														cy="10"
+														r="8"
+														fill="none"
+														stroke="currentColor"
+														stroke-width="2"
+														stroke-linecap="round"
+														stroke-dasharray="50.27"
+														style={`stroke-dashoffset: ${contextCircleOffset};`}
+													/>
+												</svg>
+											</span>
+										</Tooltip>
+									{/if}
+
 									<div class="flex min-w-0 max-w-[16rem] items-center sm:max-w-[24rem]">
 										<ModelSelector
 											bind:this={modelSelector}

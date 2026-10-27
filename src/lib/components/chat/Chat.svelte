@@ -2843,6 +2843,11 @@
 			currentId: null
 		};
 
+		// Drop the previous chat's context snapshot so the usage indicator on a
+		// fresh chat starts hidden instead of showing the old chat's percent.
+		serverContextUsage = null;
+		chatContextUsage.set(null);
+
 		chatFiles = [];
 		params = {};
 		chatVariables = {};
