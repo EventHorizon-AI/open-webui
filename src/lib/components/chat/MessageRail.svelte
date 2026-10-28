@@ -55,6 +55,9 @@
 	let railScrollable = false;
 	let railPositioned = false;
 	let railTop = 0;
+	let railAnchorTop = -1;
+	let railAnchorHeight = -1;
+	let railCenterOffset = 0;
 	let railLeft = 0;
 	let railHeight = 0;
 	let hovered = -1;
@@ -213,6 +216,9 @@
 		railVisible = false;
 		railScrollable = false;
 		railPositioned = false;
+		railAnchorTop = -1;
+		railAnchorHeight = -1;
+		railCenterOffset = 0;
 		previewVisible = false;
 		previewPositioned = false;
 		items = [];
@@ -342,8 +348,21 @@
 			Math.max(28, items.length * markerStep)
 		);
 
+		// The status panel and the task list above the input squeeze the message
+		// list from below; recentering the rail on every change would bounce it
+		// up and down as they appear and disappear. Keep the offset the rail was
+		// centered with and only re-anchor it when the container's top or the
+		// rail height genuinely changes.
+		const centered = (available - height) / 2;
+		if (!railPositioned || box.top !== railAnchorTop || railAnchorHeight !== height) {
+			railCenterOffset = centered;
+			railAnchorTop = box.top;
+			railAnchorHeight = height;
+		}
+		railCenterOffset = Math.min(railCenterOffset, Math.max(0, available - height));
+
 		railVisible = true;
-		railTop = availableTop + (available - height) / 2;
+		railTop = availableTop + railCenterOffset;
 		railLeft = Math.max(
 			box.left + 4,
 			Math.min(box.right - railWidth - inset, window.innerWidth - railWidth - 8)
