@@ -2097,7 +2097,11 @@ function stripTrailingDanglingWord(text: string): string {
 // Cleans a title source and reports whether it abridges what it covers. The body
 // uses that to keep the original text instead of skipping it.
 function cleanTitleSource(raw: string): { title: string; abridged: boolean } {
-	let text = stripInlineMarkdown(raw.replace(/^>\s?/, ''));
+	// Bracket marks come off before anything else: content between them may be
+	// the block's topic and is kept as written, but the marks themselves are
+	// removed before the title is extracted, so no opener can lose its closer
+	// to a cut or a later cleanup and surface half of a bracket pair.
+	let text = stripTitleBrackets(stripInlineMarkdown(raw.replace(/^>\s?/, '')));
 
 	// Stray marks in front of a lead ("✓.", "!") would hide the framing behind
 	// them; a heading marker that survived a broken bold label is a stray mark
@@ -2337,6 +2341,17 @@ function mapOutsideMath(text: string, transform: (prose: string) => string): str
 		last = range.end;
 	}
 	return result + transform(text.slice(last));
+}
+
+// Bracket marks never appear in a finished title: content between them may be
+// selected as the topic and is kept as written, but the marks themselves come
+// off before the title is extracted, so an opener can never lose its closer to
+// a cut or a later cleanup and surface half of a bracket pair. Math spans are
+// left whole — "\\(x\\)" keeps its LaTeX delimiters until stripMathDelimiters
+// resolves them — and the spacing the removal leaves collapses.
+function stripTitleBrackets(text: string): string {
+	const stripped = mapOutsideMath(text, (prose) => prose.replace(/[([{（【)\]}）】]/gu, ' '));
+	return stripped.replace(/\s+/gu, ' ').trim();
 }
 
 // Quote pairs an inline quote may use. An apostrophe is never one of them: it
@@ -4633,25 +4648,22 @@ function quotedTitle(source: string): string | null {
 	return Array.from(title).length >= TITLE_MIN_CHARS ? title : null;
 }
 
-// A width cut or a clause cut can leave a bracket without its closer: everything
-// from the first unclosed opener on is dropped.
+// A title's bracket marks were already removed before it was extracted (the
+// cleaning runs first on every source), so a bracket that survives to this
+// point is an artifact of a path that skipped the cleaning or of a composed
+// phrase — never a pair someone still expects to close. The marks come off
+// wholesale, the words they held stay, the spacing collapses, and no title
+// can reach the renderer carrying half of a bracket pair.
 function dropUnclosedBrackets(title: string): string {
-	const openers: number[] = [];
-	for (let i = 0; i < title.length; i++) {
-		const char = title[i];
-		if ('([{（【'.includes(char)) {
-			openers.push(i);
-		} else if (')]}）】'.includes(char)) {
-			openers.pop();
-		}
-	}
-
-	if (openers.length === 0) {
+	if (!/[([{（【)\]}）】]/u.test(title)) {
 		return title;
 	}
 
-	const kept = title.slice(0, openers[0]).trimEnd();
-	return Array.from(kept).length >= TITLE_MIN_CHARS ? kept : title;
+	const stripped = title
+		.replace(/[([{（【)\]}）】]/gu, ' ')
+		.replace(/\s+/gu, ' ')
+		.trim();
+	return Array.from(stripped).length >= TITLE_MIN_CHARS ? stripped : title;
 }
 
 // Markers that make a sentence or title read like a formula ("f(x) = …", "x²",
