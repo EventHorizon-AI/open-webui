@@ -64,7 +64,7 @@
 	let largeScreen = false;
 	let dragged = false;
 	let mounted = false;
-	let controlsWidth = 350;
+	let controlsWidth = 300;
 	let viewportWidth = 0;
 
 	// Tab state for Controls+Files panel
@@ -168,7 +168,7 @@
 	};
 
 	onMount(() => {
-		const mediaQuery = window.matchMedia('(min-width: 1024px)');
+		const mediaQuery = window.matchMedia('(min-width: 768px)');
 		mediaQuery.addEventListener('change', handleMediaQuery);
 		handleMediaQuery(mediaQuery);
 
@@ -353,7 +353,7 @@
 	<ResizableSidePanel
 		open={$showControls}
 		bind:width={controlsWidth}
-		minWidth={350}
+		minWidth={300}
 		minSiblingWidth={360}
 		onClose={() => closeControls()}
 		storageKey="chatControlsSize"

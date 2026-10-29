@@ -170,7 +170,7 @@
 
 		const nextContainer = document.getElementById(containerId);
 		const nextLog = nextContainer?.querySelector(
-			'section[aria-labelledby="chat-conversation"] > ul[role="log"]'
+			'section[aria-labelledby="chat-conversation"] div[role="log"] > ul'
 		) as HTMLElement | null;
 
 		if (!nextContainer || !nextLog) {

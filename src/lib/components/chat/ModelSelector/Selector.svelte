@@ -11,7 +11,7 @@
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { flyAndScale } from '$lib/utils/transitions';
 
-	import { createEventDispatcher, onMount, getContext, tick } from 'svelte';
+	import { onMount, getContext, tick } from 'svelte';
 	import { fly } from 'svelte/transition';
 
 	import { deleteModel, getOllamaVersion, pullModel } from '$lib/apis/ollama';
@@ -56,11 +56,11 @@
 	import ModelControlsMenu from './ModelControlsMenu.svelte';
 
 	const i18n: any = getContext('i18n');
-	const dispatch = createEventDispatcher();
 
 	export let id = '';
 	export let value: string | null = '';
 	export let values: string[] | null = null;
+	export let onModelSelect: (models: string[]) => void = () => {};
 	export let compareEnabled = false;
 	export let multipleEnabled = false;
 	export let disabled = false;
@@ -416,6 +416,7 @@
 		if (!enabled && values) {
 			values = [primaryValue || selectedValues[0] || ''];
 			value = values[0];
+			onModelSelect(values);
 		}
 	};
 
@@ -432,11 +433,13 @@
 
 				values = nextValues.length ? nextValues : [item.value];
 				value = values[0];
+				onModelSelect(values);
 				return;
 			}
 
 			values = [item.value];
 			value = item.value;
+			onModelSelect(values);
 			show = false;
 			window.setTimeout(focusChatInput, 0);
 			return;
@@ -1142,7 +1145,7 @@
 										{#each filteredItems.slice(visibleStart, visibleEnd) as item, i (item.value)}
 											{@const index = visibleStart + i}
 											<ModelItem
-												{selectedModelIdx}
+												bind:selectedModelIdx
 												{item}
 												{index}
 												value={primaryValue}

@@ -271,7 +271,7 @@
 
 		speaking = true;
 
-		if ($config.audio.tts.engine === '') {
+		if ($config.audio.tts.engine === '' && $settings.audio?.tts?.engine !== 'browser-kokoro') {
 			let voices = [];
 			const getVoicesLoop = setInterval(() => {
 				voices = speechSynthesis.getVoices();
@@ -1211,7 +1211,7 @@
 									</Tooltip>
 								{/if}
 
-								{#if message.usage && $visibleControls['chat.usage']}
+								{#if Object.keys(message.usage ?? {}).some((key) => key !== 'incomplete') && $visibleControls['chat.usage']}
 									<Tooltip elementId="generation-info-{message.id}" placement="bottom">
 										<button
 											aria-hidden="true"
