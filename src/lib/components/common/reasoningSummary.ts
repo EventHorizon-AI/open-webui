@@ -8305,6 +8305,13 @@ const BODY_FILL_MIN_SCORE = -7;
 /** A body sentence ends on a sentence mark, never on a comma or a colon. */
 const BODY_TERMINAL_RE = /[.。！？!?…]$/u;
 const BODY_CLOSING_MARKS_RE = /["'”’）)\]】」』]+$/u;
+/**
+ * The marks a complete body sentence may end on. The same set `BODY_TERMINAL_RE`
+ * tests, listed per character because the `.` case needs more than a class: a
+ * body sentence has to end on a real stop, never on an abbreviation or a number
+ * (`endsOnFullSentenceMark`).
+ */
+const BODY_FULL_SENTENCE_MARKS = '。！？!?…';
 
 /**
  * A clause that continues something before it: a Chinese comma split often
@@ -8967,6 +8974,14 @@ type BodySentence = {
 	index: number;
 	/** The sentence as written, markdown already stripped. */
 	text: string;
+	/**
+	 * The source span of the unit this sentence came from. Only the separators
+	 * between chosen sentences are read back from it (`joinBetweenSentences`):
+	 * the effective `text` is polished and no longer maps onto the source, so
+	 * these offsets are never used to cut or slice a sentence.
+	 */
+	srcStart: number;
+	srcEnd: number;
 	/** Content-word bag used for the cross-block similarity. */
 	bag: ReadonlyMap<string, number>;
 	norm: number;
@@ -8980,7 +8995,12 @@ type BodyContext = {
 	displayed: Array<{ bag: ReadonlyMap<string, number>; norm: number }>;
 };
 
-/** A reading unit of a block: joined clauses that read as one sentence. */
+/**
+ * A reading unit of a block: joined clauses that read as one sentence. `start`
+ * and `end` are the trimmed span's offsets, so `end` sits exactly past the last
+ * sentence mark (closing marks included) — `joinBetweenSentences` relies on that
+ * to read only what the block wrote between two units.
+ */
 type BodyUnit = { start: number; end: number; text: string; centrality: number };
 
 /** A content-word bag; numbers weigh more because they name a fact. */
@@ -9012,10 +9032,43 @@ function bodyDigest(text: string): { bag: Map<string, number>; norm: number } {
 	return bodyBag(bodySimilarityTerms(text));
 }
 
-/** Whether `text` ends as a complete sentence (a closing mark may follow). */
+/**
+ * Whether `text` ends on some terminal mark (a closing mark may follow). This is
+ * the tolerant form: clause merging and the smooth layer only need to know that a
+ * mark closed the text, so an abbreviation dot counts. Body admission uses the
+ * stricter `endsOnFullSentenceMark`.
+ */
 function endsAsSentence(text: string): boolean {
 	const trimmed = text.trim().replace(BODY_CLOSING_MARKS_RE, '');
 	return BODY_TERMINAL_RE.test(trimmed);
+}
+
+/**
+ * Whether `text` ends on a full sentence mark: `。！？!?…` or a real `.`. Stricter
+ * than `endsAsSentence`, which only asks for a terminal character and therefore
+ * also accepts an abbreviation ("… in Fig.") or a number tail ("… amount 10.") —
+ * exactly the fragment a midline cut leaves behind. Chinese comma clauses never
+ * reach this check unmerged: `collectBodyUnits` joins clauses up to a sentence
+ * mark first, so this only guards what is admitted as body material.
+ */
+function endsOnFullSentenceMark(text: string): boolean {
+	const trimmed = text.trim().replace(BODY_CLOSING_MARKS_RE, '');
+	const last = trimmed.at(-1);
+	if (!last) {
+		return false;
+	}
+	if (BODY_FULL_SENTENCE_MARKS.includes(last)) {
+		return true;
+	}
+	if (last !== '.') {
+		return false;
+	}
+	const index = trimmed.length - 1;
+	// A dot right after a digit is a decimal or a numbered tail, not a stop.
+	if (/\d/u.test(trimmed[index - 1] ?? '')) {
+		return false;
+	}
+	return !isAbbreviationDot(trimmed, index);
 }
 
 /** Conclusion strength of a sentence, in [0, 1]. */
@@ -9189,7 +9242,9 @@ function hasBalancedBrackets(text: string): boolean {
 /**
  * Whether a sentence can stand as a body sentence. Code, a table row, a bare list
  * marker, a formula fragment, a lone discourse marker and a sentence cut before
- * its end are not body material.
+ * its end are not body material. The end check is the strict one
+ * (`endsOnFullSentenceMark`): the body never emits a sentence that stops on an
+ * abbreviation or a number, because the splitter would have cut it short.
  */
 function isBodySentence(text: string): boolean {
 	const trimmed = text.trim();
@@ -9205,7 +9260,7 @@ function isBodySentence(text: string): boolean {
 	if (isFormulaFragmentTitle(trimmed) || isCodeLikeTitle(trimmed)) {
 		return false;
 	}
-	if (!endsAsSentence(trimmed)) {
+	if (!endsOnFullSentenceMark(trimmed)) {
 		return false;
 	}
 	if (BODY_BAD_START_RE.test(trimmed) || BODY_FRAGMENT_OPENER_RE.test(trimmed)) {
@@ -9389,6 +9444,11 @@ export function reasoningBodyPreferences(text: string): {
 function scoreBodySentence(args: {
 	index: number;
 	text: string;
+	/**
+	 * The unit the sentence came from: only its span is kept, so the assembly
+	 * step can read the separator the block wrote between two chosen sentences.
+	 */
+	unit: BodyUnit;
 	count: number;
 	centrality: number;
 	titleTerms: readonly string[];
@@ -9396,7 +9456,8 @@ function scoreBodySentence(args: {
 	repeated: number;
 	tokenLimit: number;
 }): BodySentence {
-	const { index, text, count, centrality, titleTerms, contentIdf, repeated, tokenLimit } = args;
+	const { index, text, unit, count, centrality, titleTerms, contentIdf, repeated, tokenLimit } =
+		args;
 	const terms = contentWordTerms(text);
 	const { bag, norm } = bodyBag(terms);
 	const conclusion = conclusionSignal(text);
@@ -9426,7 +9487,7 @@ function scoreBodySentence(args: {
 	score += preferences.tail;
 	score -= preferences.meta;
 	score -= preferences.lead;
-	return { index, text, bag, norm, score, conclusion };
+	return { index, text, srcStart: unit.start, srcEnd: unit.end, bag, norm, score, conclusion };
 }
 
 /**
@@ -9492,6 +9553,7 @@ function collectBodyCandidates(args: {
 			scoreBodySentence({
 				index,
 				text,
+				unit,
 				count: units.length,
 				centrality: unit.centrality,
 				titleTerms,
@@ -9517,11 +9579,70 @@ function insertInBodyOrder(selected: BodySentence[], candidate: BodySentence): v
 }
 
 /**
+ * The separator between two chosen sentences, read from where they sat in the
+ * block: `prev.srcEnd` is the end of the previous sentence's mark and
+ * `next.srcStart` is the first character of the next one, so the slice holds only
+ * what the block wrote between them — no punctuation of either side.
+ *
+ * A Chinese block writes no separator between adjacent sentences, and an ASCII
+ * space there is a visible defect, so an empty slice joins with nothing. Prose
+ * across a line break becomes one line, so a slice with a newline joins with a
+ * single space. Any other slice (ASCII whitespace, a run of blanks, or the
+ * unselected sentence the fill pass skipped over) collapses to one space: the raw
+ * run is never copied, and out-of-range offsets fall back to a space too. The
+ * result is a pure function of (blockText, the two spans), so the streaming
+ * output stays a pure function of the chosen sentences.
+ */
+function joinBetweenSentences(
+	blockText: string,
+	prev: { srcEnd: number },
+	next: { srcStart: number }
+): string {
+	const start = prev.srcEnd;
+	const end = next.srcStart;
+	if (
+		!Number.isInteger(start) ||
+		!Number.isInteger(end) ||
+		start < 0 ||
+		end > blockText.length ||
+		start > end
+	) {
+		return ' ';
+	}
+	const between = blockText.slice(start, end);
+	if (between.includes('\n')) {
+		return ' ';
+	}
+	if (!between) {
+		// CJK adjacency: the block wrote no separator, so the join adds none.
+		return '';
+	}
+	// ASCII whitespace becomes one space and a blank run collapses to it; a slice
+	// that carries anything else never reaches the body verbatim either.
+	return ' ';
+}
+
+/** The chosen sentences in reading order, joined with their own separators. */
+function joinBodySentences(blockText: string, sentences: readonly BodySentence[]): string {
+	let text = '';
+	for (let index = 0; index < sentences.length; index++) {
+		if (index > 0) {
+			text += joinBetweenSentences(blockText, sentences[index - 1], sentences[index]);
+		}
+		text += sentences[index].text;
+	}
+	return text;
+}
+
+/**
  * Picks the sentences the body shows. A near-duplicate of an earlier body steps
  * aside while a fresh alternative exists; if every sentence was already shown,
  * the best one still stands. The second sentence crosses the dry/conclusion split
  * so a result is shown next to its claim, and a lone over-budget sentence is cut
  * at a word boundary.
+ *
+ * `blockText` is the block as written; only the separators between the chosen
+ * sentences are read from it, so the joined body keeps the block's own spacing.
  *
  * A pair of short sentences leaves most of the budget unused, so the remaining
  * candidates are tried best-first until the body reaches `BODY_FILL_TARGET`: the
@@ -9535,6 +9656,7 @@ function insertInBodyOrder(selected: BodySentence[], candidate: BodySentence): v
  */
 function pickBodySentences(
 	candidates: readonly BodySentence[],
+	blockText: string,
 	displayed: BodyContext['displayed'],
 	tokenLimit: number
 ): { anchors: BodySentence[]; text: string; truncated: boolean } {
@@ -9556,14 +9678,18 @@ function pickBodySentences(
 		// A conclusion reads at the end of the body; otherwise the highest
 		// scoring sentence leads and the conclusion follows.
 		const ordered = top.conclusion > 0 ? [counterpart, top] : [top, counterpart];
-		if (fitsBodyBudget(ordered.map((candidate) => candidate.text).join(' '), tokenLimit)) {
+		// The check reads the real join: the separators a CJK block omits are
+		// part of the body the reader sees, so the budget must see them too.
+		if (fitsBodyBudget(joinBodySentences(blockText, ordered), tokenLimit)) {
 			selected.push(...ordered);
 		}
 	}
 
 	if (!selected.length) {
 		// Only one sentence fits. A complete sentence beats a truncated one, and
-		// a conclusion beats a claim.
+		// a conclusion beats a claim. Every candidate here already passed the
+		// full-sentence boundary in `isBodySentence`, so the `?? top` fallback can
+		// only pick a sentence that ends on a real mark.
 		const one = [top, counterpart].filter((candidate): candidate is BodySentence => !!candidate);
 		const fitting = one.filter((candidate) => fitsBodyBudget(candidate.text, tokenLimit));
 		selected.push(
@@ -9613,7 +9739,10 @@ function pickBodySentences(
 		}
 	}
 
-	let text = selected.map((candidate) => candidate.text).join(' ');
+	// The fill pass counts sentence tokens only. A join is one space at most (a
+	// CJK adjacency adds none), so the only slack is a boundary; the final check
+	// reads the joined text and the cut absorbs that slack on the real string.
+	let text = joinBodySentences(blockText, selected);
 	let truncated = false;
 	if (!fitsBodyBudget(text, tokenLimit)) {
 		const cut = truncateReasoningTokens(text, tokenLimit);
@@ -9661,7 +9790,12 @@ function extractBodySentences(
 		return null;
 	}
 
-	const { anchors, text, truncated } = pickBodySentences(candidates, context.displayed, tokenLimit);
+	const { anchors, text, truncated } = pickBodySentences(
+		candidates,
+		blockText,
+		context.displayed,
+		tokenLimit
+	);
 	if (!text) {
 		return null;
 	}
@@ -9723,8 +9857,9 @@ function mergeContributionTokens(blockText: string): number {
 /**
  * Whether the body pass would show nothing once the title's source is lifted.
  * This runs the same exclusion chain as `collectBodyCandidates` — the title
- * source, structural lines, markdown stripping, sentence shape and the content
- * thresholds — so the merge decision cannot drift from what `draftBody` renders.
+ * source, structural lines, markdown stripping, sentence shape (the full-sentence
+ * boundary included) and the content thresholds — so the merge decision cannot
+ * drift from what `draftBody` renders.
  * IDF and the token budget only move scores, never membership, so the neutral
  * corpus is enough; the call is O(block) and happens once, when the block
  * settles, so no tick recomputes it.
