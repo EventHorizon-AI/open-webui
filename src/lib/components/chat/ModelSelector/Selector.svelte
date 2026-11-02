@@ -177,14 +177,19 @@
 		};
 	};
 
-	const toggleOpen = async () => {
+	// `showList` opens the model list immediately instead of the collapsed model
+	// controls panel: expanded beside the controls on desktop, or as the palette
+	// view on mobile. Explicitly check for `true` since trigger clicks pass the
+	// event object (truthy) as the first argument.
+	const toggleOpen = async (showList: boolean | Event = false) => {
+		showList = showList === true;
 		show = !show;
 		if (show) {
 			// The model controls panel is always rendered; when the selected model has
 			// no controls it simply shows the model selector trigger button.
 			controlsMenuModel = selectedModel || null;
-			controlsListExpanded = false;
-			mobileListMode = false;
+			controlsListExpanded = showList && !!controlsMenuModel && !$mobile;
+			mobileListMode = showList && !!controlsMenuModel && $mobile;
 			searchValue = '';
 			listScrollTop = 0;
 			if (!selectionOnly) {
@@ -193,7 +198,7 @@
 			}
 			resetView();
 			await tick();
-			if (!controlsMenuModel) {
+			if (!controlsMenuModel || controlsListExpanded || mobileListMode) {
 				for (const delay of [0, 50, 150]) {
 					window.setTimeout(focusSearchInput, delay);
 				}
@@ -205,7 +210,9 @@
 
 	export const open = async () => {
 		if (!show) {
-			await toggleOpen();
+			// Programmatic opens (e.g. the /model command) always land on the model
+			// selector list, not the collapsed model controls panel.
+			await toggleOpen(true);
 		}
 	};
 
