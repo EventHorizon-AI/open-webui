@@ -2,12 +2,13 @@ import { cubicOut } from 'svelte/easing';
 import type { TransitionConfig } from 'svelte/transition';
 
 type FlyAndScaleParams = {
+	x?: number;
 	y?: number;
 	start?: number;
 	duration?: number;
 };
 
-const defaultFlyAndScaleParams = { y: -8, start: 0.95, duration: 200 };
+const defaultFlyAndScaleParams = { x: 0, y: -8, start: 0.95, duration: 200 };
 
 export const flyAndScale = (node: Element, params?: FlyAndScaleParams): TransitionConfig => {
 	const style = getComputedStyle(node);
@@ -35,11 +36,12 @@ export const flyAndScale = (node: Element, params?: FlyAndScaleParams): Transiti
 		duration: withDefaults.duration ?? 200,
 		delay: 0,
 		css: (t) => {
+			const x = scaleConversion(t, [0, 1], [withDefaults.x, 0]);
 			const y = scaleConversion(t, [0, 1], [withDefaults.y, 0]);
 			const scale = scaleConversion(t, [0, 1], [withDefaults.start, 1]);
 
 			return styleToString({
-				transform: `${transform} translate3d(0, ${y}px, 0) scale(${scale})`,
+				transform: `${transform} translate3d(${x}px, ${y}px, 0) scale(${scale})`,
 				opacity: t
 			});
 		},

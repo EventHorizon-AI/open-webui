@@ -1437,7 +1437,7 @@
 			use:portalSide
 			class="model-selector-child-menu z-40 {className ??
 				'w-[20rem]'} max-w-[calc(100vw-1rem)] rounded-xl border border-gray-100 bg-white p-0.5 shadow-lg outline-hidden dark:border-gray-800 dark:bg-gray-850 dark:text-white flex flex-col overflow-hidden"
-			transition:fly={{ x: 20, duration: 150 }}
+			transition:flyAndScale={{ x: -20 }}
 			style="position: fixed; top: -100rem; left: -100rem; max-width: calc(100vw - 1rem); max-height: 22rem;"
 		>
 			<div class="flex min-h-0 flex-1 flex-col">
