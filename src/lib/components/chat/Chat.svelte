@@ -2722,9 +2722,18 @@
 
 			await tick();
 
-			const modelSelectorInput = document.getElementById(
+			let modelSelectorInput = document.getElementById(
 				'model-search-input'
 			) as HTMLInputElement | null;
+			if (!modelSelectorInput) {
+				// The selector opened on the model controls page; expand the model
+				// list first, then prefill its search input.
+				document.getElementById('model-selector-model-list-button')?.click();
+				await tick();
+				modelSelectorInput = document.getElementById(
+					'model-search-input'
+				) as HTMLInputElement | null;
+			}
 			if (modelSelectorInput) {
 				modelSelectorInput.focus();
 				modelSelectorInput.value = modelId;
