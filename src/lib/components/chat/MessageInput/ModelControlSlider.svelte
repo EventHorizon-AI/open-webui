@@ -15,6 +15,15 @@
 	/** Continuous 0..1 pointer position while dragging. */
 	let dragRatio: number | null = null;
 
+	// Width of the positioned lane (between the 0.5rem insets). The thumb/fill are placed
+	// at whole pixel offsets against it: fractional percentage positions get re-snapped
+	// when the open animation promotes the subtree to a compositor layer and then drops
+	// it, which shows up as a ~1px twitch to the right after the menu opens.
+	let laneWidth = 0;
+	// Transitions stay off until the first integer position has painted, so the initial
+	// percentage→pixel rounding snap does not animate into a visible twitch.
+	let laneAnimated = false;
+
 	$: options = Object.entries(control.options);
 	$: count = options.length;
 	$: index = Math.max(
@@ -32,9 +41,25 @@
 	// instead of following the pointer continuously, and each hop is animated via CSS.
 	$: activeIndex = dragging && dragRatio !== null ? nearestIndex(dragRatio) : index;
 	$: display = { ratio: count > 1 ? activeIndex / (count - 1) : 0, index: activeIndex };
-	$: progress = display.ratio * 100;
 	$: current = options[display.index]?.[0] ?? (value || control.default);
 	$: label = control.options[current ?? '']?.label ?? $i18n.t('Default');
+
+	$: if (laneWidth > 0 && !laneAnimated) {
+		requestAnimationFrame(() => requestAnimationFrame(() => (laneAnimated = true)));
+	}
+
+	// Whole-pixel positions: percentage fallback only for the first paint, before the
+	// lane width has been measured.
+	$: thumbLeft = laneWidth
+		? `${Math.round(display.ratio * laneWidth)}px`
+		: `${display.ratio * 100}%`;
+	$: fillWidth = laneWidth
+		? `${Math.round(display.ratio * laneWidth)}px`
+		: `${display.ratio * 100}%`;
+	$: tickLeft = (i: number) =>
+		laneWidth
+			? `${Math.round((i / Math.max(1, count - 1)) * laneWidth)}px`
+			: `${(i / Math.max(1, count - 1)) * 100}%`;
 
 	const ratioFromX = (clientX: number) => {
 		if (!trackEl) return 0;
@@ -137,22 +162,28 @@
 				class="pointer-events-none absolute inset-0 rounded-md bg-gray-100 dark:bg-gray-800"
 				aria-hidden="true"
 			></div>
-			<div class="pointer-events-none absolute inset-x-2 inset-y-0" aria-hidden="true">
+			<div
+				bind:clientWidth={laneWidth}
+				class="pointer-events-none absolute inset-x-2 inset-y-0"
+				aria-hidden="true"
+			>
 				<div
 					class="slider-fill absolute inset-y-0 -left-2 rounded-md bg-[var(--slider-fill)]"
 					class:dragging
-					style:width={`${progress}%`}
+					class:animated={laneAnimated}
+					style:width={fillWidth}
 				></div>
 				{#each options as [key], i (key)}
 					<span
 						class="absolute top-1/2 size-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gray-400 dark:bg-gray-500"
-						style:left={`${(i / Math.max(1, count - 1)) * 100}%`}
+						style:left={tickLeft(i)}
 					></span>
 				{/each}
 				<div
 					class="slider-thumb absolute top-1/2 z-10"
 					class:dragging
-					style:left={`${display.ratio * 100}%`}
+					class:animated={laneAnimated}
+					style:left={thumbLeft}
 				></div>
 			</div>
 		</div>
@@ -175,12 +206,19 @@
 	.slider-fill {
 		box-sizing: content-box;
 		padding-right: 0.5rem;
-		transition: width 140ms cubic-bezier(0.22, 1, 0.36, 1);
 	}
-	/* While dragging the value hops between options, so keep the same animation (quicker)
-	   instead of disabling it. */
-	.slider-fill.dragging {
-		transition: width 90ms cubic-bezier(0.22, 1, 0.36, 1);
+	/* Kept animated while dragging too, so every step change glides into place. */
+	.slider-fill.animated,
+	.slider-thumb.animated {
+		transition-timing-function: cubic-bezier(0.22, 1, 0.36, 1);
+	}
+	.slider-fill.animated {
+		transition-property: width;
+		transition-duration: 140ms;
+	}
+	.slider-fill.animated.dragging {
+		transition-property: width;
+		transition-duration: 90ms;
 	}
 
 	.slider-thumb {
@@ -190,11 +228,14 @@
 		background: white;
 		box-shadow: 0 1px 3px #0003;
 		transform: translate(-50%, -50%);
-		transition: left 140ms cubic-bezier(0.22, 1, 0.36, 1);
 	}
-	/* Kept animated while dragging too, so every step change glides into place. */
-	.slider-thumb.dragging {
-		transition: left 90ms cubic-bezier(0.22, 1, 0.36, 1);
+	.slider-thumb.animated {
+		transition-property: left;
+		transition-duration: 140ms;
+	}
+	.slider-thumb.animated.dragging {
+		transition-property: left;
+		transition-duration: 90ms;
 	}
 
 	@media (prefers-reduced-motion: reduce) {
