@@ -578,6 +578,7 @@
 							value={_code}
 							readOnly={!edit}
 							{id}
+							ariaLabel={$i18n.t('Code Editor')}
 							{lang}
 							onSave={() => {
 								saveCode();

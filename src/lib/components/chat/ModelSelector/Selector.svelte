@@ -1,4 +1,7 @@
 <script lang="ts">
+	import Comments from '$lib/components/comments/Comments.svelte';
+	import type { CommentsRequest } from '$lib/components/comments/CommentsPanel.svelte';
+	let comments: CommentsRequest | null = null;
 	import { marked } from 'marked';
 	import Fuse from 'fuse.js';
 	import { autoUpdate, computePosition, flip, offset, shift, size } from '@floating-ui/dom';
@@ -37,7 +40,6 @@
 	import { toast } from 'svelte-sonner';
 	import { capitalizeFirstLetter, sanitizeResponseContent, splitStream } from '$lib/utils';
 	import {
-		localizeModelControls,
 		resolveLocalizedModelDescription,
 		resolveLocalizedModelName
 	} from '$lib/utils/localizedContent';
@@ -55,7 +57,7 @@
 	import TagSelector from '$lib/components/workspace/common/TagSelector.svelte';
 
 	import ModelItem from './ModelItem.svelte';
-	import ModelControlsMenu from './ModelControlsMenu.svelte';
+	import ModelControls from '../MessageInput/ModelControls.svelte';
 
 	const i18n: any = getContext('i18n');
 
@@ -77,6 +79,9 @@
 	// controls menu for that model.
 	export let controlsEnabled = false;
 	export let controlLabel = '';
+	export let chatFiles: any[] = [];
+	export let params: Record<string, any> = {};
+	export let onParamChange: (key: string, value: unknown) => void = () => {};
 
 	export let items: {
 		label: string;
@@ -101,6 +106,11 @@
 	const portal = (node: HTMLElement) => {
 		document.body.appendChild(node);
 		const panel = node.firstElementChild as HTMLElement;
+		// The palette centers on the trigger button's midline. Capture the center
+		// once on entry: the trigger's own width follows its label, so re-reading
+		// it on every recompute would shift the palette every time a control
+		// value (and with it the trigger's label) changes.
+		let centerX: number | null = null;
 		const cleanup = autoUpdate(triggerElement!, node, () => {
 			// Let flip measure the full list after content or viewport changes.
 			panel.style.maxHeight = '';
@@ -120,15 +130,20 @@
 					})
 				]
 			}).then(({ x, y }) => {
-				// In controls mode the palette is centered on the trigger button's
-				// midline, so growing to the standard selector width expands evenly
-				// around it instead of dragging to one side.
+				// In controls mode the palette stays centered on the trigger button's
+				// midline, so switching between the controls and selector views
+				// expands evenly around it instead of dragging to one side.
 				if (controlsMenuModel && triggerElement) {
 					const rect = triggerElement.getBoundingClientRect();
+					if (centerX === null) {
+						centerX = rect.left + rect.width / 2;
+					}
 					const width = node.getBoundingClientRect().width;
-					x = rect.left + rect.width / 2 - width / 2;
+					x = centerX - width / 2;
 					const margin = 8;
 					x = Math.min(Math.max(x, margin), window.innerWidth - width - margin);
+				} else {
+					centerX = null;
 				}
 				node.style.left = `${x}px`;
 				node.style.top = `${y}px`;
@@ -265,13 +280,6 @@
 	// On mobile the panels can't sit side by side; the palette switches between
 	// the model controls and the model list views instead.
 	let mobileListMode = false;
-
-	// Whether the model currently shown in the controls panel exposes model
-	// controls; when it does not, the panel only shows the model selector trigger.
-	$: selectedModelHasControls =
-		controlsEnabled &&
-		!!controlsMenuModel &&
-		Object.keys(localizeModelControls(controlsMenuModel.model, $i18n.language) ?? {}).length > 0;
 
 	let selectedTag = '';
 	let selectedConnectionType = '';
@@ -1411,9 +1419,14 @@
 							<ChevronRight className="size-3.5 shrink-0" strokeWidth="2.5" />
 						</button>
 
-						{#if selectedModelHasControls}
+						{#if controlsMenuModel.model}
 							<div class="min-h-0 flex-1 overflow-y-auto">
-								<ModelControlsMenu model={controlsMenuModel.model} />
+								<ModelControls
+									selectedModels={primaryValue ? [primaryValue] : []}
+									bind:chatFiles
+									bind:params
+									{onParamChange}
+								/>
 							</div>
 
 							<div class="shrink-0 pb-1"></div>
@@ -1444,7 +1457,7 @@
 			use:portalSide
 			class="model-selector-child-menu z-40 {className ??
 				'w-[20rem]'} max-w-[calc(100vw-1rem)] rounded-xl border border-gray-100 bg-white p-0.5 shadow-lg outline-hidden dark:border-gray-800 dark:bg-gray-850 dark:text-white flex flex-col overflow-hidden"
-			transition:flyAndScale={{ x: -20 }}
+			transition:flyAndScale={{ y: -20 }}
 			style="position: fixed; top: -100rem; left: -100rem; max-width: calc(100vw - 1rem); max-height: 22rem;"
 		>
 			<div class="flex min-h-0 flex-1 flex-col">
@@ -1453,3 +1466,5 @@
 		</div>
 	{/if}
 </div>
+
+<Comments modal bind:view={comments} />

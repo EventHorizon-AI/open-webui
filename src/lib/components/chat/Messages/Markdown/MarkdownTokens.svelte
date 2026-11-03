@@ -26,6 +26,7 @@
 	const { saveAs } = fileSaver;
 
 	import { type Token, type Tokens } from 'marked';
+	import { v4 as uuidv4 } from 'uuid';
 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
 	import { resolveChatMessageToolCall } from '$lib/apis/chats';
 
@@ -85,6 +86,8 @@
 	export let onTaskClick: Function = () => {};
 	export let onSourceClick: Function = () => {};
 	export let onToolCallResolved: Function = () => {};
+
+	const taskId = `task-${uuidv4()}`;
 
 	const headerComponent = (depth: number) => {
 		return 'h' + depth;
@@ -463,6 +466,7 @@
 					{allowEmbeds}
 					{save}
 					{preview}
+					{onPreview}
 					{compactPreview}
 					{editCodeBlock}
 					{onTaskClick}
@@ -476,13 +480,18 @@
 		{#if token.ordered}
 			<ol start={token.start || 1} dir="auto">
 				{#each token.items as item, itemIdx}
-					<li dir="auto" class="text-start">
+					<li
+						dir="auto"
+						class="text-start"
+						id={item?.task ? `${taskId}-${tokenIdx}-${itemIdx}` : undefined}
+					>
 						{#if item?.task}
 							<input
 								class="task-checkbox translate-y-[1px] -translate-x-1 [&:dir(rtl)]:translate-x-1 flex-shrink-0"
 								type="checkbox"
 								disabled={markdown?.document && !$taskEnabled}
 								checked={item.checked}
+								aria-labelledby={`${taskId}-${tokenIdx}-${itemIdx}`}
 								on:change={(e) => {
 									(markdown?.onTaskClick ?? onTaskClick)({
 										id: id,
@@ -507,6 +516,7 @@
 							{allowEmbeds}
 							{save}
 							{preview}
+							{onPreview}
 							{compactPreview}
 							{editCodeBlock}
 							{onTaskClick}
@@ -519,13 +529,18 @@
 		{:else}
 			<ul dir="auto" class="">
 				{#each token.items as item, itemIdx}
-					<li dir="auto" class="text-start {item?.task ? 'relative list-none' : ''}">
+					<li
+						dir="auto"
+						class="text-start {item?.task ? 'relative list-none' : ''}"
+						id={item?.task ? `${taskId}-${tokenIdx}-${itemIdx}` : undefined}
+					>
 						{#if item?.task}
 							<input
 								class="task-checkbox"
 								type="checkbox"
 								disabled={markdown?.document && !$taskEnabled}
 								checked={item.checked}
+								aria-labelledby={`${taskId}-${tokenIdx}-${itemIdx}`}
 								on:change={(e) => {
 									(markdown?.onTaskClick ?? onTaskClick)({
 										id: id,
@@ -550,6 +565,7 @@
 									{allowEmbeds}
 									{save}
 									{preview}
+									{onPreview}
 									{compactPreview}
 									{editCodeBlock}
 									{onTaskClick}
@@ -568,6 +584,7 @@
 								{allowEmbeds}
 								{save}
 								{preview}
+								{onPreview}
 								{compactPreview}
 								{editCodeBlock}
 								{onTaskClick}
@@ -649,6 +666,7 @@
 									{allowEmbeds}
 									{save}
 									{preview}
+									{onPreview}
 									{compactPreview}
 									{editCodeBlock}
 									{onTaskClick}
@@ -761,6 +779,7 @@
 						{allowEmbeds}
 						{save}
 						{preview}
+						{onPreview}
 						{compactPreview}
 						{editCodeBlock}
 						{onTaskClick}

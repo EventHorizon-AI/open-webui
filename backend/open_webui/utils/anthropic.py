@@ -96,11 +96,7 @@ async def get_anthropic_models(url: str, key: str, user: UserModel = None) -> di
     return {'object': 'list', 'data': all_models}
 
 
-##############################
-#
 # Anthropic Messages API Conversion Utilities
-#
-##############################
 
 
 def _copy_cache_control(source: dict, target: dict) -> dict:
@@ -113,7 +109,7 @@ def _has_cache_control(blocks: list) -> bool:
     return any(isinstance(block, dict) and 'cache_control' in block for block in blocks)
 
 
-def _finalize_openai_content(blocks: list) -> str | list:
+def _finalize_chat_completions_content(blocks: list) -> str | list:
     if not blocks:
         return ''
 
@@ -134,7 +130,7 @@ def is_messages_api(api_config: dict | None = None) -> bool:
     return api_config.get('api_type') == 'messages'
 
 
-def convert_anthropic_to_openai_payload(
+def convert_anthropic_payload_to_chat_completions(
     anthropic_payload: dict, passthrough_params: list[str] | str | None = None
 ) -> dict:
     """
@@ -173,7 +169,7 @@ def convert_anthropic_to_openai_payload(
                     )
                 elif isinstance(block, str):
                     openai_content.append({'type': 'text', 'text': block})
-            messages.append({'role': 'system', 'content': _finalize_openai_content(openai_content)})
+            messages.append({'role': 'system', 'content': _finalize_chat_completions_content(openai_content)})
 
     # Convert messages
     for msg in anthropic_payload.get('messages', []):
@@ -365,13 +361,13 @@ def convert_anthropic_to_openai_payload(
                 # Assistant message with tool calls
                 msg_dict = {'role': role}
                 if openai_content:
-                    msg_dict['content'] = _finalize_openai_content(openai_content)
+                    msg_dict['content'] = _finalize_chat_completions_content(openai_content)
                 else:
                     msg_dict['content'] = ''
                 msg_dict['tool_calls'] = tool_calls
                 messages.append(msg_dict)
             elif openai_content or role == 'assistant':
-                messages.append({'role': role, 'content': _finalize_openai_content(openai_content)})
+                messages.append({'role': role, 'content': _finalize_chat_completions_content(openai_content)})
         else:
             messages.append({'role': role, 'content': str(content) if content else ''})
 
@@ -468,7 +464,7 @@ def convert_anthropic_to_openai_payload(
     return openai_payload
 
 
-def convert_openai_to_anthropic_response(
+def convert_chat_completions_response_to_anthropic(
     openai_response: dict, model: str = '', input_tokens: int | None = None
 ) -> dict:
     """
@@ -591,7 +587,9 @@ def convert_openai_to_anthropic_response(
     }
 
 
-async def openai_stream_to_anthropic_stream(openai_stream_generator, model: str = '', input_tokens: int | None = None):
+async def convert_chat_completions_stream_to_anthropic(
+    openai_stream_generator, model: str = '', input_tokens: int | None = None
+):
     """
     Convert an OpenAI SSE streaming response to Anthropic Messages SSE format.
 
@@ -751,7 +749,7 @@ async def openai_stream_to_anthropic_stream(openai_stream_generator, model: str 
                     }
                     yield f'event: content_block_delta\ndata: {JSONCodec.dumps(block_delta)}\n\n'.encode()
 
-                # --- Handle text content ---
+                # Handle text content
                 # Anthropic expects text blocks before tool blocks, so skip
                 # text deltas once any tool call has started.
                 content = delta.get('content')
@@ -781,7 +779,7 @@ async def openai_stream_to_anthropic_stream(openai_stream_generator, model: str 
                     }
                     yield f'event: content_block_delta\ndata: {JSONCodec.dumps(block_delta)}\n\n'.encode()
 
-                # --- Handle tool calls ---
+                # Handle tool calls
                 # Some providers put tool_calls on the final message object
                 # instead of the delta; fall back to that when needed.
                 tool_calls = delta.get('tool_calls') or []
@@ -902,7 +900,7 @@ async def openai_stream_to_anthropic_stream(openai_stream_generator, model: str 
                                 except (JSONCodec.JSONDecodeError, ValueError):
                                     pass
 
-                # --- Handle finish reason ---
+                # Handle finish reason
                 if finish_reason is not None:
                     stop_reason_map = {
                         'stop': 'end_turn',

@@ -30,51 +30,48 @@
 {#if history && history.length > 0}
 	{#if status?.hidden !== true}
 		<div class="text-[0.9375rem] flex flex-col w-full">
+			<div class="relative w-full">
+				<button
+					class="absolute inset-0"
+					aria-label={$i18n.t('Toggle status history')}
+					aria-expanded={showHistory}
+					on:click={() => {
+						showHistory = !showHistory;
+					}}
+				></button>
+				<div class="relative pointer-events-none flex items-start gap-2">
+					<StatusItem {status} clamp={!showHistory || history.length > 1} />
+				</div>
+			</div>
+
 			{#if showHistory}
 				<div class="flex flex-row">
 					{#if history.length > 1}
-						<div class="w-1 border-r border-gray-50 dark:border-gray-800 mt-3 -mb-2.5" />
-
-						<div class="w-full -translate-x-[7.5px]">
+						<div class="w-full">
 							{#each history as status, idx}
-								{#if idx !== history.length - 1}
-									<div class="flex items-start gap-2 mb-1">
-										<div class="pt-3 px-1">
-											<span class="relative flex size-2">
+								<div class="flex items-stretch gap-2 mb-1">
+									<div class=" ">
+										<div class="pt-3 px-1 mb-1.5">
+											<span class="relative flex size-1.5 rounded-full justify-center items-center">
 												<span
-													class="relative inline-flex size-1.5 rounded-full bg-gray-200 dark:bg-gray-700"
+													class="relative inline-flex size-1.5 rounded-full bg-gray-300 dark:bg-gray-700"
 												></span>
 											</span>
 										</div>
-										<StatusItem {status} done={true} />
+										{#if idx !== history.length - 1}
+											<div
+												class="w-[0.03125rem] ml-[0.40625rem] h-[calc(100%-14px)] bg-gray-300 dark:bg-gray-700"
+											/>
+										{/if}
 									</div>
-								{/if}
+
+									<StatusItem {status} done={true} clamp={false} />
+								</div>
 							{/each}
 						</div>
 					{/if}
 				</div>
 			{/if}
-
-			<button
-				class="w-full -translate-x-[3.5px]"
-				on:click={() => {
-					showHistory = !showHistory;
-				}}
-			>
-				<div class="flex items-start gap-2">
-					<div class="pt-3 px-1">
-						<span class="relative flex items-center justify-center w-2 h-2">
-							{#if status?.done === false}
-								<span
-									class="absolute w-2 h-2 rounded-full bg-gray-400 dark:bg-gray-700 opacity-75 animate-ping"
-								></span>
-							{/if}
-							<span class="relative w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></span>
-						</span>
-					</div>
-					<StatusItem {status} />
-				</div>
-			</button>
 		</div>
 	{/if}
 {/if}

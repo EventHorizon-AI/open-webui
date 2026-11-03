@@ -12,6 +12,10 @@
 	export let selectedModels = [''];
 	export let onModelSelect: (models: string[]) => void = () => {};
 	export let disabled = false;
+	export let multipleEnabled = true;
+	export let chatFiles: any[] = [];
+	export let params: Record<string, any> = {};
+	export let onParamChange: (key: string, value: unknown) => void = () => {};
 
 	export let showSetDefault = true;
 	export let triggerClassName = 'text-lg';
@@ -95,8 +99,11 @@
 					{align}
 					{showSetDefault}
 					onSetDefault={saveDefaultModel}
-					multipleEnabled={$user?.role === 'admin' ||
-						($user?.permissions?.chat?.multiple_models ?? true)}
+					bind:chatFiles
+					bind:params
+					{onParamChange}
+					multipleEnabled={multipleEnabled &&
+						($user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true))}
 					{disabled}
 					controlLabel={selectedControlLabel}
 					controlsEnabled

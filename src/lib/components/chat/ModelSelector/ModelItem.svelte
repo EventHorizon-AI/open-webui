@@ -1,4 +1,6 @@
 <script lang="ts">
+	import type { CommentsRequest } from '$lib/components/comments/CommentsPanel.svelte';
+	export let onComment: (request: CommentsRequest) => void;
 	import { marked } from 'marked';
 
 	import { getContext, tick } from 'svelte';
@@ -389,6 +391,7 @@
 	<div class="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
 		{#if !selectionOnly}
 			<ModelItemMenu
+				{onComment}
 				bind:show={showMenu}
 				model={item.model}
 				anchorX={menuPosition.x}

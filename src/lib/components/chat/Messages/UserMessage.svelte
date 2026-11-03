@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { commentSurface, contentHash } from '$lib/components/comments/anchors';
 	import EditPencilIcon from '$lib/components/layout/Sidebar/icons/EditPencil.svelte';
 	import CopyIcon from '$lib/components/layout/Sidebar/icons/Copy.svelte';
 	import TrashIcon from '$lib/components/layout/Sidebar/icons/Trash.svelte';
@@ -370,6 +371,7 @@
 
 					<div class="max-h-96 overflow-auto" bind:this={editScrollContainer}>
 						<textarea
+							aria-label={$i18n.t('Message')}
 							id="message-edit-{message.id}"
 							bind:this={messageEditTextAreaElement}
 							class=" bg-transparent outline-hidden focus-visible:outline-none! w-full resize-none text-[0.9375rem]"
@@ -501,7 +503,18 @@
 										: ''}
 								>
 									{#if $settings?.renderMarkdownInUserMessages ?? true}
-										<div class="markdown-prose">
+										<div
+											class="markdown-prose"
+											use:commentSurface={{
+												resource_type: 'chat',
+												resource_id: chatId,
+												target_type: 'chat_message',
+												target_id: message.id,
+												surface_id: 'content',
+												content_hash: contentHash(message.content ?? ''),
+												enabled: !!chatId
+											}}
+										>
 											<Markdown
 												id={`${chatId}-${message.id}`}
 												content={message.content}
@@ -512,6 +525,15 @@
 									{:else}
 										<div
 											class="whitespace-pre-wrap text-[0.9375rem]"
+											use:commentSurface={{
+												resource_type: 'chat',
+												resource_id: chatId,
+												target_type: 'chat_message',
+												target_id: message.id,
+												surface_id: 'content',
+												content_hash: contentHash(message.content ?? ''),
+												enabled: !!chatId
+											}}
 											dir={$settings?.chatDirection ?? 'auto'}
 										>
 											{message.content}
@@ -521,7 +543,9 @@
 										{#if $settings?.chatBubble ?? true}
 											<div
 												aria-hidden="true"
-												class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-gray-50 to-transparent dark:from-gray-850 transition-opacity duration-200 motion-reduce:transition-none {isContentCollapsed
+												class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-gray-50 to-transparent {compactPreview
+													? 'dark:from-gray-800'
+													: 'dark:from-gray-850'} transition-opacity duration-200 motion-reduce:transition-none {isContentCollapsed
 													? 'opacity-100'
 													: 'opacity-0'}"
 											></div>
@@ -640,6 +664,7 @@
 										class="text-sm flex justify-center font-normal self-center dark:text-gray-500 min-w-fit"
 									>
 										<input
+											aria-label={$i18n.t('Message number')}
 											id="message-index-input-{message.id}"
 											type="number"
 											value={siblings.indexOf(message.id) + 1}
@@ -764,6 +789,7 @@
 										class="text-sm flex justify-center font-normal self-center dark:text-gray-500 min-w-fit"
 									>
 										<input
+											aria-label={$i18n.t('Message number')}
 											id="message-index-input-{message.id}"
 											type="number"
 											value={siblings.indexOf(message.id) + 1}

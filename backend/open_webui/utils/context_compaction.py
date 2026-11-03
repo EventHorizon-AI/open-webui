@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import logging
 import re
 from typing import Any
@@ -9,8 +10,13 @@ from open_webui.models.chats import Chats
 from open_webui.models.config import Config
 from open_webui.utils.chat_id import is_saved_chat_id
 from open_webui.utils.json_codec import JSONCodec
-from open_webui.utils.misc import get_content_from_message, get_message_list
-from open_webui.utils.task import prompt_template, prompt_variables_template
+from open_webui.utils.misc import get_content_from_message, get_last_user_message, get_message_list
+from open_webui.utils.task import (
+    prompt_template,
+    prompt_variables_template,
+    replace_messages_variable,
+    replace_prompt_variable,
+)
 
 log = logging.getLogger(__name__)
 
@@ -36,6 +42,7 @@ Summarize the conversation above that will be compacted out of the active chat c
 
 async def compact_messages_for_request(
     request,
+    form_data: dict | None,
     user,
     messages: list[dict],
     metadata: dict,
@@ -44,10 +51,11 @@ async def compact_messages_for_request(
     system_prompt: str = '',
     previous_summary: str | None = None,
     prompt_tokens: int | None = None,
-) -> tuple[list[dict], str | None, bool]:
+    bypass_system_prompt: bool = False,
+) -> tuple[list[dict], str | None, list[dict]]:
     config = await _load_config()
     if not config['enable']:
-        return messages, None, False
+        return messages, None, []
 
     system_messages = [messages[0]] if messages and messages[0].get('role') == 'system' else []
     messages = messages[1:] if system_messages else messages
@@ -67,13 +75,13 @@ async def compact_messages_for_request(
         prompt_tokens is not None and prompt_tokens > trigger_threshold
     )
     if not over_threshold or len(messages) <= 3:
-        return [*system_messages, *messages], checkpoint_summary, False
+        return [*system_messages, *messages], checkpoint_summary, []
 
     boundary = _find_compaction_boundary(messages, config['retention_percentage'])
     compacted_messages = messages[:boundary]
     recent_messages = messages[boundary:]
     if not compacted_messages or not recent_messages:
-        return [*system_messages, *messages], checkpoint_summary, False
+        return [*system_messages, *messages], checkpoint_summary, []
 
     event_emitter = None
     if metadata.get('chat_id') and metadata.get('message_id'):
@@ -96,12 +104,15 @@ async def compact_messages_for_request(
     try:
         summary = await _generate_summary(
             request,
+            form_data,
             user,
             model_id,
             models,
             compacted_messages,
+            recent_messages,
             previous_summary,
             config['prompt_template'],
+            bypass_system_prompt,
         )
     except Exception:
         if event_emitter:
@@ -157,7 +168,18 @@ async def compact_messages_for_request(
             }
         )
 
-    return [*system_messages, *recent_messages], summary, True
+    return [*system_messages, *recent_messages], summary, compacted_messages
+
+
+async def apply_summary_checkpoint(messages: list[dict]) -> tuple[list[dict], str | None]:
+    if not (await _load_config())['enable']:
+        return messages, None
+
+    system_messages = [messages[0]] if messages and messages[0].get('role') == 'system' else []
+    messages = messages[1:] if system_messages else messages
+
+    messages, summary = _apply_latest_summary_checkpoint(messages)
+    return [*system_messages, *messages], summary
 
 
 async def compact_chat_branch(request, user, chat: Any, model_id: str, models: dict) -> dict:
@@ -187,10 +209,12 @@ async def compact_chat_branch(request, user, chat: Any, model_id: str, models: d
 
     summary = await _generate_summary(
         request,
+        None,
         user,
         model_id,
         models,
         compacted_messages,
+        recent_messages,
         previous_summary,
         config['prompt_template'],
     )
@@ -472,12 +496,15 @@ def _fallback_summary(previous_summary: str | None, messages: list[dict]) -> str
 
 async def _generate_summary(
     request,
+    form_data: dict | None,
     user,
     model_id: str,
     models: dict,
     compacted_messages: list[dict],
+    recent_messages: list[dict],
     previous_summary: str | None,
     summary_prompt_template: str,
+    bypass_system_prompt: bool = False,
 ) -> str:
     from open_webui.utils.chat import generate_chat_completion
 
@@ -494,6 +521,80 @@ async def _generate_summary(
         raise ValueError('No available model for context compaction')
 
     summary_prompt_template = summary_prompt_template.strip() or DEFAULT_CONTEXT_COMPACTION_PROMPT
+    recent_message_prefix = _message_prefix(recent_messages[0])
+    has_unique_prefix = (
+        recent_message_prefix
+        and sum(
+            _message_prefix(message) == recent_message_prefix for message in [*compacted_messages, *recent_messages]
+        )
+        == 1
+    )
+    # The text-only prompt formatter otherwise omits tool names and arguments.
+    compacted_messages, recent_messages = list(compacted_messages), list(recent_messages)
+    for messages in (compacted_messages, recent_messages):
+        for idx, message in enumerate(messages):
+            if message.get('tool_calls'):
+                messages[idx] = {
+                    **message,
+                    'content': f'{get_content_from_message(message) or ""}\n[TOOL CALLS] {JSONCodec.dumps(message["tool_calls"])}',
+                }
+
+    async def render_prompt(template: str) -> str:
+        all_messages = [*compacted_messages, *recent_messages]
+        prompt = replace_prompt_variable(template, get_last_user_message(all_messages) or '')
+        prompt = replace_messages_variable(prompt, all_messages)
+        prompt = replace_messages_variable(prompt, compacted_messages, 'COMPACTED_MESSAGES')
+        prompt = replace_messages_variable(prompt, recent_messages, 'RECENT_MESSAGES')
+        prompt = prompt_variables_template(prompt, {'{{PREVIOUS_SUMMARY}}': previous_summary or ''})
+        return await prompt_template(prompt, user)
+
+    metadata = {
+        **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
+        'task': 'context_compaction',
+    }
+
+    # Replaying the chat request unchanged lets the provider read the history from its prompt cache.
+    # A repeated or transformed boundary cannot safely identify the history to discard.
+    if (
+        form_data
+        and task_model_id == model_id
+        and has_unique_prefix
+        and sum(_message_prefix(message) == recent_message_prefix for message in form_data['messages']) == 1
+    ):
+        prompt = await render_prompt(
+            prompt_variables_template(
+                summary_prompt_template,
+                {
+                    '{{COMPACTED_MESSAGES}}': (
+                        'Every non-system message above before (excluding) the message beginning with '
+                        f'"{recent_message_prefix}".'
+                    ),
+                    '{{RECENT_MESSAGES}}': (
+                        f'The message above beginning with "{recent_message_prefix}" and every message after it.'
+                    ),
+                },
+            )
+        )
+        payload = {
+            'model': task_model_id,
+            'messages': [*copy.deepcopy(form_data['messages']), {'role': 'user', 'content': prompt}],
+            'stream': False,
+            'metadata': metadata,
+        }
+        if form_data.get('tools'):
+            payload['tools'] = copy.deepcopy(form_data['tools'])
+        try:
+            response = await generate_chat_completion(
+                request,
+                form_data=payload,
+                user=user,
+                bypass_system_prompt=bypass_system_prompt,
+            )
+        except Exception:
+            response = None
+        summary = _response_text(response).strip()
+        if summary:
+            return summary
 
     summary_messages = await _build_summary_messages(
         summary_prompt_template,
@@ -505,14 +606,21 @@ async def _generate_summary(
         'model': task_model_id,
         'messages': summary_messages,
         'stream': False,
-        'metadata': {
-            **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
-            'task': 'context_compaction',
-        },
+        'metadata': metadata,
     }
-    response = await generate_chat_completion(request, form_data=payload, user=user)
+    response = await generate_chat_completion(
+        request, form_data=payload, user=user, bypass_system_prompt=bypass_system_prompt
+    )
     summary = _response_text(response).strip()
     return summary or _fallback_summary(previous_summary, compacted_messages)
+
+
+def _message_prefix(message: dict) -> str:
+    content = get_content_from_message(message) or ' '.join(
+        f'{tool_call["function"]["name"]}({tool_call["function"]["arguments"]})'
+        for tool_call in message.get('tool_calls') or []
+    )
+    return content.strip()[:200]
 
 
 def _response_text(response: Any) -> str:
@@ -531,6 +639,8 @@ def _response_text(response: Any) -> str:
     choices = response.get('choices') or []
     if choices:
         message = choices[0].get('message') or {}
+        if message.get('tool_calls'):
+            return ''
         return message.get('content') or message.get('reasoning_content') or ''
 
     parts = []

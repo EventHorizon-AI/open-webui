@@ -38,9 +38,7 @@
 		selectedTerminalId,
 		showSearch,
 		showSidebar,
-		showControls,
-		controlsSnapshot,
-		toggleControls,
+		showTabs,
 		mobile,
 		chatId,
 		chats
@@ -200,14 +198,9 @@
 
 	onMount(() => {
 		const socketInstance = $socket;
-		const scheduleAccessRefresh = () => {
-			socketInstance?.off('connect', refreshAccess);
-			socketInstance?.once('connect', refreshAccess);
-		};
-		socketInstance?.on('access:updated', scheduleAccessRefresh);
+		socketInstance?.on('access:updated', refreshAccess);
 		return () => {
-			socketInstance?.off('access:updated', scheduleAccessRefresh);
-			socketInstance?.off('connect', refreshAccess);
+			socketInstance?.off('access:updated', refreshAccess);
 		};
 	});
 
@@ -333,7 +326,7 @@
 				} else if (shortcut === Shortcut.TOGGLE_CONTROLS) {
 					console.log('Shortcut triggered: TOGGLE_CONTROLS');
 					event.preventDefault();
-					toggleControls();
+					showTabs.set(!$showTabs);
 				} else if (shortcut === Shortcut.DELETE_CHAT) {
 					console.log('Shortcut triggered: DELETE_CHAT');
 					event.preventDefault();
@@ -431,27 +424,11 @@
 				checkForVersionUpdates();
 			}
 		}
-		// Persist showControls: track open/close state separately from saved size
+		// Persist the side tabs state across reloads
 		// chatControlsSize always retains the last width for openPane()
-		await showControls.set(!$mobile ? localStorage.showControls === 'true' : false);
-		showControls.subscribe((value) => {
-			localStorage.showControls = value ? 'true' : 'false';
-		});
-
-		// Restore and persist the controls snapshot across reloads
-		controlsSnapshot.set(
-			localStorage.controlsSnapshot === 'true'
-				? true
-				: localStorage.controlsSnapshot === 'false'
-					? false
-					: null
-		);
-		controlsSnapshot.subscribe((value) => {
-			if (value === null) {
-				delete localStorage.controlsSnapshot;
-			} else {
-				localStorage.controlsSnapshot = value ? 'true' : 'false';
-			}
+		await showTabs.set(!$mobile ? localStorage.showTabs === 'true' : false);
+		showTabs.subscribe((value) => {
+			localStorage.showTabs = value ? 'true' : 'false';
 		});
 
 		// Persist selectedTerminalId across page loads

@@ -16,6 +16,7 @@
 	export let model = null;
 	export let save = false;
 	export let preview = false;
+	export let commentToolbarId: string | undefined = undefined;
 	export let compactPreview = false;
 	export let renderMarkdown = true;
 	export let editCodeBlock = true;

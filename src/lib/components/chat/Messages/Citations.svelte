@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { getContext } from 'svelte';
 	import CitationsModal from './Citations/CitationsModal.svelte';
-	import { embed, showEmbeds, openControlsForFeature } from '$lib/stores';
+	import { embed, showTabs, showEmbeds } from '$lib/stores';
 	import { isValidHttpUrl } from '$lib/utils';
 
 	import CitationModal from './Citations/CitationModal.svelte';
@@ -54,7 +54,7 @@
 						window.open(embedUrl, '_blank');
 						return;
 					} else {
-						openControlsForFeature();
+						showTabs.set(true);
 						showEmbeds.set(true);
 						embed.set({
 							url: embedUrl,
@@ -149,6 +149,13 @@
 		showRelevance = calculateShowRelevance(citations);
 		showPercentage = shouldShowPercentage(citations);
 	}
+	const decodeString = (str: string) => {
+		try {
+			return decodeURIComponent(str);
+		} catch (e) {
+			return str;
+		}
+	};
 </script>
 
 <CitationsModal

@@ -46,6 +46,9 @@
 	export let atSelectedModel: Model | undefined;
 	export let selectedModels: [''];
 	export let onModelSelect: (models: string[]) => void = () => {};
+	export let chatFiles: any[] = [];
+	export let params: Record<string, any> = {};
+	export let onParamChange: (key: string, value: unknown) => void = () => {};
 
 	export let history;
 	export let chatId = '';
@@ -117,7 +120,7 @@
 		!$selectedFolder.write_access;
 </script>
 
-<div class="relative m-auto w-full max-w-[58rem] px-1 @2xl:px-20 translate-y-6 py-24 text-center">
+<div class="m-auto w-full max-w-[58rem] px-1 md:@2xl:px-20 translate-y-6 py-24 text-center">
 	{#if $temporaryChatEnabled}
 		<Tooltip
 			content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
@@ -241,6 +244,9 @@
 						{history}
 						bind:selectedModels
 						{onModelSelect}
+						bind:chatFiles
+						bind:params
+						{onParamChange}
 						bind:files
 						bind:prompt
 						bind:autoScroll
