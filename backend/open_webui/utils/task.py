@@ -12,6 +12,93 @@ from open_webui.utils.misc import get_content_from_message, get_last_user_messag
 log = logging.getLogger(__name__)
 
 
+# Structured-output schemas for every task whose consumers (middleware /
+# frontend) parse the model reply as JSON. The keys mirror the fields those
+# tolerant slice-then-parse fallbacks expect, so providers without
+# structured-output support keep working through the existing parsers.
+TASK_RESPONSE_SCHEMAS: dict[str, dict] = {
+    'title': {
+        'type': 'object',
+        'properties': {'title': {'type': 'string'}},
+        'required': ['title'],
+        'additionalProperties': False,
+    },
+    'follow_ups': {
+        'type': 'object',
+        'properties': {'follow_ups': {'type': 'array', 'items': {'type': 'string'}}},
+        'required': ['follow_ups'],
+        'additionalProperties': False,
+    },
+    'tags': {
+        'type': 'object',
+        'properties': {'tags': {'type': 'array', 'items': {'type': 'string'}}},
+        'required': ['tags'],
+        'additionalProperties': False,
+    },
+    'image_prompt': {
+        'type': 'object',
+        'properties': {'prompt': {'type': 'string'}},
+        'required': ['prompt'],
+        'additionalProperties': False,
+    },
+    'queries': {
+        'type': 'object',
+        'properties': {'queries': {'type': 'array', 'items': {'type': 'string'}}},
+        'required': ['queries'],
+        'additionalProperties': False,
+    },
+    'autocompletion': {
+        'type': 'object',
+        'properties': {'text': {'type': 'string'}},
+        'required': ['text'],
+        'additionalProperties': False,
+    },
+    'memory_operations': {
+        'type': 'object',
+        'properties': {
+            'operations': {
+                'type': 'array',
+                'items': {
+                    'type': 'object',
+                    'properties': {
+                        'action': {'type': 'string', 'enum': ['add', 'replace', 'move', 'remove']},
+                        'id': {'type': 'string'},
+                        'type': {'type': 'string', 'enum': ['user', 'context']},
+                        'path': {'type': 'string'},
+                        'content': {'type': 'string'},
+                    },
+                    'required': ['action'],
+                    'additionalProperties': False,
+                },
+            }
+        },
+        'required': ['operations'],
+        'additionalProperties': False,
+    },
+    'reasoning_summary': {
+        'type': 'object',
+        'properties': {'title': {'type': 'string'}, 'summary': {'type': 'string'}},
+        'required': ['title', 'summary'],
+        'additionalProperties': False,
+    },
+}
+
+
+def task_response_format(kind: str) -> dict:
+    """Build an OpenAI-style structured-output ``response_format`` for a task.
+
+    Keeps providers that understand ``json_schema`` on the shape their
+    consumers parse; the response itself is passed through untouched.
+    """
+    return {
+        'type': 'json_schema',
+        'json_schema': {
+            'name': f'open_webui_task_{kind}',
+            'schema': TASK_RESPONSE_SCHEMAS[kind],
+        },
+    }
+
+
 # Let the right tool be given for the work at hand,
 # not the one that flatters, but the one that serves.
 def get_task_model_id(default_model_id: str, task_model: str, task_model_external: str, models) -> str:

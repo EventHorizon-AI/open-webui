@@ -582,6 +582,7 @@ async def _generate_memory_operations(
     transcript: str,
 ) -> list[dict[str, Any]]:
     from open_webui.utils.chat import generate_chat_completion
+    from open_webui.utils.task import task_response_format
 
     review_prompt = f"""Review the completed conversation turn and decide whether long-term memory should change.
 
@@ -628,6 +629,7 @@ Conversation:
                 {'role': 'user', 'content': review_prompt},
             ],
             'stream': False,
+            'response_format': task_response_format('memory_operations'),
             'metadata': {
                 'task': 'memory_review',
                 'chat_id': metadata.get('chat_id'),

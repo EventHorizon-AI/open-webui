@@ -193,10 +193,13 @@ def render_summary_prompt(template: str, chunk_text: str) -> str:
 
 def build_summary_payload(model_id: str, content: str) -> dict[str, Any]:
     """Build the non-streaming completion payload for one chunk."""
+    from open_webui.utils.task import task_response_format
+
     return {
         'model': model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('reasoning_summary'),
         # Minimal metadata, following `context_compaction`'s internal
         # sub-call convention: tag the task so middleware hooks (and the
         # summarizer itself) skip it. Chat routing metadata from the main
