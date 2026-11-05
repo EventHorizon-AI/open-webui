@@ -90,7 +90,7 @@
 	let contentExpanded = false;
 	let contentOverflow = false;
 	let contentFullHeight = 0;
-	let contentElement: HTMLDivElement | undefined;
+	let contentInnerElement: HTMLDivElement | undefined;
 
 	$: isContentCollapsed = contentOverflow && !contentExpanded;
 
@@ -98,10 +98,16 @@
 	let observedElement: HTMLDivElement | undefined;
 
 	// Detect whether content exceeds the collapse height and ensure the ResizeObserver
-	// is bound to the current content element
+	// is bound to the current content wrapper
 	const checkContentOverflow = async () => {
 		await tick();
-		const el = contentElement;
+		// Measure the inner content wrapper instead of the outer clipped container:
+		// with overflow-clip the outer box has no scrollable overflow region, so its
+		// scrollHeight would report the clipped height rather than the full content
+		// height needed for the collapse threshold and expand animation target; the
+		// wrapper also includes the collapse/expand footer so it stays visible when
+		// the message is expanded
+		const el = contentInnerElement;
 		if (!el) return;
 
 		if (resizeObserver && observedElement !== el) {
@@ -117,11 +123,11 @@
 			observedElement = el;
 		}
 
-		// scrollHeight always reflects the full content height (hidden overflow is included
-		// even when overflow-hidden is applied), so compare against the collapse
-		// height threshold regardless of expanded state; the measured height is reused
-		// as the animation target so expand/collapse can transition exactly to the
-		// content's real height
+		// scrollHeight of the inner content element always reflects its full content
+		// height (parent clipping has no effect on the child's own layout), so compare
+		// against the collapse height threshold regardless of expanded state; the
+		// measured height is reused as the animation target so expand/collapse can
+		// transition exactly to the content's real height
 		contentFullHeight = el.scrollHeight;
 		contentOverflow = el.scrollHeight > COLLAPSED_MAX_HEIGHT_PX + 2;
 		if (!contentOverflow && contentExpanded) {
@@ -129,7 +135,7 @@
 		}
 	};
 
-	$: if (message?.content !== undefined && (contentElement || contentExpanded)) {
+	$: if (message?.content !== undefined && (contentInnerElement || contentExpanded)) {
 		checkContentOverflow();
 	}
 	$: if (history.messages) {
@@ -492,9 +498,8 @@
 						>
 							{#if message.content}
 								<div
-									bind:this={contentElement}
 									class="relative min-w-0 {contentOverflow
-										? 'overflow-hidden'
+										? 'overflow-clip'
 										: ''} transition-[max-height] duration-300 ease-in-out motion-reduce:transition-none"
 									style={contentOverflow
 										? `max-height: ${
@@ -502,103 +507,78 @@
 											}px;`
 										: ''}
 								>
-									{#if $settings?.renderMarkdownInUserMessages ?? true}
-										<div
-											class="markdown-prose"
-											use:commentSurface={{
-												resource_type: 'chat',
-												resource_id: chatId,
-												target_type: 'chat_message',
-												target_id: message.id,
-												surface_id: 'content',
-												content_hash: contentHash(message.content ?? ''),
-												enabled: !!chatId
-											}}
-										>
-											<Markdown
-												id={`${chatId}-${message.id}`}
-												content={message.content}
-												{editCodeBlock}
-												{topPadding}
-											/>
-										</div>
-									{:else}
-										<div
-											class="whitespace-pre-wrap text-[0.9375rem]"
-											use:commentSurface={{
-												resource_type: 'chat',
-												resource_id: chatId,
-												target_type: 'chat_message',
-												target_id: message.id,
-												surface_id: 'content',
-												content_hash: contentHash(message.content ?? ''),
-												enabled: !!chatId
-											}}
-											dir={$settings?.chatDirection ?? 'auto'}
-										>
-											{message.content}
-										</div>
-									{/if}
-									{#if contentOverflow}
-										{#if $settings?.chatBubble ?? true}
+									<!-- Measuring wrapper: wraps the whole collapsible content (text + footer
+									     buttons) so the measured full height matches what must stay visible
+									     when expanded; it is unpositioned so the absolutely positioned
+									     overlay elements below keep resolving to the outer relative box -->
+									<div bind:this={contentInnerElement} class="min-w-0">
+										{#if $settings?.renderMarkdownInUserMessages ?? true}
 											<div
-												aria-hidden="true"
-												class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-gray-50 to-transparent {compactPreview
-													? 'dark:from-gray-800'
-													: 'dark:from-gray-850'} transition-opacity duration-200 motion-reduce:transition-none {isContentCollapsed
-													? 'opacity-100'
-													: 'opacity-0'}"
-											></div>
-										{/if}
-										<button
-											type="button"
-											class="absolute right-2 bottom-0 flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition duration-200 motion-reduce:transition-none {isContentCollapsed
-												? 'opacity-100'
-												: 'pointer-events-none opacity-0'}"
-											aria-expanded={contentExpanded}
-											on:click={() => {
-												contentExpanded = true;
-												checkContentOverflow();
-											}}
-										>
-											<span>{$i18n.t('Expand')}</span>
-											<svg
-												xmlns="http://www.w3.org/2000/svg"
-												fill="none"
-												viewBox="0 0 24 24"
-												stroke-width="2"
-												stroke="currentColor"
-												class="size-3"
+												class="markdown-prose"
+												use:commentSurface={{
+													resource_type: 'chat',
+													resource_id: chatId,
+													target_type: 'chat_message',
+													target_id: message.id,
+													surface_id: 'content',
+													content_hash: contentHash(message.content ?? ''),
+													enabled: !!chatId
+												}}
 											>
-												<path
-													stroke-linecap="round"
-													stroke-linejoin="round"
-													d="m19.5 8.25-7.5 7.5-7.5-7.5"
+												<Markdown
+													id={`${chatId}-${message.id}`}
+													content={message.content}
+													{editCodeBlock}
+													{topPadding}
 												/>
-											</svg>
-										</button>
-										<div
-											class="mt-1 flex justify-end transition-opacity duration-200 motion-reduce:transition-none {isContentCollapsed
-												? 'pointer-events-none opacity-0'
-												: 'opacity-100'}"
-										>
+											</div>
+										{:else}
+											<div
+												class="whitespace-pre-wrap text-[0.9375rem]"
+												use:commentSurface={{
+													resource_type: 'chat',
+													resource_id: chatId,
+													target_type: 'chat_message',
+													target_id: message.id,
+													surface_id: 'content',
+													content_hash: contentHash(message.content ?? ''),
+													enabled: !!chatId
+												}}
+												dir={$settings?.chatDirection ?? 'auto'}
+											>
+												{message.content}
+											</div>
+										{/if}
+										{#if contentOverflow}
+											{#if $settings?.chatBubble ?? true}
+												<div
+													aria-hidden="true"
+													class="pointer-events-none absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-gray-50 to-transparent {compactPreview
+														? 'dark:from-gray-800'
+														: 'dark:from-gray-850'} transition-opacity duration-200 motion-reduce:transition-none {isContentCollapsed
+														? 'opacity-100'
+														: 'opacity-0'}"
+												></div>
+											{/if}
 											<button
 												type="button"
-												class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors ease-out duration-150"
+												class="absolute right-2 bottom-0 flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition duration-200 motion-reduce:transition-none {isContentCollapsed
+													? 'opacity-100'
+													: 'pointer-events-none opacity-0'}"
 												aria-expanded={contentExpanded}
 												on:click={() => {
-													contentExpanded = false;
+													contentExpanded = true;
 													checkContentOverflow();
 												}}
 											>
-												<span>{$i18n.t('Collapse')}</span>
+												<span>{$i18n.t('Expand')}</span>
 												<svg
 													xmlns="http://www.w3.org/2000/svg"
 													fill="none"
 													viewBox="0 0 24 24"
 													stroke-width="2"
 													stroke="currentColor"
-													class="size-3 rotate-180"
+													class="size-3"
 												>
 													<path
 														stroke-linecap="round"
@@ -607,8 +587,39 @@
 													/>
 												</svg>
 											</button>
-										</div>
-									{/if}
+											<div
+												class="mt-1 flex justify-end transition-opacity duration-200 motion-reduce:transition-none {isContentCollapsed
+													? 'pointer-events-none opacity-0'
+													: 'opacity-100'}"
+											>
+												<button
+													type="button"
+													class="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-300 transition-colors ease-out duration-150"
+													aria-expanded={contentExpanded}
+													on:click={() => {
+														contentExpanded = false;
+														checkContentOverflow();
+													}}
+												>
+													<span>{$i18n.t('Collapse')}</span>
+													<svg
+														xmlns="http://www.w3.org/2000/svg"
+														fill="none"
+														viewBox="0 0 24 24"
+														stroke-width="2"
+														stroke="currentColor"
+														class="size-3 rotate-180"
+													>
+														<path
+															stroke-linecap="round"
+															stroke-linejoin="round"
+															d="m19.5 8.25-7.5 7.5-7.5-7.5"
+														/>
+													</svg>
+												</button>
+											</div>
+										{/if}
+									</div>
 								</div>
 							{/if}
 						</div>
