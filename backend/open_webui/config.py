@@ -2253,6 +2253,59 @@ except Exception as e:
 
 TASK_MODEL_PARAMS = task_model_params
 
+ENABLE_REASONING_SUMMARY = os.getenv('ENABLE_REASONING_SUMMARY', 'False').lower() == 'true'
+
+REASONING_SUMMARY_PROMPT_TEMPLATE = os.getenv('REASONING_SUMMARY_PROMPT_TEMPLATE', '')
+
+DEFAULT_REASONING_SUMMARY_PROMPT_TEMPLATE = """### Task:
+Summarize the given chunk of a model's raw reasoning.
+
+### Guidelines:
+- Return a single JSON object with exactly these fields:
+  - "title": a short noun phrase (3-6 words) naming the topic, e.g. \
+"Polynomial Division Analysis". No verbs, no trailing period.
+  - "summary": one flowing first-person, present-progressive paragraph \
+describing the reasoning as it unfolds.
+- Keep the summary concise. It must be at most 3 sentences and at most \
+100 words, whichever is shorter. If the chunk is very short, use 1-2 \
+sentences. Do not pad the summary to reach a length.
+- Length control has priority. If detail and brevity conflict, keep only \
+the main reasoning thread and the mathematical facts needed to follow it.
+- Preserve included mathematical facts, variables, and computations \
+exactly; do not solve, correct, or add steps. Do not transcribe every \
+minor intermediate computation unless it is essential to the reasoning.
+- Merge fragments and redundant restatements into complete sentences. \
+Do not repeat the same idea in different words.
+- Narrate the reasoning as ongoing action, using openings like \
+"I'm working through...", "I'm expanding...", "I'm computing...", \
+"I'm tracking...".
+- Write the summary in the reasoning's primary language; default to English \
+if the reasoning is multilingual.
+- Plain prose only: no markdown, no bullet points, no headings, \
+no LaTeX display math, no code blocks, no line breaks.
+
+### Output:
+JSON format: { "title": "your concise title here", "summary": "your summary here" }
+Your entire response must be a single, raw JSON object, without any markdown \
+code fences, introductory text, or explanations.
+
+### Reasoning Chunk:
+<reasoning_chunk>
+{{prompt}}
+</reasoning_chunk>"""
+
+REASONING_SUMMARY_CHUNK_SIZE = int(os.getenv('REASONING_SUMMARY_CHUNK_SIZE', '300'))
+
+REASONING_SUMMARY_HARD_MAX_UNITS = int(os.getenv('REASONING_SUMMARY_HARD_MAX_UNITS', '1200'))
+
+REASONING_SUMMARY_MAX_CONCURRENCY = int(os.getenv('REASONING_SUMMARY_MAX_CONCURRENCY', '2'))
+
+REASONING_SUMMARY_TIMEOUT = int(os.getenv('REASONING_SUMMARY_TIMEOUT', '60'))
+
+REASONING_SUMMARY_MAX_RETRIES = int(os.getenv('REASONING_SUMMARY_MAX_RETRIES', '1'))
+
+REASONING_SUMMARY_SUMMARIZE_TAIL = os.getenv('REASONING_SUMMARY_SUMMARIZE_TAIL', 'True').lower() == 'true'
+
 CONTEXT_COMPACTION_MODEL = os.getenv('CONTEXT_COMPACTION_MODEL', '')
 
 ENABLE_CONTEXT_COMPACTION = os.getenv('ENABLE_CONTEXT_COMPACTION', 'False').lower() == 'true'
@@ -3304,6 +3357,14 @@ DEFAULT_CONFIG = {
     'task.voice.prompt_template': VOICE_MODE_PROMPT_TEMPLATE,
     'task.voice.prompt.enable': ENABLE_VOICE_MODE_PROMPT,
     'task.tools.prompt_template': TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
+    'task.reasoning_summary.enable': ENABLE_REASONING_SUMMARY,
+    'task.reasoning_summary.prompt_template': REASONING_SUMMARY_PROMPT_TEMPLATE,
+    'task.reasoning_summary.chunk_size': REASONING_SUMMARY_CHUNK_SIZE,
+    'task.reasoning_summary.hard_max_units': REASONING_SUMMARY_HARD_MAX_UNITS,
+    'task.reasoning_summary.max_concurrency': REASONING_SUMMARY_MAX_CONCURRENCY,
+    'task.reasoning_summary.timeout': REASONING_SUMMARY_TIMEOUT,
+    'task.reasoning_summary.max_retries': REASONING_SUMMARY_MAX_RETRIES,
+    'task.reasoning_summary.summarize_tail': REASONING_SUMMARY_SUMMARIZE_TAIL,
     'auth.enable_api_keys': ENABLE_API_KEYS,
     'auth.api_key.endpoint_restrictions': ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS,
     'auth.api_key.allowed_endpoints': API_KEYS_ALLOWED_ENDPOINTS,

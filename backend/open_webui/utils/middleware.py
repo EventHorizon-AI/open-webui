@@ -14,6 +14,7 @@ import re
 import sys
 import textwrap
 import time
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Optional
 from urllib.parse import unquote
@@ -27,6 +28,7 @@ from open_webui.config import (
     CODE_INTERPRETER_BLOCKED_MODULES,
     CODE_INTERPRETER_PYODIDE_PROMPT,
     DEFAULT_CODE_INTERPRETER_PROMPT,
+    DEFAULT_REASONING_SUMMARY_PROMPT_TEMPLATE,
     DEFAULT_TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE,
     DEFAULT_VOICE_MODE_PROMPT_TEMPLATE,
 )
@@ -75,6 +77,7 @@ from open_webui.routers.tasks import (
     generate_image_prompt,
     generate_queries,
     generate_title,
+    get_task_model_generation_config,
 )
 from open_webui.socket.main import (
     get_event_call,
@@ -143,6 +146,13 @@ from open_webui.utils.response import (
     normalize_usage,
     update_usage_snapshot,
 )
+from open_webui.utils.reasoning_summarizer import (
+    await_chunk_task,
+    cut_chunk,
+    format_summary_body,
+    ReasoningChunkSummary,
+    summarize_reasoning,
+)
 from open_webui.utils.sanitize import sanitize_code
 from open_webui.utils.skills import (
     apply_skills_create_prompt,
@@ -154,6 +164,7 @@ from open_webui.utils.skills import (
 from open_webui.utils.task import (
     get_task_model_id,
     parse_follow_ups,
+    prompt_template,
     rag_template,
     tools_function_calling_generation_template,
 )
@@ -4084,8 +4095,130 @@ async def non_streaming_chat_response_handler(response, ctx):
                         choice_message = choices[0].get('message', {}) if choices else {}
                         reasoning_content = choice_message.get('reasoning_content') or choice_message.get('reasoning')
                         reasoning_details = get_reasoning_details(choice_message)
+
+                        # Reasoning summary task: chunk the raw reasoning and
+                        # produce titled summaries with the task model. The
+                        # config is resolved like the other tasks do, and the
+                        # per-stream state lives directly in the closures.
+                        reasoning_chunks = []
+                        if reasoning_content and not metadata.get('task'):
+                            # Same direct/direct-aware model resolution as the
+                            # streaming path.
+                            reasoning_models = request.app.state.MODELS
+                            if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
+                                reasoning_models = {
+                                    **dict(reasoning_models.items()),
+                                    request.state.model['id']: request.state.model,
+                                }
+
+                            if await Config.get('task.reasoning_summary.enable'):
+                                (
+                                    reasoning_task_model_id,
+                                    reasoning_task_model_params,
+                                ) = await get_task_model_generation_config(
+                                    (ctx.get('model') or {}).get('id') or '', reasoning_models
+                                )
+                                if reasoning_task_model_id in reasoning_models:
+                                    template = await Config.get('task.reasoning_summary.prompt_template') or ''
+                                    if template.strip():
+                                        template = await prompt_template(template, user)
+                                    else:
+                                        template = DEFAULT_REASONING_SUMMARY_PROMPT_TEMPLATE
+
+                                    timeout = max(
+                                        5,
+                                        await Config.get('task.reasoning_summary.timeout')
+                                        or reasoning_task_model_params.get('timeout')
+                                        or 60,
+                                    )
+                                    max_retries = await Config.get('task.reasoning_summary.max_retries') or 1
+                                    semaphore = asyncio.Semaphore(
+                                        max(
+                                            1,
+                                            await Config.get('task.reasoning_summary.max_concurrency') or 2,
+                                        )
+                                    )
+
+                                    pending_summaries: deque[tuple[int, asyncio.Task]] = deque()
+
+                                    async def summarize_chunk(index: int, chunk_text: str, summarize: bool = True):
+                                        result = None
+                                        if summarize:
+                                            async with semaphore:
+                                                try:
+                                                    async with asyncio.timeout(timeout):
+                                                        result = await summarize_reasoning(
+                                                            request,
+                                                            user,
+                                                            reasoning_models,
+                                                            reasoning_task_model_id,
+                                                            reasoning_task_model_params,
+                                                            template,
+                                                            max_retries,
+                                                            chunk_text,
+                                                        )
+                                                except Exception as e:
+                                                    log.debug('reasoning summary task request failed: %s', e)
+
+                                        return ReasoningChunkSummary(
+                                            index=index,
+                                            chunk_text=chunk_text,
+                                            body=format_summary_body(result, chunk_text),
+                                            summarized=result is not None,
+                                        )
+
+                                    # Cut ready chunks at the config threshold like
+                                    # the streaming path, then submit the rest as
+                                    # the tail chunk.
+                                    reasoning_chunk_size = await Config.get('task.reasoning_summary.chunk_size') or 300
+                                    reasoning_hard_max_units = (
+                                        await Config.get('task.reasoning_summary.hard_max_units') or 1200
+                                    )
+                                    summarize_tail = await Config.get('task.reasoning_summary.summarize_tail')
+
+                                    def submit_reasoning_chunk(chunk_text: str, tail: bool = False) -> None:
+                                        pending_summaries.append(
+                                            (
+                                                index,
+                                                asyncio.create_task(
+                                                    summarize_chunk(
+                                                        index,
+                                                        chunk_text,
+                                                        summarize=not tail or summarize_tail,
+                                                    )
+                                                ),
+                                            )
+                                        )
+
+                                    index = 0
+                                    buffer = reasoning_content
+                                    while (
+                                        pair := cut_chunk(buffer, reasoning_chunk_size, reasoning_hard_max_units, False)
+                                    ) is not None:
+                                        chunk, buffer = pair
+                                        submit_reasoning_chunk(chunk)
+                                        index += 1
+                                    if buffer:
+                                        submit_reasoning_chunk(buffer, tail=True)
+                                        index += 1
+
+                                    while pending_summaries:
+                                        _, task = pending_summaries.popleft()
+                                        chunk = await await_chunk_task(task)
+                                        if chunk:
+                                            reasoning_chunks.append(chunk)
+
                         response_output = []
-                        if reasoning_content or reasoning_details:
+                        if reasoning_content or reasoning_details or reasoning_chunks:
+                            details = list(
+                                reasoning_details
+                                if isinstance(reasoning_details, list)
+                                else ([reasoning_details] if reasoning_details else [])
+                            )
+                            # Raw reasoning stays in `content`, provider details are
+                            # kept as-is; the task-model summaries go into `summary`
+                            # as summary_text parts.
+                            summaries = [chunk.body for chunk in reasoning_chunks if chunk.summarized and chunk.body]
                             reasoning_item = {
                                 'type': 'reasoning',
                                 'id': output_id('r'),
@@ -4096,12 +4229,14 @@ async def non_streaming_chat_response_handler(response, ctx):
                                 'content': (
                                     [{'type': 'output_text', 'text': reasoning_content}] if reasoning_content else []
                                 ),
-                                'summary': None,
+                                'summary': (
+                                    [{'type': 'summary_text', 'text': text} for text in summaries]
+                                    if summaries
+                                    else None
+                                ),
                             }
-                            if reasoning_details:
-                                reasoning_item['reasoning_details'] = (
-                                    reasoning_details if isinstance(reasoning_details, list) else [reasoning_details]
-                                )
+                            if details:
+                                reasoning_item['reasoning_details'] = details
                             response_output.append(reasoning_item)
                         response_output.append(
                             {
@@ -4724,6 +4859,151 @@ async def streaming_chat_response_handler(response, ctx):
                 else:
                     reasoning_tags = DEFAULT_REASONING_TAGS
 
+            # Reasoning summary task: when enabled, raw reasoning deltas are
+            # buffered and the task model streams back titled summaries that
+            # replace the chain of thought on the client. The config is
+            # resolved here like the other tasks (title, tags, ...) do, and
+            # the per-stream state lives directly in the variables shared by
+            # the closures defined below.
+            reasoning_summary_enabled = False
+            if not metadata.get('task'):
+                reasoning_models = request.app.state.MODELS
+                if getattr(request.state, 'direct', False) and hasattr(request.state, 'model'):
+                    reasoning_models = {
+                        **dict(reasoning_models.items()),
+                        request.state.model['id']: request.state.model,
+                    }
+
+                if await Config.get('task.reasoning_summary.enable'):
+                    reasoning_task_model_id, reasoning_task_model_params = await get_task_model_generation_config(
+                        model.get('id') or '', reasoning_models
+                    )
+                    if reasoning_task_model_id in reasoning_models:
+                        reasoning_template = await Config.get('task.reasoning_summary.prompt_template') or ''
+                        if reasoning_template.strip():
+                            # Resolve {{USER_*}} / {{CURRENT_*}} variables the
+                            # same way the title/tags templates are resolved;
+                            # the {{prompt}} chunk substitution happens per
+                            # chunk when the request is built.
+                            reasoning_template = await prompt_template(reasoning_template, user)
+                        else:
+                            reasoning_template = DEFAULT_REASONING_SUMMARY_PROMPT_TEMPLATE
+
+                        reasoning_chunk_size = await Config.get('task.reasoning_summary.chunk_size') or 300
+                        reasoning_hard_max_units = await Config.get('task.reasoning_summary.hard_max_units') or 1200
+                        reasoning_timeout = max(
+                            5,
+                            await Config.get('task.reasoning_summary.timeout')
+                            or reasoning_task_model_params.get('timeout')
+                            or 60,
+                        )
+                        reasoning_max_retries = await Config.get('task.reasoning_summary.max_retries') or 1
+                        reasoning_summarize_tail = await Config.get('task.reasoning_summary.summarize_tail')
+                        reasoning_concurrency = max(
+                            1,
+                            await Config.get('task.reasoning_summary.max_concurrency') or 2,
+                        )
+                        reasoning_summary_enabled = True
+
+            if reasoning_summary_enabled:
+                reasoning_buffer = ''
+                reasoning_seq = 0
+                pending_summaries: deque[tuple[int, asyncio.Task]] = deque()
+                reasoning_semaphore = asyncio.Semaphore(reasoning_concurrency)
+
+                async def summarize_reasoning_chunk(index: int, chunk_text: str, summarize: bool = True):
+                    result = None
+                    if summarize:
+                        async with reasoning_semaphore:
+                            try:
+                                async with asyncio.timeout(reasoning_timeout):
+                                    result = await summarize_reasoning(
+                                        request,
+                                        user,
+                                        reasoning_models,
+                                        reasoning_task_model_id,
+                                        reasoning_task_model_params,
+                                        reasoning_template,
+                                        reasoning_max_retries,
+                                        chunk_text,
+                                    )
+                            except Exception as e:
+                                log.debug('reasoning summary task request failed: %s', e)
+
+                    return ReasoningChunkSummary(
+                        index=index,
+                        chunk_text=chunk_text,
+                        body=format_summary_body(result, chunk_text),
+                        summarized=result is not None,
+                    )
+
+                def submit_reasoning_chunk(chunk_text: str, summarize: bool = True) -> None:
+                    nonlocal reasoning_seq
+
+                    index = reasoning_seq
+                    reasoning_seq += 1
+                    task = asyncio.create_task(summarize_reasoning_chunk(index, chunk_text, summarize))
+                    pending_summaries.append((index, task))
+
+                def feed_reasoning_summarizer(delta: str) -> None:
+                    """Append a raw reasoning delta and cut any ready chunk."""
+                    nonlocal reasoning_buffer
+
+                    if not delta:
+                        return
+                    reasoning_buffer += delta
+                    while (
+                        pair := cut_chunk(
+                            reasoning_buffer,
+                            reasoning_chunk_size,
+                            reasoning_hard_max_units,
+                            False,
+                        )
+                    ) is not None:
+                        chunk, reasoning_buffer = pair
+                        submit_reasoning_chunk(chunk)
+
+                def flush_reasoning_summarizer() -> None:
+                    """Submit the remaining buffer as one chunk (the tail)."""
+                    nonlocal reasoning_buffer
+
+                    pair = cut_chunk(
+                        reasoning_buffer,
+                        reasoning_chunk_size,
+                        reasoning_hard_max_units,
+                        True,
+                    )
+                    if pair:
+                        chunk, reasoning_buffer = pair
+                        submit_reasoning_chunk(chunk, summarize=reasoning_summarize_tail)
+
+                def reasoning_summarizer_has_work() -> bool:
+                    """Whether un-summarized reasoning is buffered or in flight."""
+                    return bool(reasoning_buffer) or bool(pending_summaries)
+
+                async def reasoning_summarizer_collect_ready() -> list[ReasoningChunkSummary]:
+                    """Return finished chunks in submission order, oldest first."""
+                    out = []
+                    while pending_summaries:
+                        _, task = pending_summaries[0]
+                        if not task.done():
+                            break
+                        pending_summaries.popleft()
+                        chunk = await await_chunk_task(task)
+                        if chunk:
+                            out.append(chunk)
+                    return out
+
+                async def reasoning_summarizer_drain() -> list[ReasoningChunkSummary]:
+                    """Wait for and return every pending chunk, in strict chunk order."""
+                    out = []
+                    while pending_summaries:
+                        _, task = pending_summaries.popleft()
+                        chunk = await await_chunk_task(task)
+                        if chunk:
+                            out.append(chunk)
+                    return out
+
             try:
                 for event in events:
                     await event_emitter(
@@ -4851,6 +5131,79 @@ async def streaming_chat_response_handler(response, ctx):
                             }
                         )
                         stream_size = 0
+
+                    async def emit_reasoning_chunk_summaries(reasoning_item, chunks):
+                        """Store finished reasoning summaries on the item.
+
+                        Each summarized chunk becomes a ``summary_text`` part on
+                        the reasoning item's ``summary`` field (mirroring native
+                        reasoning summaries), streamed to the client via the
+                        ``response.reasoning_summary_part.added`` event. The raw
+                        chain of thought stays in the item's ``content``
+                        untouched; chunks the task model failed to summarize are
+                        skipped, since the raw text is already visible.
+                        """
+                        if not reasoning_item:
+                            return
+                        output_index = output.index(reasoning_item)
+                        summary_list = reasoning_item.get('summary')
+                        if not isinstance(summary_list, list):
+                            summary_list = []
+                            reasoning_item['summary'] = summary_list
+
+                        for chunk in chunks:
+                            if not chunk.body or not chunk.chunk_text:
+                                continue
+
+                            if not chunk.summarized:
+                                # Task model unavailable for this chunk: nothing
+                                # to store; the raw chunk stays in `content`.
+                                continue
+
+                            placeholder = summary_list[0] if summary_list else None
+                            if placeholder is not None and not placeholder.get('text'):
+                                # Fill the empty placeholder issued at stream
+                                # start with the first summary instead of
+                                # leaving it behind as an extra part.
+                                await emit_response_completion_event(
+                                    {
+                                        'type': 'response.reasoning_summary_text.delta',
+                                        'item_id': reasoning_item.get('id'),
+                                        'output_index': output_index,
+                                        'summary_index': 0,
+                                        'delta': chunk.body,
+                                    }
+                                )
+                                append_to_text_field(placeholder, 'text', chunk.body)
+                            else:
+                                # Part text stays clean like native reasoning
+                                # summaries: block separation is the renderer's
+                                # job, signalled by the summary_index boundary.
+                                part = {'type': 'summary_text', 'text': chunk.body}
+                                summary_list.append(part)
+
+                                await emit_response_completion_event(
+                                    {
+                                        'type': 'response.reasoning_summary_part.added',
+                                        'item_id': reasoning_item.get('id'),
+                                        'output_index': output_index,
+                                        'summary_index': len(summary_list) - 1,
+                                        'part': part,
+                                    }
+                                )
+
+                    async def drain_reasoning_summarizer(reasoning_item, flush_tail: bool):
+                        """Emit summaries before the reasoning block is closed."""
+                        if not (reasoning_summary_enabled and reasoning_summarizer_has_work()):
+                            return
+                        try:
+                            if flush_tail:
+                                flush_reasoning_summarizer()
+                            await emit_reasoning_chunk_summaries(reasoning_item, await reasoning_summarizer_drain())
+                        except Exception:
+                            # Never break the provider stream on a summary bug;
+                            # log the full traceback for diagnosis instead.
+                            log.exception('reasoning summary emission failed')
 
                     filter_extra_params = {'__body__': current_form_data, **extra_params} if filter_functions else None
 
@@ -5158,6 +5511,9 @@ async def streaming_chat_response_handler(response, ctx):
                                         if response_tool_calls:
                                             # The reasoning phase is over once the model starts emitting
                                             # tool calls, so close any still-open reasoning item.
+                                            if output and output[-1].get('type') == 'reasoning':
+                                                await drain_reasoning_summarizer(output[-1], flush_tail=True)
+
                                             if (
                                                 output
                                                 and output[-1].get('type') == 'reasoning'
@@ -5341,7 +5697,11 @@ async def streaming_chat_response_handler(response, ctx):
                                                 reasoning_item = output[-1]
 
                                         if reasoning_content:
-                                            # Append to reasoning content
+                                            # Raw reasoning is appended to the item's
+                                            # content exactly as before (and streamed);
+                                            # the reasoning_summary task additionally
+                                            # buffers chunks and stores task-model
+                                            # summaries on the item's `summary` field.
                                             parts = reasoning_item.get('content', [])
                                             if parts and parts[-1].get('type') == 'output_text':
                                                 append_to_text_field(parts[-1], 'text', reasoning_content)
@@ -5365,8 +5725,36 @@ async def streaming_chat_response_handler(response, ctx):
                                                 'delta': reasoning_content,
                                             }
                                             await emit_response_completion_event(data)
-                                            data = None
 
+                                            if reasoning_summary_enabled:
+                                                if not reasoning_item.get('summary'):
+                                                    # The renderer prefers the item's
+                                                    # `summary` field for display, so an
+                                                    # empty first part keeps the raw chain
+                                                    # of thought out of the interface
+                                                    # until the task model returns a
+                                                    # summary for the first chunk.
+                                                    placeholder = {'type': 'summary_text', 'text': ''}
+                                                    reasoning_item['summary'] = [placeholder]
+                                                    await emit_response_completion_event(
+                                                        {
+                                                            'type': 'response.reasoning_summary_part.added',
+                                                            'item_id': reasoning_item.get('id'),
+                                                            'output_index': output.index(reasoning_item),
+                                                            'summary_index': 0,
+                                                            'part': placeholder,
+                                                        }
+                                                    )
+                                                feed_reasoning_summarizer(reasoning_content)
+                                                try:
+                                                    await emit_reasoning_chunk_summaries(
+                                                        reasoning_item,
+                                                        await reasoning_summarizer_collect_ready(),
+                                                    )
+                                                except Exception:
+                                                    # Never break the provider stream on a
+                                                    # summary bug; log the full traceback.
+                                                    log.exception('reasoning summary emission failed')
                                         if reasoning_detail_items:
                                             merge_streamed_reasoning_details(
                                                 reasoning_item.setdefault('reasoning_details', []),
@@ -5380,6 +5768,22 @@ async def streaming_chat_response_handler(response, ctx):
                                             data = None
 
                                     if value:
+                                        if reasoning_summary_enabled and reasoning_summarizer_has_work():
+                                            # First main-text delta: submit any remaining
+                                            # reasoning tail and wait for ALL queued summaries
+                                            # to be emitted in order before content is released.
+                                            await drain_reasoning_summarizer(
+                                                next(
+                                                    (
+                                                        item
+                                                        for item in reversed(output)
+                                                        if item.get('type') == 'reasoning'
+                                                    ),
+                                                    None,
+                                                ),
+                                                flush_tail=True,
+                                            )
+
                                         if (
                                             output
                                             and output[-1].get('type') == 'reasoning'
@@ -5584,6 +5988,11 @@ async def streaming_chat_response_handler(response, ctx):
                             if not stream_size or not request.app.state.redis:
                                 await save_current_response_stream()
                     await flush_pending_delta_data()
+
+                    if output and output[-1].get('type') == 'reasoning':
+                        # Summarize the tail (per `summarize_tail`) and emit every
+                        # remaining summary before the reasoning item is completed.
+                        await drain_reasoning_summarizer(output[-1], flush_tail=True)
 
                     if output:
                         # Clean up the last message item

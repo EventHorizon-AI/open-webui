@@ -1,6 +1,9 @@
 import { encode } from 'html-entities';
 
-import { deriveReasoningSummaryPreview } from '$lib/components/common/reasoningSummary';
+import {
+	deriveReasoningSummaryPreview,
+	splitExplicitReasoningSummaries
+} from '$lib/components/common/reasoningSummary';
 
 export type OutputContentPart = {
 	type?: string;
@@ -162,8 +165,17 @@ function getMessageText(item: OutputItem): string {
 }
 
 function getReasoningText(item: OutputItem): string {
-	const summary = Array.isArray(item.summary) && item.summary.length ? item.summary : null;
-	return getTextFromParts(summary ?? item.content ?? []);
+	// Summary parts are standalone blocks (like native reasoning summaries):
+	// joining them inserts the part-boundary blank line the renderer expects.
+	const summaryParts = Array.isArray(item.summary) && item.summary.length ? item.summary : null;
+	if (summaryParts) {
+		return summaryParts
+			.filter((part) => typeof part?.text === 'string' && part.text.trim())
+			.map((part) => part.text!)
+			.join('\n\n');
+	}
+	// Content is the raw streamed chain of thought: one continuous text.
+	return getTextFromParts(item.content ?? []);
 }
 
 function getToolResultText(item?: OutputItem): string {
@@ -280,8 +292,13 @@ function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 	const cacheId = item.id ?? item.call_id ?? '';
 	// The preview state is cached so a finished block is not re-scanned on every
 	// render; `done` marks the state and consumers render the duration from
-	// `attributes.duration` themselves.
-	const preview = deriveReasoningSummaryPreview(cacheId, reasoningText, isDone);
+	// `attributes.duration` themselves. Summaries that carry their own title
+	// (the reasoning_summary task) skip the derivation: their bold lead line is
+	// the preview title directly.
+	const explicitSummaries = splitExplicitReasoningSummaries(cacheId, reasoningText);
+	const preview = explicitSummaries
+		? ([...explicitSummaries].reverse().find((summary) => summary.title)?.title ?? '')
+		: deriveReasoningSummaryPreview(cacheId, reasoningText, isDone);
 
 	return {
 		summary: preview,

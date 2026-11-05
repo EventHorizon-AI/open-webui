@@ -608,11 +608,9 @@ def handle_responses_streaming_event(
             item = new_output[output_index].copy()
             new_output[output_index] = item
 
-            if 'summary' not in item:
-                item['summary'] = []
-            else:
-                item['summary'] = list(item['summary'])
-
+            # Items built mid-stream carry `summary: None`; only a real list is
+            # worth copying.
+            item['summary'] = list(item['summary']) if isinstance(item.get('summary'), list) else []
             item['summary'].append(part)
             return new_output, None
         return current_output, None
@@ -695,10 +693,8 @@ def handle_responses_streaming_event(
                             # Summary updates -> item['summary']
                             key = 'text'
                             summary_index = data.get('summary_index', 0)
-                            if 'summary' not in item:
-                                item['summary'] = []
-                            else:
-                                item['summary'] = list(item['summary'])
+                            # Items built mid-stream carry `summary: None`.
+                            item['summary'] = list(item['summary']) if isinstance(item.get('summary'), list) else []
                             summary_list = item['summary']
 
                             while len(summary_list) <= summary_index:
@@ -800,7 +796,8 @@ def handle_responses_streaming_event(
                     item = new_output[output_index].copy()
                     new_output[output_index] = item
 
-                    if 'summary' in item:
+                    # Items built mid-stream can carry `summary: None`.
+                    if isinstance(item.get('summary'), list):
                         item['summary'] = list(item['summary'])
                         summary_index = data.get('summary_index', len(item['summary']) - 1)
                         if 0 <= summary_index < len(item['summary']):
