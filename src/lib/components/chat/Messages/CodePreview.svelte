@@ -43,7 +43,9 @@
 	.gutter {
 		position: sticky;
 		left: 0;
-		z-index: 1;
+		/* deliberately no z-index: keeps the gutter above scrolled code content via
+		   positioning alone, while staying below positioned overlays of ancestors
+		   (e.g. the collapsed-message fade) so it fades like the rest of the code */
 		flex: 0 0 auto;
 		display: flex;
 		flex-direction: column;
