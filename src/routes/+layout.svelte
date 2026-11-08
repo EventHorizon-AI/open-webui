@@ -1,4 +1,10 @@
 <script>
+	import { setTheme } from '$lib/utils/theme';
+	import {
+		playNotificationSound,
+		setNotificationSoundEnabled,
+		unlockNotificationAudio
+	} from '$lib/utils/audio';
 	import CommentsHost from '$lib/components/comments/CommentsHost.svelte';
 	import { io } from 'socket.io-client';
 	import { spring } from 'svelte/motion';
@@ -25,12 +31,11 @@
 		chatId,
 		tags,
 		temporaryChatEnabled,
-		openTemporaryChatIds,
+		openSideChatIds,
 		isLastActiveTab,
 		isApp,
 		appInfo,
 		toolServers,
-		playingNotificationSound,
 		channels,
 		channelId,
 		channelRequestQueues,
@@ -76,6 +81,7 @@
 		removeAllDetails
 	} from '$lib/utils';
 	import { setTextScale } from '$lib/utils/text-scale';
+	import { initializeTether, renewTetherSession } from '$lib/utils/tether';
 
 	import NotificationToast from '$lib/components/NotificationToast.svelte';
 	import SyncStatsModal from '$lib/components/chat/Settings/SyncStatsModal.svelte';
@@ -123,6 +129,7 @@
 	const bc = new BroadcastChannel('active-tab-channel');
 
 	let loaded = false;
+	let stopTether = () => {};
 	let tokenTimer = null;
 	let isAuthRedirectInProgress = false;
 
@@ -586,6 +593,24 @@
 		}
 	};
 
+	const notify = (title, options, path) => {
+		const userId = $user?.id;
+		if (window.tether) return;
+		if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+		if (!userId) return;
+		const notification = new Notification(title, options);
+		notification.onclick = async () => {
+			notification.close();
+			if ($user?.id !== userId) return;
+			try {
+				window.focus();
+				if ($user?.id === userId) await goto(path);
+			} catch (error) {
+				console.error('Could not open notification', error);
+			}
+		};
+	};
+
 	const chatEventHandler = async (event, cb) => {
 		if (event.shared) return;
 		const chat = $page.url.pathname.includes(`/c/${event.chat_id}`);
@@ -594,12 +619,14 @@
 		// This prevents notifications from being sent to other tabs/devices
 		// for privacy, since temporary chats are not meant to be persisted or visible elsewhere.
 		const isTemporaryChat = isTemporaryChatId(event.chat_id);
-		if (isTemporaryChat && event.chat_id !== $chatId && !$openTemporaryChatIds.has(event.chat_id)) {
+		if (isTemporaryChat && event.chat_id !== $chatId && !$openSideChatIds.has(event.chat_id)) {
 			return;
 		}
 
 		let isInBackground = document.visibilityState !== 'visible';
-		if (window.electronAPI) {
+		if (window.tether?.isFocused) {
+			isInBackground = !(await window.tether.isFocused().catch(() => false));
+		} else if (window.electronAPI) {
 			const res = await window.electronAPI.send({
 				type: 'window:isFocused'
 			});
@@ -635,13 +662,17 @@
 
 			if ($isLastActiveTab) {
 				if ($settings?.notificationEnabled ?? false) {
-					new Notification(`${data.title} / Open WebUI`, {
-						body: timeStr,
-						// LICENSE covers this Open WebUI notification identifier.
-						// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-						// https://docs.openwebui.com/license.
-						icon: `${WEBUI_BASE_URL}/static/favicon.png`
-					});
+					notify(
+						`${data.title} / Open WebUI`,
+						{
+							body: timeStr,
+							// LICENSE covers this Open WebUI notification identifier.
+							// Do not alter, remove, obscure, or replace it except as LICENSE permits:
+							// https://docs.openwebui.com/license.
+							icon: `${WEBUI_BASE_URL}/static/favicon.png`
+						},
+						'/calendar'
+					);
 				}
 			}
 			return;
@@ -773,7 +804,7 @@
 
 		if (
 			!event?.internal &&
-			!$openTemporaryChatIds.has(event.chat_id) &&
+			!$openSideChatIds.has(event.chat_id) &&
 			((event.chat_id !== $chatId && !$temporaryChatEnabled) || isInBackground)
 		) {
 			if (type === 'chat:completion') {
@@ -784,26 +815,25 @@
 				if (done) {
 					if (
 						($settings?.notificationSound ?? true) &&
-						($settings?.notificationSoundAlways ?? false)
+						($settings?.notificationSoundAlways ?? false) &&
+						$isLastActiveTab
 					) {
-						playingNotificationSound.set(true);
-
-						const audio = new Audio(`/audio/notification.mp3`);
-						audio.play().finally(() => {
-							// Ensure the global state is reset after the sound finishes
-							playingNotificationSound.set(false);
-						});
+						void playNotificationSound($settings?.notificationSoundType);
 					}
 
 					if ($isLastActiveTab) {
 						if ($settings?.notificationEnabled ?? false) {
-							new Notification(`${displayTitle} / Open WebUI`, {
-								body: contentPreview,
-								// LICENSE covers this Open WebUI notification identifier.
-								// Do not alter, remove, obscure, or replace it except as LICENSE permits:
-								// https://docs.openwebui.com/license.
-								icon: `${WEBUI_BASE_URL}/static/favicon.png`
-							});
+							notify(
+								`${displayTitle} / Open WebUI`,
+								{
+									body: contentPreview,
+									// LICENSE covers this Open WebUI notification identifier.
+									// Do not alter, remove, obscure, or replace it except as LICENSE permits:
+									// https://docs.openwebui.com/license.
+									icon: `${WEBUI_BASE_URL}/static/favicon.png`
+								},
+								`/c/${event.chat_id}`
+							);
 						}
 					}
 
@@ -813,7 +843,8 @@
 								goto(`/c/${event.chat_id}`);
 							},
 							content: contentPreview,
-							title: displayTitle
+							title: displayTitle,
+							playSound: !($settings?.notificationSoundAlways ?? false)
 						},
 						duration: 15000,
 						unstyled: true
@@ -865,7 +896,9 @@
 		const channel = $page.url.pathname.includes(`/channels/${event.channel_id}`);
 
 		let isInBackground = document.visibilityState !== 'visible';
-		if (window.electronAPI) {
+		if (window.tether?.isFocused) {
+			isInBackground = !(await window.tether.isFocused().catch(() => false));
+		} else if (window.electronAPI) {
 			const res = await window.electronAPI.send({
 				type: 'window:isFocused'
 			});
@@ -937,10 +970,14 @@
 						// LICENSE covers this Open WebUI notification identifier.
 						// Do not alter, remove, obscure, or replace it except as LICENSE permits:
 						// https://docs.openwebui.com/license.
-						new Notification(`${title} / Open WebUI`, {
-							body: content,
-							icon: `${WEBUI_API_BASE_URL}/users/${data?.user?.id}/profile/image`
-						});
+						notify(
+							`${title} / Open WebUI`,
+							{
+								body: content,
+								icon: `${WEBUI_API_BASE_URL}/users/${data?.user?.id}/profile/image`
+							},
+							`/channels/${event.channel_id}`
+						);
 					}
 				}
 
@@ -995,7 +1032,7 @@
 		}
 	};
 
-	const clearExpiredSession = () => {
+	const clearExpiredSession = async () => {
 		if (isAuthRedirectInProgress) {
 			return;
 		}
@@ -1005,13 +1042,14 @@
 			clearInterval(tokenTimer);
 			tokenTimer = null;
 		}
+		// Await sign-out so it cannot clear the state of the new OAuth login
+		await userSignOut().catch((error) => {
+			console.error('Error signing out expired session:', error);
+		});
 		user.set(null);
 		localStorage.removeItem('token');
 		// Clear the OAuth token cookie so /auth doesn't auto-login and redirect-loop
 		document.cookie = 'token=; Max-Age=0; path=/';
-		userSignOut().catch((error) => {
-			console.error('Error signing out expired session:', error);
-		});
 		toast.error($i18n.t('Session expired. Please sign in again.'));
 		isAuthRedirectInProgress = false;
 	};
@@ -1038,7 +1076,14 @@
 			return;
 		}
 
-		if (now >= exp - TOKEN_EXPIRY_BUFFER) {
+		if (now >= exp - Math.max(TOKEN_EXPIRY_BUFFER, window.tether ? 90 : 0)) {
+			if (window.tether) {
+				try {
+					if (await renewTetherSession()) return;
+				} catch {
+					return;
+				}
+			}
 			clearExpiredSession();
 		}
 	};
@@ -1053,34 +1098,13 @@
 			await goto(event.data.path);
 			return;
 		}
-		if (event.type === 'query' && (event.data?.query || event.data?.files?.length)) {
-			desktopEvent.set(event);
-			await goto('/');
-			return;
-		}
 		if (event.type === 'call') {
-			desktopEvent.set(event);
+			desktopEvent.set({ type: 'call' });
 			await goto('/');
 			return;
 		}
 		if (event.type === 'theme:update' && event.data?.theme) {
-			const newTheme = event.data.theme;
-			localStorage.setItem('theme', newTheme);
-			theme.set(newTheme);
-
-			// Apply theme classes (mirrors logic from chat/Settings/General.svelte)
-			const themes = ['dark', 'light', 'oled-dark'];
-			let themeToApply =
-				newTheme === 'oled-dark' ? 'dark' : newTheme === 'her' ? 'light' : newTheme;
-			if (newTheme === 'system') {
-				themeToApply = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-			}
-			themes
-				.filter((e) => e !== themeToApply)
-				.forEach((e) => {
-					e.split(' ').forEach((cls) => document.documentElement.classList.remove(cls));
-				});
-			themeToApply.split(' ').forEach((cls) => document.documentElement.classList.add(cls));
+			setTheme(event.data.theme);
 			return;
 		}
 		if (event.type === 'models:refresh') {
@@ -1144,6 +1168,7 @@
 
 	onMount(async () => {
 		const originalFetch = window.fetch.bind(window);
+		stopTether = await initializeTether(originalFetch);
 		window.fetch = async (input, init) => {
 			const response = await originalFetch(input, init);
 
@@ -1153,6 +1178,13 @@
 				isAuthenticatedBackendFetch(input, init) &&
 				(await isCurrentSessionUnauthorized(originalFetch))
 			) {
+				if (window.tether) {
+					try {
+						if (await renewTetherSession(true)) return response;
+					} catch {
+						return response;
+					}
+				}
 				clearExpiredSession();
 			}
 
@@ -1316,9 +1348,12 @@
 		};
 		window.addEventListener('beforeunload', beforeUnloadHandler);
 
+		const sessionUserRequest = localStorage.token ? getSessionUser(localStorage.token) : null;
+		sessionUserRequest?.catch(() => {});
+
 		let backendConfig = null;
 		try {
-			backendConfig = await getBackendConfig();
+			backendConfig = await getBackendConfig(localStorage.token);
 			console.log('Backend config:', backendConfig);
 		} catch (error) {
 			if (error?.authRedirect) {
@@ -1356,20 +1391,15 @@
 			if ($config) {
 				await setupSocket($config.features?.enable_websocket ?? true);
 
-				if (localStorage.token) {
+				if (sessionUserRequest) {
 					// Get Session User Info
-					const sessionUser = await getSessionUser(localStorage.token).catch((error) => {
+					const sessionUser = await sessionUserRequest.catch((error) => {
 						toast.error(`${error}`);
 						return null;
 					});
 
 					if (sessionUser) {
 						await user.set(sessionUser);
-						try {
-							await config.set(await getBackendConfig());
-						} catch (error) {
-							console.error('Error refreshing backend config:', error);
-						}
 
 						// Keep user timezone in sync on every app load/refresh
 						const timezone = getUserTimezone();
@@ -1467,10 +1497,20 @@
 		}
 	}
 
+	$: if (typeof window !== 'undefined')
+		setNotificationSoundEnabled($settings?.notificationSound ?? true);
+
+	const unlockNotificationSound = () => {
+		if ($settings?.notificationSound ?? true) void unlockNotificationAudio();
+	};
+
 	onDestroy(() => {
+		stopTether();
 		bc.close();
 	});
 </script>
+
+<svelte:window on:click={unlockNotificationSound} on:keydown={unlockNotificationSound} />
 
 <svelte:head>
 	<!-- LICENSE covers this Open WebUI branding surface, including name, logo,

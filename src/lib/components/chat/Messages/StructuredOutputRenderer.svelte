@@ -22,6 +22,7 @@
 	export let editCodeBlock = true;
 	export let topPadding = false;
 	export let allowEmbeds = false;
+	export let allowToolApproval: boolean = false;
 	export let sourceIds: string[] = [];
 	export let formatMessageContent: (content: string) => string = (content) => content;
 	export let onSave: any = () => {};
@@ -65,5 +66,6 @@
 		{onUpdate}
 		{onPreview}
 		{onToolCallResolved}
+		{allowToolApproval}
 	/>
 {/each}

@@ -120,7 +120,7 @@
 		!$selectedFolder.write_access;
 </script>
 
-<div class="m-auto w-full max-w-[58rem] px-1 md:@2xl:px-20 translate-y-6 py-24 text-center">
+<div class="m-auto w-full max-w-[58rem] px-1 md:@3xl:px-20 translate-y-6 py-24 text-center">
 	{#if $temporaryChatEnabled}
 		<Tooltip
 			content={$i18n.t("This chat won't appear in history and your messages will not be saved.")}
@@ -237,7 +237,7 @@
 				{#if !($selectedFolder && folderReadOnly)}
 					<MessageInput
 						{chatId}
-						{terminalContext}
+						bind:terminalContext
 						{callActive}
 						{callEnabled}
 						bind:this={messageInput}

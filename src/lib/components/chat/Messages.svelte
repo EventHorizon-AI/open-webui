@@ -48,6 +48,7 @@
 	export let readOnly = false;
 	export let shareMode: 'continue' | null = null;
 	export let allowDelete = true;
+	export let allowToolApproval: boolean = false;
 	export let compactPreview = false;
 	export let editCodeBlock = true;
 
@@ -253,8 +254,11 @@
 	};
 
 	const showPreviousMessage = async (message) => {
+		const refocus = document.activeElement?.classList.contains('previous-message-button');
+		let messageId = message.id;
+
 		if (message.parentId !== null) {
-			let messageId =
+			messageId =
 				history.messages[message.parentId].childrenIds[
 					Math.max(history.messages[message.parentId].childrenIds.indexOf(message.id) - 1, 0)
 				];
@@ -266,7 +270,7 @@
 			let childrenIds = Object.values(history.messages)
 				.filter((message) => message.parentId === null)
 				.map((message) => message.id);
-			let messageId = childrenIds[Math.max(childrenIds.indexOf(message.id) - 1, 0)];
+			messageId = childrenIds[Math.max(childrenIds.indexOf(message.id) - 1, 0)];
 
 			if (message.id !== messageId) {
 				history.currentId = getDeepestChildId(history, messageId);
@@ -274,6 +278,12 @@
 		}
 
 		await tick();
+
+		if (refocus) {
+			document
+				.querySelector<HTMLElement>(`#message-${messageId} .previous-message-button`)
+				?.focus();
+		}
 
 		if ($settings?.scrollOnBranchChange ?? true) {
 			const element = getMessagesContainer();
@@ -288,8 +298,11 @@
 	};
 
 	const showNextMessage = async (message) => {
+		const refocus = document.activeElement?.classList.contains('next-message-button');
+		let messageId = message.id;
+
 		if (message.parentId !== null) {
-			let messageId =
+			messageId =
 				history.messages[message.parentId].childrenIds[
 					Math.min(
 						history.messages[message.parentId].childrenIds.indexOf(message.id) + 1,
@@ -304,7 +317,7 @@
 			let childrenIds = Object.values(history.messages)
 				.filter((message) => message.parentId === null)
 				.map((message) => message.id);
-			let messageId =
+			messageId =
 				childrenIds[Math.min(childrenIds.indexOf(message.id) + 1, childrenIds.length - 1)];
 
 			if (message.id !== messageId) {
@@ -313,6 +326,10 @@
 		}
 
 		await tick();
+
+		if (refocus) {
+			document.querySelector<HTMLElement>(`#message-${messageId} .next-message-button`)?.focus();
+		}
 
 		if ($settings?.scrollOnBranchChange ?? true) {
 			const element = getMessagesContainer();
@@ -524,7 +541,7 @@
 								<Message
 									{chatId}
 									bind:history
-									{selectedModels}
+									selectedModels={atSelectedModel ? [atSelectedModel.id] : selectedModels}
 									messageId={message.id}
 									idx={messageIdx}
 									{user}
@@ -546,6 +563,7 @@
 									{onToolCallResolved}
 									{forkHandler}
 									{allowDelete}
+									{allowToolApproval}
 									{triggerScroll}
 									{readOnly}
 									{compactPreview}

@@ -97,6 +97,14 @@ export function buildMarkdownDisplayTokens(
 	};
 
 	tokenList.forEach((token, index) => {
+		if (
+			token?.type === 'details' &&
+			token?.attributes?.type === 'tool_calls' &&
+			token?.attributes?.hidden === 'true' &&
+			!['pending', 'queued', 'requires_approval'].includes(token?.attributes?.status ?? '')
+		) {
+			return;
+		}
 		if (isGroupableDetailToken(token)) {
 			if (detailGroup.length === 0) {
 				detailGroupStartIndex = index;

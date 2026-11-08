@@ -3,6 +3,7 @@
 	import { getContext, onMount, tick, onDestroy } from 'svelte';
 	import type { Writable } from 'svelte/store';
 	import type { i18n as i18nType } from 'i18next';
+	import { highlightCodeBlock } from '$lib/utils/codeHighlight';
 	import { config, pyodideWorker as pyodideWorkerStore, visibleControls } from '$lib/stores';
 
 	import { createPyodideWorker } from '$lib/pyodide/createPyodideWorker';
@@ -68,7 +69,19 @@
 	let renderHTML = null;
 	let renderError: { type: 'diagram' | 'visualization'; detail: string } | null = null;
 
-	let highlightedCode = null;
+	let highlightedCode: string | null = null;
+	let highlightGeneration = 0;
+	async function highlightDocument(code: string, language: string) {
+		const generation = ++highlightGeneration;
+		highlightedCode = null;
+		try {
+			const html = await highlightCodeBlock(code, language);
+			if (generation === highlightGeneration) highlightedCode = html;
+		} catch {
+			// Keep the escaped source visible if a grammar cannot be loaded.
+		}
+	}
+	$: if (markdown?.document && !edit && !isDiff) void highlightDocument(code, lang);
 	let executing = false;
 
 	let stdout = null;
@@ -451,6 +464,7 @@
 	});
 
 	onDestroy(() => {
+		highlightGeneration++;
 		if (localPyodideWorker) {
 			localPyodideWorker.terminate();
 			localPyodideWorker = null;
@@ -471,7 +485,7 @@
 			/>
 		{:else}
 			<div
-				class="sticky {stickyButtonsClassName} left-0 right-0 py-1.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black"
+				class="sticky {stickyButtonsClassName} left-0 right-0 py-0.5 px-3.5 gap-2 flex items-center justify-end w-full z-10 text-xs text-black dark:text-white bg-white dark:bg-black"
 			>
 				<div class="flex-1 truncate">
 					<Tooltip content={lang} placement="top-start">
@@ -587,6 +601,14 @@
 								_code = value;
 							}}
 						/>
+					{:else if markdown?.document}
+						<div class="document-code">
+							{#if highlightedCode}
+								{@html highlightedCode}
+							{:else}
+								<pre><code>{code}</code></pre>
+							{/if}
+						</div>
 					{:else}
 						<CodePreview code={_code} {lang} />
 					{/if}
@@ -655,3 +677,26 @@
 		{/if}
 	</div>
 </div>
+
+<style>
+	.document-code :global(pre) {
+		margin: 0;
+		padding: 0.75rem 1rem;
+		overflow-x: auto;
+		font-size: 0.8125rem;
+		line-height: normal;
+		background: transparent !important;
+	}
+	.document-code :global(code) {
+		font-family: 'JetBrains Mono', 'Fira Code', ui-monospace, monospace;
+		font-size: inherit;
+		white-space: pre;
+	}
+	:global(.dark) .document-code :global(.shiki),
+	:global(.dark) .document-code :global(.shiki span) {
+		color: var(--shiki-dark) !important;
+		font-style: var(--shiki-dark-font-style) !important;
+		font-weight: var(--shiki-dark-font-weight) !important;
+		text-decoration: var(--shiki-dark-text-decoration) !important;
+	}
+</style>

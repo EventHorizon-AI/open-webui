@@ -50,6 +50,7 @@
 	export let editCodeBlock = true;
 	export let topPadding = false;
 	export let allowEmbeds = false;
+	export let allowToolApproval: boolean = false;
 	export let sourceIds: string[] = [];
 	export let formatMessageContent: (content: string) => string = (content) => content;
 	export let onSave: any = () => {};
@@ -170,7 +171,7 @@
 			? processTokens.filter((token) => token.attributes?.type !== 'reasoning')
 			: processTokens;
 	$: nestedAllowEmbeds = nested ? false : allowEmbeds;
-	$: resolvable = !nested && !!chatId && !!messageId && save;
+	$: resolvable = !nested && !!chatId && !!messageId && (save || allowToolApproval);
 
 	// Keep dayjs' duration humanization in the active UI language, the same way
 	// Collapsible does for reasoning durations.
