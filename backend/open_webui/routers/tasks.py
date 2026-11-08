@@ -33,6 +33,7 @@ from open_webui.utils.task import (
     moa_response_generation_template,
     query_generation_template,
     tags_generation_template,
+    task_response_format,
     title_generation_template,
 )
 from pydantic import BaseModel
@@ -206,6 +207,7 @@ async def generate_title(request: Request, form_data: dict, user=Depends(get_ver
         'model': task_model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('title'),
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.TITLE_GENERATION),
@@ -273,6 +275,7 @@ async def generate_follow_ups(request: Request, form_data: dict, user=Depends(ge
         'model': task_model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('follow_ups'),
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.FOLLOW_UP_GENERATION),
@@ -338,6 +341,7 @@ async def generate_chat_tags(request: Request, form_data: dict, user=Depends(get
         'model': task_model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('tags'),
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.TAGS_GENERATION),
@@ -397,6 +401,7 @@ async def generate_image_prompt(request: Request, form_data: dict, user=Depends(
         'model': task_model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('image_prompt'),
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.IMAGE_PROMPT_GENERATION),
@@ -474,6 +479,7 @@ async def generate_queries(request: Request, form_data: dict, user=Depends(get_v
         'model': task_model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('queries'),
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.QUERY_GENERATION),
@@ -552,6 +558,7 @@ async def generate_autocompletion(request: Request, form_data: dict, user=Depend
         'model': task_model_id,
         'messages': [{'role': 'user', 'content': content}],
         'stream': False,
+        'response_format': task_response_format('autocompletion'),
         'metadata': {
             **(request.state.metadata if hasattr(request.state, 'metadata') else {}),
             'task': str(TASKS.AUTOCOMPLETE_GENERATION),
