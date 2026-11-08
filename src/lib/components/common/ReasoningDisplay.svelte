@@ -9,6 +9,7 @@
 	import {
 		deriveReasoningSummaries,
 		isReasoningSummaryMarkdown,
+		splitExplicitReasoningSummaries,
 		type ReasoningSummary
 	} from './reasoningSummary';
 
@@ -97,6 +98,12 @@
 	// the existing summaries apart and derive titles they already have.
 	$: alreadySummarized = isReasoningSummaryMarkdown(markdownContent);
 
+	// The reasoning_summary task sends summaries that already carry a bold
+	// title lead (`**{title}**` + body, one block per summary part). Splitting
+	// them here keeps the authored title as the block header instead of
+	// re-deriving one; a null result falls back to the paths below.
+	$: explicitSummaries = splitExplicitReasoningSummaries(id, markdownContent);
+
 	// The body renders as reasoning summaries (see buildReasoningSummary): a
 	// summary is a block cut at the next blank line once it has reached
 	// REASONING_SUMMARY_TOKEN_TARGET tokens and is shown only once complete, so
@@ -117,12 +124,16 @@
 	// is its identity check; both checks settle on the second pass.
 	let reasoningSummaries: ReasoningSummary[] = [];
 	$: {
-		const nextSummaries = alreadySummarized
-			? [{ title: '', body: markdownContent, truncated: false }]
-			: deriveReasoningSummaries(id, markdownContent, !reasoningIncomplete);
-		const unchanged = alreadySummarized
-			? reasoningSummaries.length === 1 && reasoningSummaries[0].body === markdownContent
-			: nextSummaries === reasoningSummaries;
+		const nextSummaries = explicitSummaries
+			? explicitSummaries
+			: alreadySummarized
+				? [{ title: '', body: markdownContent, truncated: false }]
+				: deriveReasoningSummaries(id, markdownContent, !reasoningIncomplete);
+		const unchanged = explicitSummaries
+			? nextSummaries === reasoningSummaries
+			: alreadySummarized
+				? reasoningSummaries.length === 1 && reasoningSummaries[0].body === markdownContent
+				: nextSummaries === reasoningSummaries;
 		if (!unchanged) {
 			reasoningSummaries = nextSummaries;
 		}
@@ -130,11 +141,23 @@
 
 	// The streaming status line only shows a title from a finalized summary:
 	// while a block waits for the next block's merge decision, its title is not
-	// shown. Text that is already summarised shows its own last title instead
-	// of deriving another one.
-	$: previewTitle = alreadySummarized
-		? lastSummaryTitle(markdownContent, reasoningIncomplete)
-		: ([...reasoningSummaries].reverse().find((summary) => summary.title)?.title ?? '');
+	// shown. Text with authored titles shows the last one directly; text that
+	// is already summarised shows its own last title instead of deriving
+	// another one.
+	$: previewTitle = explicitSummaries
+		? (findLastTitle(explicitSummaries) ?? '')
+		: alreadySummarized
+			? lastSummaryTitle(markdownContent, reasoningIncomplete)
+			: (findLastTitle(reasoningSummaries) ?? '');
+
+	function findLastTitle(summaries: ReasoningSummary[]): string {
+		for (let i = summaries.length - 1; i >= 0; i--) {
+			if (summaries[i].title) {
+				return summaries[i].title;
+			}
+		}
+		return '';
+	}
 </script>
 
 {#if reasoningPreviewOnly && reasoningStreaming}
@@ -174,7 +197,36 @@
 						     title/body spacing comes from `.reasoning-title` /
 						     `.reasoning-body` in app.css. -->
 						<div class="reasoning-block">
-							{#if alreadySummarized}
+							{#if explicitSummaries}
+								<!-- Authored summaries (the reasoning_summary task) show
+								     their own title as the block header and the rest of
+								     the block as markdown, like the already-summarised
+								     text below. -->
+								{#if summary.title}
+									<p class="reasoning-title font-medium text-gray-700 dark:text-gray-300">
+										{summary.title}
+									</p>
+								{/if}
+								<Markdown
+									id={`${id}-block-${summaryIndex}`}
+									{chatId}
+									{messageId}
+									content={summary.body}
+									{done}
+									{save}
+									{preview}
+									{compactPreview}
+									{editCodeBlock}
+									{topPadding}
+									{sourceIds}
+									{onSourceClick}
+									{onTaskClick}
+									{onToolCallResolved}
+									{onSave}
+									{onUpdate}
+									{onPreview}
+								/>
+							{:else if alreadySummarized}
 								<!-- Stored text is already rendered summary markdown (a bold
 								     title, possibly lists or code), so it keeps the Markdown
 								     path: parsing it here renders it as written. -->

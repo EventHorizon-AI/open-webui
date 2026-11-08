@@ -937,6 +937,113 @@ export function isReasoningSummaryMarkdown(text: string): boolean {
 	return (lines[index + 1] ?? '').trim() !== '';
 }
 
+/**
+ * Segment text into top-level blocks (blank-line separated, code fences kept
+ * whole) without the carry machinery the incremental preview state uses.
+ */
+function splitExplicitBlocks(text: string): string[] {
+	const segments: string[] = [];
+	let fence: string | null = null;
+	let current: string[] = [];
+
+	const flush = () => {
+		if (current.length) {
+			segments.push(current.join('\n'));
+			current = [];
+		}
+	};
+
+	for (const line of text.split('\n')) {
+		if (fence) {
+			// Inside a fence: a line that starts with the same marker closes it.
+			if (line.trimStart().startsWith(fence)) {
+				fence = null;
+			}
+			current.push(line);
+			continue;
+		}
+		const openMatch = /^\s{0,3}(```|~~~)/.exec(line);
+		if (openMatch) {
+			fence = openMatch[1];
+			current.push(line);
+			continue;
+		}
+		if (line.trim() === '') {
+			flush();
+			continue;
+		}
+		current.push(line);
+	}
+	flush();
+
+	return segments.filter((segment) => segment.split('\n').some((line) => line.trim() !== ''));
+}
+
+const EXPLICIT_SUMMARY_TITLE_RE = /^\s*\*\*(.+?)\*\*\s*$/;
+const EXPLICIT_SUMMARIES_CACHE_LIMIT = 100;
+const explicitSummariesCache = new Map<string, { text: string; summaries: ReasoningSummary[] }>();
+
+/**
+ * Detect summaries that carry their own title (`**{title}**` lead line), as
+ * produced by the reasoning_summary task, and split them into title/body
+ * without running the title-derivation pipeline over them. Returns null when
+ * the text does not look like explicitly summarized markdown, so callers fall
+ * back to the derived summaries.
+ */
+export function splitExplicitReasoningSummaries(
+	cacheId: string,
+	markdown: string
+): ReasoningSummary[] | null {
+	const text = markdown ?? '';
+	if (!text.trim()) {
+		return null;
+	}
+
+	const cached = explicitSummariesCache.get(cacheId);
+	if (cached && cached.text === text) {
+		return cached.summaries;
+	}
+
+	const summaries: ReasoningSummary[] = [];
+	let explicit = false;
+	for (const segment of splitExplicitBlocks(text)) {
+		const lines = segment.split('\n');
+		const titleMatch = EXPLICIT_SUMMARY_TITLE_RE.exec(lines[0] ?? '');
+		let title = '';
+		let bodyStart = 0;
+		if (titleMatch && titleMatch[1].trim()) {
+			title = titleMatch[1].trim();
+			bodyStart = 1;
+			explicit = true;
+		}
+
+		const body = lines
+			.slice(bodyStart)
+			.join('\n')
+			.replace(/^\s*\n+/, '')
+			.replace(/\s+$/, '');
+		if (!title && !body.trim()) {
+			continue;
+		}
+		summaries.push({ title, body, truncated: false });
+	}
+
+	if (!explicit || summaries.length === 0) {
+		if (cached) {
+			explicitSummariesCache.delete(cacheId);
+		}
+		return null;
+	}
+
+	if (cacheId) {
+		if (explicitSummariesCache.size >= EXPLICIT_SUMMARIES_CACHE_LIMIT) {
+			explicitSummariesCache.delete(explicitSummariesCache.keys().next().value!);
+		}
+		explicitSummariesCache.set(cacheId, { text, summaries });
+	}
+	return summaries;
+}
+
 export type BuildReasoningSummaryOptions = {
 	/**
 	 * Drop the trailing block that is not yet complete. Set while the reasoning

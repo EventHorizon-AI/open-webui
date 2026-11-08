@@ -15,6 +15,8 @@ from open_webui.config import (
     DEFAULT_TAGS_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_TITLE_GENERATION_PROMPT_TEMPLATE,
     DEFAULT_VOICE_MODE_PROMPT_TEMPLATE,
+    REASONING_SUMMARY_CHUNK_SIZE,
+    REASONING_SUMMARY_HARD_MAX_UNITS,
 )
 from open_webui.constants import ERROR_MESSAGES, TASKS
 from open_webui.models.config import Config
@@ -59,6 +61,10 @@ TASK_CONFIG_KEYS = {
     'TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE': 'task.tools.prompt_template',
     'ENABLE_VOICE_MODE_PROMPT': 'task.voice.prompt.enable',
     'VOICE_MODE_PROMPT_TEMPLATE': 'task.voice.prompt_template',
+    'ENABLE_REASONING_SUMMARY': 'task.reasoning_summary.enable',
+    'REASONING_SUMMARY_PROMPT_TEMPLATE': 'task.reasoning_summary.prompt_template',
+    'REASONING_SUMMARY_CHUNK_SIZE': 'task.reasoning_summary.chunk_size',
+    'REASONING_SUMMARY_HARD_MAX_UNITS': 'task.reasoning_summary.hard_max_units',
 }
 
 
@@ -127,6 +133,10 @@ class TaskConfigForm(BaseModel):
     TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: str
     ENABLE_VOICE_MODE_PROMPT: bool
     VOICE_MODE_PROMPT_TEMPLATE: Optional[str]
+    ENABLE_REASONING_SUMMARY: bool
+    REASONING_SUMMARY_PROMPT_TEMPLATE: str
+    REASONING_SUMMARY_CHUNK_SIZE: int | None = None
+    REASONING_SUMMARY_HARD_MAX_UNITS: int | None = None
 
 
 @router.post('/config/update')
@@ -134,6 +144,15 @@ async def update_task_config(request: Request, form_data: TaskConfigForm, user=D
     data = form_data.model_dump()
     if data['AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH'] is None:
         data['AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH'] = AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH
+    # Optional numeric reasoning_summary knobs fall back to their seeded
+    # defaults instead of persisting an invalid None.
+    for field, default in (
+        ('REASONING_SUMMARY_CHUNK_SIZE', REASONING_SUMMARY_CHUNK_SIZE),
+        ('REASONING_SUMMARY_HARD_MAX_UNITS', REASONING_SUMMARY_HARD_MAX_UNITS),
+    ):
+        data.setdefault(field, default)
+        if data[field] is None:
+            data[field] = default
     await Config.upsert(config_updates(data, TASK_CONFIG_KEYS))
     return await get_config_values(TASK_CONFIG_KEYS)
 

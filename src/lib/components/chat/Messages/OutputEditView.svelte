@@ -172,17 +172,35 @@
 	}
 
 	function getReasoningText(item: any): string {
-		return (item.summary ?? item.content ?? [])
+		// Summary parts are standalone blocks: the part boundary carries one
+		// blank line, the way the structured-output renderer joins them.
+		const key = item.summary ? 'summary' : 'content';
+		const texts = (item[key] ?? [])
 			.filter((p: any) => p && 'text' in p)
-			.map((p: any) => p.text ?? '')
-			.join('');
+			.map((p: any) => p.text ?? '');
+		if (key === 'summary') {
+			return texts.filter((text: string) => text.trim()).join('\n\n');
+		}
+		// Raw content is one continuous stream of deltas.
+		return texts.join('');
 	}
 
 	function updateReasoningText(idx: number, text: string) {
 		const next = [...output];
 		const item = { ...next[idx] };
 		const key = item.summary ? 'summary' : 'content';
-		item[key] = [{ type: 'text', text }];
+		if (key === 'summary') {
+			// Invert the part-boundary join: one summary_text part per block.
+			const blocks = text
+				.split(/\n{2,}/)
+				.map((block) => block.trim())
+				.filter((block) => block);
+			item[key] = blocks.length
+				? blocks.map((block) => ({ type: 'summary_text', text: block }))
+				: [{ type: 'summary_text', text }];
+		} else {
+			item[key] = [{ type: 'output_text', text }];
+		}
 		next[idx] = item;
 		output = next;
 		onChange(output);

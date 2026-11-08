@@ -43,6 +43,9 @@
 		ENABLE_RETRIEVAL_QUERY_GENERATION: true,
 		QUERY_GENERATION_PROMPT_TEMPLATE: '',
 		TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: '',
+		ENABLE_REASONING_SUMMARY: false,
+		REASONING_SUMMARY_PROMPT_TEMPLATE: '',
+		REASONING_SUMMARY_CHUNK_SIZE: 300,
 		ENABLE_VOICE_MODE_PROMPT: true,
 		VOICE_MODE_PROMPT_TEMPLATE: ''
 	};
@@ -805,6 +808,45 @@
 							placeholder={$i18n.t(
 								'Leave empty to use the default prompt, or enter a custom prompt'
 							)}
+						/>
+					</AdminSettingField>
+				{/if}
+
+				<AdminSettingRow
+					label={$i18n.t('settings.admin.interface.reasoningSummary.label')}
+					description={$i18n.t('settings.admin.interface.reasoningSummary.description')}
+					let:labelId
+				>
+					<Switch bind:state={taskConfig.ENABLE_REASONING_SUMMARY} ariaLabelledbyId={labelId} />
+				</AdminSettingRow>
+
+				{#if taskConfig.ENABLE_REASONING_SUMMARY}
+					<AdminSettingField
+						label={$i18n.t('settings.admin.interface.reasoningSummaryPrompt.label')}
+						description={$i18n.t('settings.admin.interface.reasoningSummaryPrompt.description')}
+					>
+						<Textarea
+							className={textareaClass}
+							bind:value={taskConfig.REASONING_SUMMARY_PROMPT_TEMPLATE}
+							placeholder={$i18n.t(
+								'Leave empty to use the default prompt, or enter a custom prompt'
+							)}
+						/>
+					</AdminSettingField>
+
+					<AdminSettingField
+						label={$i18n.t('settings.admin.interface.reasoningSummaryChunkSize.label')}
+						description={$i18n.t('settings.admin.interface.reasoningSummaryChunkSize.description')}
+						forId="reasoning-summary-chunk-size"
+					>
+						<input
+							id="reasoning-summary-chunk-size"
+							type="number"
+							min="1"
+							step="1"
+							class={inputClass}
+							bind:value={taskConfig.REASONING_SUMMARY_CHUNK_SIZE}
+							placeholder="300"
 						/>
 					</AdminSettingField>
 				{/if}
