@@ -2721,12 +2721,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                 skill_manifest += format_terminal_skill_manifest_entry(skill)
 
         if skill_tools_enabled and skill_manifest:
-            if not metadata.get('assistant_message_id'):
-                initial_output.extend(
-                    hidden_tool_result(
-                        'list_available_skills', f'<available_skills>\n{skill_manifest}</available_skills>'
-                    )
-                )
+            skills_result = f'<available_skills>\n{skill_manifest}</available_skills>'
+            if not metadata.get('assistant_message_id') and skills_result != previous_tool_result(
+                form_data['messages'], 'list_available_skills'
+            ):
+                initial_output.extend(hidden_tool_result('list_available_skills', skills_result))
         elif skill_manifest:
             form_data['messages'] = add_or_update_system_message(
                 'The following skills provide specialized instructions for specific tasks.\n'
@@ -2965,13 +2964,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         attrs += f' source="{escape(str(item["source"]), quote=True)}"'
                     knowledge_tags.append(f'<knowledge {attrs}/>')
 
-                if knowledge_tags and not metadata.get('assistant_message_id'):
-                    initial_output.extend(
-                        hidden_tool_result(
-                            'list_attached_knowledge',
-                            '<attached_knowledge>\n' + '\n'.join(knowledge_tags) + '\n</attached_knowledge>',
-                        )
-                    )
+                knowledge_result = '<attached_knowledge>\n' + '\n'.join(knowledge_tags) + '\n</attached_knowledge>'
+                if (
+                    knowledge_tags
+                    and not metadata.get('assistant_message_id')
+                    and knowledge_result != previous_tool_result(form_data['messages'], 'list_attached_knowledge')
+                ):
+                    initial_output.extend(hidden_tool_result('list_attached_knowledge', knowledge_result))
 
             builtin_tools = await get_builtin_tools(
                 request,
@@ -3173,7 +3172,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
 async def preload_memory(request, messages: list[dict], user, model: dict) -> list[dict]:
     """Keep automatic recall in ordinary tool history so later turns replay it unchanged."""
     result = await recall_memories(request, messages, user, model)
-    return hidden_tool_result('recall_memories', result) if result else []
+    return (
+        hidden_tool_result('recall_memories', result)
+        if result and previous_tool_result(messages, 'recall_memories') != result
+        else []
+    )
 
 
 def hidden_tool_result(name: str, result: str) -> list[dict]:
@@ -3197,6 +3200,22 @@ def hidden_tool_result(name: str, result: str) -> list[dict]:
             'status': 'completed',
         },
     ]
+
+
+def previous_tool_result(messages: list[dict], name: str) -> str | None:
+    """Text of the tool's latest result in replayed history, or None when the latest attempt failed."""
+    pending = {}
+    latest = None
+    for message in messages or []:
+        for call in message.get('tool_calls') or []:
+            function = call.get('function')
+            if isinstance(function, dict) and call.get('id'):
+                pending[call['id']] = function
+        function = pending.pop(message.get('tool_call_id'), None)
+        if function and function.get('name') == name:
+            text = message.get('content')
+            latest = text if isinstance(text, str) and text and not _is_tool_result_error(text) else None
+    return latest
 
 
 async def preload_skills(messages: list[dict], skill_ids: set[str], tool: dict | None) -> list[dict]:
