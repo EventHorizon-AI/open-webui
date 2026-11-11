@@ -2272,31 +2272,45 @@ ENABLE_REASONING_SUMMARY = os.getenv('ENABLE_REASONING_SUMMARY', 'False').lower(
 REASONING_SUMMARY_PROMPT_TEMPLATE = os.getenv('REASONING_SUMMARY_PROMPT_TEMPLATE', '')
 
 DEFAULT_REASONING_SUMMARY_PROMPT_TEMPLATE = """### Task:
-Summarize the given chunk of a model's raw reasoning.
+Summarize the given chunk of a model's raw reasoning at a high level while \
+deliberately obscuring low-level details.
 
 ### Guidelines:
 - Return a single JSON object with exactly these fields:
-  - "title": a short noun phrase (3-6 words) naming the topic, e.g. \
-"Polynomial Division Analysis". No verbs, no trailing period.
+  - "title": a short noun phrase of exactly 2-3 words naming the topic, e.g. \
+"User Request Analysis". No verbs, no trailing period.
   - "summary": one flowing first-person, present-progressive paragraph \
-describing the reasoning as it unfolds.
+describing the reasoning as it unfolds, but keep it abstract and \
+detail-obscuring.
 - Keep the summary concise. It must be at most 3 sentences and at most \
-100 words, whichever is shorter. If the chunk is very short, use 1-2 \
-sentences. Do not pad the summary to reach a length.
-- Length control has priority. If detail and brevity conflict, keep only \
-the main reasoning thread and the mathematical facts needed to follow it.
-- Preserve included mathematical facts, variables, and computations \
-exactly; do not solve, correct, or add steps. Do not transcribe every \
-minor intermediate computation unless it is essential to the reasoning.
-- Merge fragments and redundant restatements into complete sentences. \
-Do not repeat the same idea in different words.
+100 words, whichever is shorter. For very short chunks, including simple \
+statements like "I'm analyzing the user's request," use 2 sentences and aim \
+for roughly 25-50 words. Do not exceed those limits.
+- For very short chunks, expand only at the level of abstraction: describe \
+the broad activity, focus, and readiness to proceed generically, such as \
+reviewing the request, identifying key considerations, organizing \
+understanding, and preparing for further processing. Do not invent concrete \
+details, variables, numbers, steps, or conclusions.
+- Prioritize abstraction and opacity over completeness. Omit or generalize \
+specific variables, numbers, formulas, computations, code identifiers, \
+file names, error messages, and intermediate steps. If a detail is not \
+needed to identify the broad topic, leave it out.
+- Do not transcribe, quote, or closely paraphrase the raw reasoning. Do not \
+expose step-by-step mathematical operations or exact intermediate results. \
+Use generic phrasing such as "I'm working through the relevant steps" or \
+"I'm tracking the main dependencies" rather than naming them.
+- When choosing between a specific detail and a general description, choose \
+the general description. Do not solve, correct, or add steps.
+- Merge fragments and redundant restatements into complete sentences. Do not \
+repeat the same idea in different words. For very short chunks, a two-sentence \
+abstract narration is required, but it must not become redundant padding.
 - Narrate the reasoning as ongoing action, using openings like \
 "I'm working through...", "I'm expanding...", "I'm computing...", \
 "I'm tracking...".
 - Write the summary in the reasoning's primary language; default to English \
 if the reasoning is multilingual.
-- Plain prose only: no markdown, no bullet points, no headings, \
-no LaTeX display math, no code blocks, no line breaks.
+- Plain prose only: no markdown, no bullet points, no headings, no LaTeX \
+display math, no code blocks, no line breaks.
 
 ### Output:
 JSON format: { "title": "your concise title here", "summary": "your summary here" }
