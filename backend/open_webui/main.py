@@ -931,7 +931,9 @@ async def get_models(
         from open_webui.utils.agents.discovery import get_models as get_agent_models
 
         try:
-            models.extend(await get_agent_models(request, user, terminal_id, chat_id, cwd=cwd))
+            models.extend(
+                await get_agent_models(request, user, {'terminal_id': terminal_id, 'chat_id': chat_id}, cwd=cwd)
+            )
         except Exception as exc:
             log.debug('Agent discovery unavailable: %s', type(exc).__name__)
     return {'data': models}
@@ -1137,8 +1139,7 @@ async def chat_completion(
         candidates = await get_agent_models(
             request,
             user,
-            form_data.get('terminal_id'),
-            form_data.get('chat_id'),
+            form_data,
             provider=parts[2],
             cwd=requested_directory,
         )

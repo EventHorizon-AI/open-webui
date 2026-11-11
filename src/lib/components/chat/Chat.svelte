@@ -1105,6 +1105,11 @@
 	let agentDiscovery = 0;
 	const refreshAgentModels = async () => {
 		const generation = ++agentDiscovery;
+		models.update((available) =>
+			available.filter(
+				(model) => model.owned_by !== 'terminal' || model.agent.terminal_id === $selectedTerminalId
+			)
+		);
 		try {
 			const available = await getModels(
 				localStorage.token,
@@ -2103,6 +2108,7 @@
 		return () => {
 			try {
 				cancelBrowserInteractions();
+				agentDiscovery++;
 				clearTimeout(saveControlsTimer);
 				saveControls();
 				if (chatIdProp && !$temporaryChatEnabled) {

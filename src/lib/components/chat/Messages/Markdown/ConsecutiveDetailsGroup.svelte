@@ -277,6 +277,34 @@
 			? (newestReasoningToken?.summary ?? '')
 			: '';
 
+	// Adopted from upstream/main: the flat label built from the tool calls'
+	// display/running labels. It follows the HEAD error semantics
+	// (lastToolCallFailed) instead of upstream's hasError, so a retried failure
+	// that ends well does not suppress the label.
+	$: hasError = lastToolCallFailed;
+	$: toolLabels = tokens
+		.filter((token) => token.attributes?.type === 'tool_calls')
+		.map((token) =>
+			['pending', 'queued', 'requires_approval', 'incomplete'].includes(
+				token.attributes?.status ?? ''
+			)
+				? ''
+				: token.attributes?.done === 'true'
+					? token.attributes?.display_label
+					: token.attributes?.running_label
+		);
+	$: toolNames = tokens
+		.filter((token) => token.attributes?.type === 'tool_calls')
+		.map((token) => token.attributes?.name ?? 'tool');
+	$: groupLabel =
+		!hasRejected &&
+		!hasError &&
+		pendingToolTokens.length === 0 &&
+		codeInterpreterCount === 0 &&
+		toolLabels.some(Boolean)
+			? toolLabels.map((label, index) => label || toolNames[index]).join(', ')
+			: '';
+
 	// One condition drives both the icon and the text of the header so they can
 	// never disagree (the spinner used to also check `hasActiveDetails` while
 	// the text only looked at `groupOpen`). With "show reasoning summary only"
