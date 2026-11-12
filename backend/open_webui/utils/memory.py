@@ -288,13 +288,75 @@ def model_allows_memory(model: dict | None) -> bool:
 
 
 async def recall_memories(request, messages: list[dict], user, model: dict | None = None) -> str:
-    if not model_allows_memory(model):
+    """Plain-text recall for the legacy (non native function calling) path."""
+    items = await recall_memory_items(request, messages, user, model)
+    rendered = render_memory_items(items) if items else ''
+    if not rendered:
         return ''
+    return f'{MEMORY_CONTEXT_OPEN}\n{rendered}\n{MEMORY_CONTEXT_CLOSE}'
+
+
+def render_memory_items(items: list[dict]) -> str:
+    """Render recalled memory items as the titled sections of the legacy format."""
+    parts = []
+    for title, memory_type in (
+        ('User Memory', 'user'),
+        ('Memory Neighborhood', 'neighborhood'),
+        ('Relevant Context', 'context'),
+    ):
+        lines = [f'- {item["label"]}' for item in items if item['type'] == memory_type]
+        if lines:
+            parts.append(f'[{title}]\n' + '\n'.join(lines))
+    return '\n\n'.join(parts)
+
+
+async def recall_memory_items(request, messages: list[dict], user, model: dict | None = None) -> list[dict] | None:
+    """Recall memory items for the latest user message.
+
+    Returns a list of ``{'id', 'type', 'label'}`` items that fit the configured
+    char budgets, or None when recall did not run (capability disabled, no
+    message, or nothing to query). An empty list means recall ran and found
+    nothing relevant, so callers can report previously recalled items as gone.
+    """
+    if not model_allows_memory(model):
+        return None
 
     target = get_last_user_message_item(messages)
     if target is None:
-        return ''
+        return None
 
+    query = _recall_query(messages)
+    if not query:
+        return None
+
+    all_memories = await Memories.get_memories_by_user_id(user.id)
+    results = None
+    try:
+        from open_webui.routers.memories import QueryMemoryForm, query_memory
+
+        results = await query_memory(request, QueryMemoryForm(content=query, k=8), user)
+    except Exception as e:
+        log.debug(e)
+
+    items = _recalled_items(query, all_memories, results)
+    if not items:
+        return []
+
+    config = await Config.get_many('memories.user_char_limit', 'memories.context_char_limit')
+    user_limit = _config_char_limit(config.get('memories.user_char_limit'), 2000)
+    context_limit = _config_char_limit(config.get('memories.context_char_limit'), 2000)
+    return _apply_recall_budgets(items, user_limit, context_limit)
+
+
+def _config_char_limit(value: Any, default: int) -> int:
+    try:
+        return max(250, int(value or default))
+    except Exception:
+        return default
+
+
+def _recall_query(messages: list[dict]) -> str | None:
+    """Concatenated recent user messages used as the recall query, or None when empty."""
     user_messages = []
     for message in reversed(messages):
         if message.get('role') != 'user':
@@ -308,18 +370,11 @@ async def recall_memories(request, messages: list[dict], user, model: dict | Non
             break
 
     query = '\n\n'.join(reversed(user_messages))[-4000:]
-    if not query:
-        return ''
+    return query or None
 
-    all_memories = await Memories.get_memories_by_user_id(user.id)
-    results = None
-    try:
-        from open_webui.routers.memories import QueryMemoryForm, query_memory
 
-        results = await query_memory(request, QueryMemoryForm(content=query, k=8), user)
-    except Exception as e:
-        log.debug(e)
-
+def _recalled_items(query: str, all_memories: list, results: Any) -> list[dict]:
+    """Recalled items in render order: user memories first, then neighborhood, then context."""
     sections = {'user': [], 'neighborhood': [], 'context': []}
     seen_ids = set()
     for memory in sorted(
@@ -327,7 +382,7 @@ async def recall_memories(request, messages: list[dict], user, model: dict | Non
         key=lambda item: (item.path or '', item.updated_at or 0, item.id or ''),
     ):
         seen_ids.add(memory.id)
-        sections['user'].append(memory_label(memory))
+        sections['user'].append({'id': memory.id, 'type': 'user', 'label': memory_label(memory)})
 
     for hint in memory_path_hints(query, all_memories):
         for memory in search_memory_rows(
@@ -339,65 +394,75 @@ async def recall_memories(request, messages: list[dict], user, model: dict | Non
             if memory.id in seen_ids:
                 continue
             seen_ids.add(memory.id)
-            sections['neighborhood'].append(memory_label(memory))
+            sections['neighborhood'].append({'id': memory.id, 'type': 'neighborhood', 'label': memory_label(memory)})
 
-    if results and hasattr(results, 'documents') and results.documents:
-        for doc_idx, doc in enumerate(results.documents[0]):
-            if not doc:
-                continue
+    for item in _recalled_search_items(results, seen_ids):
+        seen_ids.add(item['id'])
+        sections[item['type']].append(item)
 
-            metadata = {}
-            if results.metadatas and results.metadatas[0] and len(results.metadatas[0]) > doc_idx:
-                metadata = results.metadatas[0][doc_idx] or {}
+    # Alphabetical within each section, matching the legacy rendering order.
+    ordered = []
+    for key in ('user', 'neighborhood', 'context'):
+        ordered.extend(sorted(sections[key], key=lambda item: (item['label'].casefold(), item['label'])))
+    return ordered
 
-            memory_id = None
-            if results.ids and results.ids[0] and len(results.ids[0]) > doc_idx:
-                memory_id = results.ids[0][doc_idx]
-            if memory_id and memory_id in seen_ids:
-                continue
-            if memory_id:
-                seen_ids.add(memory_id)
 
-            content = str(doc)
-            if metadata.get('path') and content.startswith(f'{metadata.get("path")}\n'):
-                content = content[len(metadata.get('path')) + 1 :]
-            label = f'{metadata.get("path")}: {content}' if metadata.get('path') else content
-            sections[Memories.normalize_memory_type(metadata.get('type'))].append(label)
+def _recalled_search_items(results: Any, seen_ids: set) -> list[dict]:
+    """Vector-search hits that are not already covered by the sections above."""
+    items = []
+    if not (results and hasattr(results, 'documents') and results.documents):
+        return items
 
-    parts = []
-    for title, key in (
-        ('User Memory', 'user'),
-        ('Memory Neighborhood', 'neighborhood'),
-        ('Relevant Context', 'context'),
-    ):
-        if sections[key]:
-            ordered = sorted(sections[key], key=lambda memory: (memory.casefold(), memory))
-            parts.append(f'[{title}]\n' + '\n'.join(f'- {memory}' for memory in ordered))
-    if not parts:
-        return ''
+    for doc_idx, doc in enumerate(results.documents[0]):
+        if not doc:
+            continue
 
-    config = await Config.get_many('memories.user_char_limit', 'memories.context_char_limit')
-    try:
-        user_limit = max(250, int(config.get('memories.user_char_limit') or 2000))
-    except Exception:
-        user_limit = 2000
-    try:
-        context_limit = max(250, int(config.get('memories.context_char_limit') or 2000))
-    except Exception:
-        context_limit = 2000
+        metadata = {}
+        if results.metadatas and results.metadatas[0] and len(results.metadatas[0]) > doc_idx:
+            metadata = results.metadatas[0][doc_idx] or {}
 
-    user_parts = [part for part in parts if part.startswith('[User Memory]')]
-    context_parts = [part for part in parts if not part.startswith('[User Memory]')]
-    rendered = '\n\n'.join(
-        [
-            '\n\n'.join(user_parts)[:user_limit],
-            '\n\n'.join(context_parts)[:context_limit],
-        ]
-    ).strip()
-    if not rendered:
-        return ''
+        memory_id = None
+        if results.ids and results.ids[0] and len(results.ids[0]) > doc_idx:
+            memory_id = results.ids[0][doc_idx]
+        if memory_id and memory_id in seen_ids:
+            continue
+        if memory_id:
+            seen_ids.add(memory_id)
 
-    return f'{MEMORY_CONTEXT_OPEN}\n{rendered}\n{MEMORY_CONTEXT_CLOSE}'
+        content = str(doc)
+        if metadata.get('path') and content.startswith(f'{metadata.get("path")}\n'):
+            content = content[len(metadata.get('path')) + 1 :]
+        label = f'{metadata.get("path")}: {content}' if metadata.get('path') else content
+        memory_type = Memories.normalize_memory_type(metadata.get('type'))
+        items.append({'id': memory_id, 'type': memory_type, 'label': label})
+    return items
+
+
+def _apply_recall_budgets(items: list[dict], user_limit: int, context_limit: int) -> list[dict]:
+    """Truncate at whole items so the returned set always matches what is rendered.
+
+    The user block and the neighborhood/context blocks have separate budgets.
+    """
+    kept = []
+    used = 0
+    for item in items:
+        if item['type'] != 'user':
+            continue
+        line = f'- {item["label"]}'
+        if used + len(line) + 1 > user_limit:
+            continue
+        kept.append(item)
+        used += len(line) + 1
+    used = 0
+    for item in items:
+        if item['type'] == 'user':
+            continue
+        line = f'- {item["label"]}'
+        if used + len(line) + 1 > context_limit:
+            break
+        kept.append(item)
+        used += len(line) + 1
+    return kept
 
 
 async def add_memory_context(request, form_data: dict, user, model: dict | None = None):

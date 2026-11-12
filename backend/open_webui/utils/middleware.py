@@ -109,8 +109,7 @@ from open_webui.utils.json_codec import JSONCodec, dumps_bytes
 from open_webui.utils.mcp.apps import MCPAppResult
 from open_webui.utils.memory import (
     add_memory_context,
-    model_allows_memory,
-    recall_memories,
+    recall_memory_items,
     review_memory_after_turn,
 )
 from open_webui.utils.misc import (
@@ -2318,6 +2317,15 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         append=True,
     )
 
+    # Tell the model how context updates arrive before the first injection
+    # happens, so later hidden context_update calls need no explanation.
+    if use_builtin_tools:
+        form_data['messages'] = add_or_update_system_message(
+            CONTEXT_UPDATE_NOTE,
+            form_data.get('messages', []),
+            append=True,
+        )
+
     # The compaction summary sits as its own system message, right after the
     # first system message — the exact shape the tool loop injected when it
     # compacted mid-turn. Matching that placement keeps the replayed prefix
@@ -2460,6 +2468,13 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             raise Exception(f'{e}')
 
     initial_output = []
+    # Context update sections are collected while the pipeline runs, then
+    # diffed against the folded history and emitted after compaction, so a
+    # compaction that dropped the baseline gets a full re-injection. The item
+    # sets also ride along in metadata for the tool loop, which re-states the
+    # full context after a mid-turn compaction cut the baseline.
+    metadata.pop('context_items', None)
+    context_items: dict[str, dict[str, str]] = {}
     features = form_data.pop('features', None) or {}
     extra_params['__features__'] = features
     if features:
@@ -2488,7 +2503,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             ):
                 if use_builtin_tools:
                     if not metadata.get('assistant_message_id'):
-                        initial_output.extend(await preload_memory(request, form_data['messages'], user, model))
+                        recalled = await recall_memory_items(request, form_data['messages'], user, model)
+                        if recalled is not None:
+                            context_items['recalled_memories'] = memory_update_items(recalled)
                 else:
                     form_data = await add_memory_context(request, form_data, user, model)
 
@@ -2633,12 +2650,12 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             if skill and skill.is_active:
                 available_skills.append(skill)
 
-        skill_manifest = ''
+        skill_items: dict[str, str] = {}
         for skill in available_skills:
             if skill_tools_enabled:
-                skill_manifest += (
+                skill_items[skill.id] = (
                     f'<skill>\n<id>{skill.id}</id>\n<name>{skill.name}</name>\n'
-                    f'<description>{skill.description or ""}</description>\n</skill>\n'
+                    f'<description>{html.escape(skill.description or "", quote=False)}</description>\n</skill>'
                 )
                 continue
             if skill.id in activated_skill_ids or not use_builtin_tools or not model_builtin_tools.get('skills', True):
@@ -2674,9 +2691,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                     append=True,
                 )
             else:
-                skill_manifest += (
+                skill_items[skill.id] = (
                     f'<skill>\n<id>{skill.id}</id>\n<name>{skill.name}</name>\n'
-                    f'<description>{skill.description or ""}</description>\n</skill>\n'
+                    f'<description>{html.escape(skill.description or "", quote=False)}</description>\n</skill>'
                 )
 
         listed = (
@@ -2696,7 +2713,7 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         for skill in sorted(terminal_skills, key=lambda skill: skill['id']):
             sid = skill['id']
             if skill_tools_enabled:
-                skill_manifest += format_terminal_skill_manifest_entry(skill)
+                skill_items[sid] = format_terminal_skill_manifest_entry(skill).rstrip('\n')
                 continue
             if sid in activated_skill_ids or not use_builtin_tools or not model_builtin_tools.get('skills', True):
                 skill_name = unquote(sid.removeprefix(terminal_skill_prefix))
@@ -2718,20 +2735,16 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         append=True,
                     )
             else:
-                skill_manifest += format_terminal_skill_manifest_entry(skill)
+                skill_items[sid] = format_terminal_skill_manifest_entry(skill).rstrip('\n')
 
-        if skill_tools_enabled and skill_manifest:
-            skills_result = f'<available_skills>\n{skill_manifest}</available_skills>'
-            if not metadata.get('assistant_message_id') and skills_result != previous_tool_result(
-                form_data['messages'], 'list_available_skills'
-            ):
-                initial_output.extend(hidden_tool_result('list_available_skills', skills_result))
-        elif skill_manifest:
+        if skill_tools_enabled:
+            # The manifest is replayed through context_update; collect it
+            # here and emit only the change after compaction.
+            context_items['available_skills'] = skill_items
+        elif skill_items:
+            skill_manifest = '\n'.join(skill_items.values())
             form_data['messages'] = add_or_update_system_message(
-                'The following skills provide specialized instructions for specific tasks.\n'
-                "When a task matches a skill's description, call the view_skill tool\n"
-                "with the skill's id to load its full instructions.\n\n"
-                f'<available_skills>\n{skill_manifest}</available_skills>',
+                f'{_SKILLS_INSTRUCTION}\n\n<available_skills>\n{skill_manifest}</available_skills>',
                 form_data['messages'],
                 append=True,
             )
@@ -2948,9 +2961,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
         # API callers don't expect hidden tools; they can explicitly request tools via tool_ids.
         if use_builtin_tools:
             if model_builtin_tools.get('knowledge', True):
-                from html import escape
+                escape = html.escape
 
-                knowledge_tags = []
+                knowledge_items = {}
                 for item in get_attached_knowledge(model, metadata):
                     # Chat attachments are already replayed from each user message's files.
                     if item.get('source') == 'chat':
@@ -2962,15 +2975,11 @@ async def process_chat_payload(request, form_data, user, metadata, model):
                         attrs += f' name="{escape(str(item["name"]), quote=True)}"'
                     if item.get('source'):
                         attrs += f' source="{escape(str(item["source"]), quote=True)}"'
-                    knowledge_tags.append(f'<knowledge {attrs}/>')
+                    tag = f'<knowledge {attrs}/>'
+                    knowledge_items[_update_item_key('attached_knowledge', tag)] = tag
 
-                knowledge_result = '<attached_knowledge>\n' + '\n'.join(knowledge_tags) + '\n</attached_knowledge>'
-                if (
-                    knowledge_tags
-                    and not metadata.get('assistant_message_id')
-                    and knowledge_result != previous_tool_result(form_data['messages'], 'list_attached_knowledge')
-                ):
-                    initial_output.extend(hidden_tool_result('list_attached_knowledge', knowledge_result))
+                if not metadata.get('assistant_message_id'):
+                    context_items['attached_knowledge'] = knowledge_items
 
             builtin_tools = await get_builtin_tools(
                 request,
@@ -3168,17 +3177,36 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             summary_content = f'[CONVERSATION SUMMARY]\n{context_summary}'
             form_data['messages'] = add_or_update_system_message(summary_content, form_data['messages'], append=True)
 
+    # Context updates are emitted after compaction: when the compacted prefix
+    # dropped the baseline, the fold below sees no baseline and re-sends the
+    # full context once instead of a delta against vanished state.
+    folded_context, context_baselines = fold_context_updates(form_data['messages'])
+    # Sections the pipeline skipped (e.g. recall on a continued response) fall
+    # back to what the model already holds, so a mid-turn compaction can still
+    # re-state them in full.
+    for section in UPDATE_SECTION_ORDER:
+        if section not in context_items and section in folded_context:
+            context_items[section] = folded_context[section]
+    context_updates = {}
+    for section in UPDATE_SECTION_ORDER:
+        if section not in context_items:
+            continue
+        update = context_update_section(section, context_items[section], folded_context, context_baselines)
+        if update:
+            context_updates[update[0]] = update[1]
+    if context_updates and not metadata.get('assistant_message_id'):
+        sections = [name for name in UPDATE_SECTION_ORDER if name in context_updates]
+        context_pair = context_update_output(sections, context_updates)
+        initial_output.extend(context_pair)
+        form_data['messages'].extend(
+            convert_output_to_messages(context_pair, raw=True, reasoning_format=get_reasoning_format(model))
+        )
+        metadata['initial_output'] = initial_output
+
+    # The tool loop reuses these after a mid-turn compaction cut the baseline.
+    metadata['context_items'] = context_items
+
     return form_data, metadata, events, False
-
-
-async def preload_memory(request, messages: list[dict], user, model: dict) -> list[dict]:
-    """Keep automatic recall in ordinary tool history so later turns replay it unchanged."""
-    result = await recall_memories(request, messages, user, model)
-    return (
-        hidden_tool_result('recall_memories', result)
-        if result and previous_tool_result(messages, 'recall_memories') != result
-        else []
-    )
 
 
 def hidden_tool_result(name: str, result: str) -> list[dict]:
@@ -3204,20 +3232,213 @@ def hidden_tool_result(name: str, result: str) -> list[dict]:
     ]
 
 
-def previous_tool_result(messages: list[dict], name: str) -> str | None:
-    """Text of the tool's latest result in replayed history, or None when the latest attempt failed."""
+CONTEXT_UPDATE_TOOL = 'context_update'
+
+# Context updates are delivered as hidden context_update tool
+# calls so replayed history stays identical across turns. Each call carries one
+# <section> per context source: the first delivery holds the full item list and
+# later ones hold only the change (<added>/<removed>).
+UPDATE_SECTION_ORDER = ('available_skills', 'attached_knowledge', 'recalled_memories')
+
+_UPDATE_ITEM_TAGS = {
+    'available_skills': 'skill',
+    'attached_knowledge': 'knowledge',
+    'recalled_memories': 'memory',
+}
+_UPDATE_ITEM_PATTERNS = {
+    'available_skills': re.compile(r'<skill>.*?</skill>', re.DOTALL),
+    'attached_knowledge': re.compile(r'<knowledge\b[^>]*/>'),
+    'recalled_memories': re.compile(r'<memory\b[^>]*>.*?</memory>', re.DOTALL),
+}
+
+_SKILLS_INSTRUCTION = (
+    'The following skills provide specialized instructions for specific tasks.\n'
+    "When a task matches a skill's description, call the view_skill tool\n"
+    "with the skill's id to load its full instructions."
+)
+
+# A section's standing instruction sits above its tag in every injection.
+# It is stored as plain text and wrapped in an <instructions> tag at
+# delivery time, so the no-skill-tools branch can keep using the raw line.
+# The fold only extracts item tags inside the section, so the preamble
+# never pollutes the added/removed diff — and a full re-injection after
+# compaction restores it automatically.
+_UPDATE_SECTION_PREAMBLES = {
+    'available_skills': _SKILLS_INSTRUCTION,
+}
+
+
+def _section_preamble(section: str) -> str | None:
+    """Plain instruction text wrapped in an <instructions> tag, or None."""
+    text = _UPDATE_SECTION_PREAMBLES.get(section)
+    if text is None:
+        return None
+    return f'<instructions>\n{text}\n</instructions>'
+
+
+CONTEXT_UPDATE_NOTE = (
+    '## Context Updates\n\n'
+    'Available skills, attached knowledge, and recalled memories are part of the system prompt.\n'
+    f'The system injects a hidden `{CONTEXT_UPDATE_TOOL}` tool call automatically whenever '
+    'this context is first provided or changes mid-conversation: the first injection carries the '
+    'full context, and later injections describe only what changed.\n'
+    'Treat injected sections as current system prompt and follow them; anything not mentioned '
+    'as added, changed, or removed remains in effect.\n'
+    'For recalled memories, removal only means the memory is no longer part of the recalled '
+    'context — memories are never deleted through this tool.'
+)
+
+
+def context_update_output(sections: list[str], content_by_section: dict[str, str]) -> list[dict]:
+    """Describe context updates in one hidden tool call."""
+    parts = []
+    for name in sections:
+        # A section's standing instruction sits in front of its tag, on every
+        # injection, so each delivery is self-contained.
+        preamble = _section_preamble(name)
+        if preamble:
+            parts.append(preamble + '\n\n')
+        parts.append(f'<{name}>\n{content_by_section[name]}\n</{name}>\n')
+    return hidden_tool_result(CONTEXT_UPDATE_TOOL, ''.join(parts).rstrip('\n'))
+
+
+def memory_update_items(recalled: list[dict] | None) -> dict[str, str]:
+    """Keyed <memory> elements for a recall run; empty when nothing was recalled."""
+    if not recalled:
+        return {}
+    items = {}
+    for item in recalled:
+        label = html.escape(str(item.get('label') or ''), quote=False)
+        # Recall hits normally carry their memory id; label hashes stand in for
+        # the rare vector stores that do not return ids.
+        key = str(item.get('id') or hashlib.sha1(label.encode()).hexdigest()[:16])
+        memory_type = html.escape(str(item.get('type') or 'context'), quote=True)
+        items[key] = f'<memory id="{key}" type="{memory_type}">{label}</memory>'
+    return items
+
+
+def _update_item_key(section: str, element: str) -> str | None:
+    if section == 'available_skills':
+        match = re.search(r'<id>(.*?)</id>', element, re.DOTALL)
+        return match.group(1).strip() if match else None
+    match = re.search(r'\bid="([^"]*)"', element)
+    if not match:
+        return None
+    item_id = match.group(1)
+    if section == 'attached_knowledge':
+        type_match = re.search(r'\btype="([^"]*)"', element)
+        return f'{type_match.group(1)}:{item_id}' if type_match else item_id
+    return item_id
+
+
+def _extract_update_items(section: str, text: str) -> dict[str, str]:
+    """Keyed items parsed from a section's baseline or <added> block."""
+    items = {}
+    for match in _UPDATE_ITEM_PATTERNS[section].finditer(text):
+        element = match.group(0).strip()
+        key = _update_item_key(section, element)
+        if key:
+            items[key] = element
+    return items
+
+
+def _update_section_text(content: str, section: str) -> str | None:
+    match = re.search(rf'<{section}>(.*?)</{section}>', content, re.DOTALL)
+    return match.group(1) if match else None
+
+
+def _context_update_results(messages: list[dict]) -> list[str]:
+    """Output texts of every completed context_update call in replayed history, in order."""
     pending = {}
-    latest = None
+    results = []
     for message in messages or []:
         for call in message.get('tool_calls') or []:
             function = call.get('function')
             if isinstance(function, dict) and call.get('id'):
                 pending[call['id']] = function
         function = pending.pop(message.get('tool_call_id'), None)
-        if function and function.get('name') == name:
+        if function and function.get('name') == CONTEXT_UPDATE_TOOL:
             text = message.get('content')
-            latest = text if isinstance(text, str) and text and not _is_tool_result_error(text) else None
-    return latest
+            if isinstance(text, str) and text and not _is_tool_result_error(text):
+                results.append(text)
+    return results
+
+
+def fold_context_updates(messages: list[dict]) -> tuple[dict[str, dict[str, str]], set[str]]:
+    """Fold every context_update output in replayed history into per-section item state.
+
+    Returns the effective item state per section plus the sections that received
+    a full baseline — deltas alone cannot stand in for one, so a section without
+    a baseline (for example after compaction dropped it) gets a fresh baseline.
+    Unparsable output only resets that one section to unknown.
+    """
+    state: dict[str, dict[str, str]] = {}
+    baselines: set[str] = set()
+    for content in _context_update_results(messages):
+        for section in UPDATE_SECTION_ORDER:
+            text = _update_section_text(content, section)
+            if text is None:
+                continue
+            try:
+                added = re.search(r'<added>(.*?)</added>', text, re.DOTALL)
+                removed = re.search(r'<removed>(.*?)</removed>', text, re.DOTALL)
+                if added is None and removed is None:
+                    state[section] = _extract_update_items(section, text)
+                    baselines.add(section)
+                    continue
+                items = state.setdefault(section, {})
+                if added is not None:
+                    items.update(_extract_update_items(section, added.group(1)))
+                if removed is not None:
+                    for key in _removed_update_keys(section, removed.group(1)):
+                        items.pop(key, None)
+            except Exception:
+                log.debug('Failed to fold context_update section %s', section, exc_info=True)
+    return state, baselines
+
+
+def _removed_update_keys(section: str, text: str) -> list[str]:
+    if section == 'available_skills':
+        return [key.strip() for key in re.findall(r'<skill>\s*<id>(.*?)</id>\s*</skill>', text, re.DOTALL)]
+    tag = _UPDATE_ITEM_TAGS[section]
+    return re.findall(rf'<{tag}\b[^>]*\bid="([^"]*)"[^>]*/>', text)
+
+
+def _removed_update_marker(section: str, key: str) -> str:
+    tag = _UPDATE_ITEM_TAGS[section]
+    if section == 'available_skills':
+        return f'<{tag}><id>{key}</id></{tag}>'
+    return f'<{tag} id="{key}"/>'
+
+
+def context_update_section(
+    section: str,
+    items: dict[str, str],
+    state: dict[str, dict[str, str]],
+    baselines: set[str],
+) -> tuple[str, str] | None:
+    """Diff a section's current items against what the model last received.
+
+    The first delivery carries the full baseline; later ones carry only the
+    change, so unchanged content is never re-sent. Removal-only changes are
+    also reported, where the old code stayed silent and left stale context.
+    """
+    previous = state.get(section)
+    if section not in baselines or previous is None:
+        if not items:
+            return None
+        return (section, '\n'.join(items.values()))
+    added = {key: item for key, item in items.items() if previous.get(key) != item}
+    removed = sorted(key for key in previous if key not in items)
+    if not added and not removed:
+        return None
+    blocks = []
+    if added:
+        blocks.append('<added>\n' + '\n'.join(added.values()) + '\n</added>')
+    if removed:
+        markers = ''.join(_removed_update_marker(section, key) for key in removed)
+        blocks.append(f'<removed>\n{markers}\n</removed>')
+    return (section, '\n'.join(blocks))
 
 
 async def preload_skills(messages: list[dict], skill_ids: set[str], tool: dict | None) -> list[dict]:
@@ -6773,15 +6994,53 @@ async def streaming_chat_response_handler(response, ctx):
                                             {
                                                 'type': 'open_webui:context_compaction',
                                                 'id': output_id('cc'),
+                                                # Anchor on a real tool call, never on a
+                                                # context_update pair: replay trims
+                                                # from this call, and anchoring the pair
+                                                # would drop the retained tool results.
                                                 'call_id': next(
-                                                    message['tool_calls'][0]['id']
+                                                    call['id']
                                                     for message in messages
                                                     if message.get('tool_calls')
+                                                    for call in message['tool_calls']
+                                                    if (call.get('function') or {}).get('name') != CONTEXT_UPDATE_TOOL
                                                 ),
                                                 'summary': context_summary,
                                             }
                                         )
                                         await emit_output()
+
+                                    # Mid-turn compaction may have cut the
+                                    # context-updates baseline. Fold the cut
+                                    # history and re-state the full context
+                                    # once for the remaining steps of the turn.
+                                    context_items = metadata.get('context_items') or {}
+                                    if context_items:
+                                        folded_context, context_baselines = fold_context_updates(
+                                            new_form_data['messages']
+                                        )
+                                        context_updates = {}
+                                        for section in UPDATE_SECTION_ORDER:
+                                            if section not in context_items:
+                                                continue
+                                            update = context_update_section(
+                                                section, context_items[section], folded_context, context_baselines
+                                            )
+                                            if update:
+                                                context_updates[update[0]] = update[1]
+                                        if context_updates:
+                                            context_pair = context_update_output(
+                                                [name for name in UPDATE_SECTION_ORDER if name in context_updates],
+                                                context_updates,
+                                            )
+                                            output.extend(context_pair)
+                                            messages.extend(
+                                                convert_output_to_messages(
+                                                    context_pair, raw=True, reasoning_format=get_reasoning_format(model)
+                                                )
+                                            )
+                                            new_form_data['messages'] = get_request_messages(messages)
+                                            await emit_output()
                             except Exception:
                                 log.exception('Tool loop context compaction failed; keeping the current context')
 
