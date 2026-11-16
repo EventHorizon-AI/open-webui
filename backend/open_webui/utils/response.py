@@ -126,13 +126,6 @@ def merge_usage(current: dict | None, incoming: dict | None) -> dict:
         return incoming_usage
 
     result = {**current_usage, **incoming_usage}
-    result['incomplete'] = bool(
-        current_usage.get('incomplete')
-        or incoming_usage.get('incomplete')
-        or any(
-            key not in record for record in (current_usage, incoming_usage) for key in ('input_tokens', 'output_tokens')
-        )
-    )
 
     for key in USAGE_SUMMABLE_KEYS:
         if key in current_usage or key in incoming_usage:

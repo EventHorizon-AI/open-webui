@@ -104,7 +104,6 @@ async def apply_tool_search(
     )
     tools_dict[SEARCH_TOOL_NAME] = {
         'tool_id': f'builtin:{SEARCH_TOOL_NAME}',
-        'hidden': True,
         'callable': await get_async_tool_function_and_apply_extra_params(
             search_tools,
             {**(extra_params or {}), '__metadata__': metadata},

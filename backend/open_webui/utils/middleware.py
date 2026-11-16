@@ -3120,7 +3120,9 @@ async def process_chat_payload(request, form_data, user, metadata, model):
             )
         )
     if initial_output:
-        form_data['messages'].extend(convert_output_to_messages(initial_output, raw=True))
+        form_data['messages'].extend(
+            convert_output_to_messages(initial_output, raw=True, reasoning_format=get_reasoning_format(model))
+        )
         metadata['initial_output'] = initial_output
 
     form_data = normalize_messages_for_model(form_data)
@@ -4442,9 +4444,7 @@ async def non_streaming_chat_response_handler(response, ctx):
                     # Save message in the database
                     usage = normalize_usage(response_data.get('usage', {}) or {})
                     if continuing:
-                        usage = merge_usage(
-                            (ctx.get('assistant_message') or {}).get('usage'), usage or {'incomplete': True}
-                        )
+                        usage = merge_usage((ctx.get('assistant_message') or {}).get('usage'), usage)
                     finish_reason = choices[0].get('finish_reason') if choices else None
 
                     if save_to_chat:
@@ -6276,8 +6276,6 @@ async def streaming_chat_response_handler(response, ctx):
                             tool_calls.append(split_tool_calls(responses_api_tool_calls))
 
                     await save_current_response_stream()
-                    if not current_usage:
-                        usage = {**(usage or {}), 'incomplete': True}
                     return normalize_usage(current_usage)
 
                 output_start = len(prior_output)

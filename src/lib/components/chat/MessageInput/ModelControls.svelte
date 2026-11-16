@@ -171,7 +171,9 @@
 		{/each}
 	{/each}
 	{#if controlsAllowed}
-		{#if available.length}<hr class="border-gray-200/30 dark:border-gray-700/25" />{/if}
+		{#if available.length}<hr
+				class="border-gray-200/30 dark:border-gray-700/25 mt-0.5 mb-0.5"
+			/>{/if}
 		<button
 			type="button"
 			class={`${rowClass} text-xs!`}

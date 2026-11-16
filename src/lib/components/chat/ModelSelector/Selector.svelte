@@ -1410,7 +1410,7 @@
 							id="model-selector-{id}-list-button"
 							aria-label={$i18n.t('Select a model')}
 							aria-expanded={controlsListExpanded}
-							class="focus-ring my-0.5 flex h-[1.6875rem] w-full shrink-0 items-center gap-2 rounded-xl px-2 text-left text-[0.8125rem] font-normal transition {controlsListExpanded
+							class="focus-ring mb-0.5 flex h-[1.6875rem] w-full shrink-0 items-center gap-2 rounded-xl px-2 text-left text-[0.8125rem] font-normal transition {controlsListExpanded
 								? 'bg-gray-50/70 text-gray-900 dark:bg-gray-800/60 dark:text-gray-100'
 								: 'text-gray-700 hover:bg-gray-50/40 dark:text-gray-100 dark:hover:bg-gray-800/40'}"
 							on:click={toggleControlsList}
@@ -1428,8 +1428,6 @@
 									{onParamChange}
 								/>
 							</div>
-
-							<div class="shrink-0 pb-1"></div>
 						{/if}
 					</div>
 				{:else}
@@ -1438,7 +1436,7 @@
 							<button
 								type="button"
 								aria-label={$i18n.t('Back')}
-								class="focus-ring my-0.5 flex h-[1.6875rem] w-full shrink-0 items-center gap-2 rounded-xl px-2 text-left text-[0.8125rem] font-normal text-gray-700 transition hover:bg-gray-50/40 dark:text-gray-100 dark:hover:bg-gray-800/40"
+								class="focus-ring mb-0.5 flex h-[1.6875rem] w-full shrink-0 items-center gap-2 rounded-xl px-2 text-left text-[0.8125rem] font-normal text-gray-700 transition hover:bg-gray-50/40 dark:text-gray-100 dark:hover:bg-gray-800/40"
 								on:click={backToControls}
 							>
 								<ChevronLeft className="size-4 shrink-0" strokeWidth="2" />
