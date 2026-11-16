@@ -2272,36 +2272,24 @@ ENABLE_REASONING_SUMMARY = os.getenv('ENABLE_REASONING_SUMMARY', 'False').lower(
 REASONING_SUMMARY_PROMPT_TEMPLATE = os.getenv('REASONING_SUMMARY_PROMPT_TEMPLATE', '')
 
 DEFAULT_REASONING_SUMMARY_PROMPT_TEMPLATE = """### Task:
-Summarize the given chunk of a model's raw reasoning.
+Summarize the raw reasoning at a high level while obscuring low-level details.
 
 ### Guidelines:
-- Return a single JSON object with exactly these fields:
-  - "title": a short noun phrase (3-6 words) naming the topic, e.g. \
-"Polynomial Division Analysis". No verbs, no trailing period.
-  - "summary": one flowing first-person, present-progressive paragraph \
-describing the reasoning as it unfolds.
-- Keep the summary concise. It must be at most 3 sentences and at most \
-100 words, whichever is shorter. If the chunk is very short, use 1-2 \
-sentences. Do not pad the summary to reach a length.
-- Length control has priority. If detail and brevity conflict, keep only \
-the main reasoning thread and the mathematical facts needed to follow it.
-- Preserve included mathematical facts, variables, and computations \
-exactly; do not solve, correct, or add steps. Do not transcribe every \
-minor intermediate computation unless it is essential to the reasoning.
-- Merge fragments and redundant restatements into complete sentences. \
-Do not repeat the same idea in different words.
-- Narrate the reasoning as ongoing action, using openings like \
-"I'm working through...", "I'm expanding...", "I'm computing...", \
-"I'm tracking...".
-- Write the summary in the reasoning's primary language; default to English \
-if the reasoning is multilingual.
-- Plain prose only: no markdown, no bullet points, no headings, \
-no LaTeX display math, no code blocks, no line breaks.
+- Always write in English, regardless of the language of the reasoning chunk.
+- Return a single JSON object with exactly:
+  - "title": a 2-3 word noun phrase naming the topic; no verbs, no trailing period.
+  - "summary": one flowing first-person, present-progressive paragraph; abstract and detail-obscuring.
+- Keep it concise: at most 3 sentences and 100 words, whichever is shorter. For very short chunks, use 2 sentences and roughly 25-50 words.
+- For short chunks, expand only at the level of abstraction: broad activity, focus, and readiness to proceed. Do not invent concrete details, variables, numbers, steps, or conclusions.
+- Prioritize abstraction and opacity. Omit or generalize specific variables, numbers, formulas, computations, identifiers, file names, errors, and intermediate steps.
+- Do not transcribe, quote, or closely paraphrase the raw reasoning; do not expose step-by-step math or exact intermediate results. Use generic phrasing.
+- Choose general over specific; do not solve, correct, or add steps. Merge fragments and redundant restatements into complete sentences; avoid repeated ideas and padding.
+- Narrate as ongoing action ("I'm working through...", "I'm tracking...").
+- Plain prose only: no markdown, bullets, headings, LaTeX display math, code blocks, or line breaks.
 
 ### Output:
 JSON format: { "title": "your concise title here", "summary": "your summary here" }
-Your entire response must be a single, raw JSON object, without any markdown \
-code fences, introductory text, or explanations.
+Your entire response must be a single raw JSON object, without markdown fences, introductory text, or explanations.
 
 ### Reasoning Chunk:
 <reasoning_chunk>
