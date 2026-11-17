@@ -127,7 +127,7 @@
 				</div>
 
 				{#if !disabled}
-					<div class="flex self-center translate-y-[1px]">
+					<div class="flex self-center">
 						{#if open}
 							<ChevronUp strokeWidth={chevronStrokeWidth} className={chevronClassName} />
 						{:else}
