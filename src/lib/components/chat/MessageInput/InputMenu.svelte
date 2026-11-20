@@ -31,6 +31,7 @@
 
 	const i18n: any = getContext('i18n');
 
+	export let chatId: string = '';
 	export let files = [];
 
 	export let selectedModels: string[] = [];
@@ -53,7 +54,18 @@
 	export let tab = '';
 	export let closeOnOutsideClick = true;
 	$: if (!show) tab = '';
-	$: hasInternalList = ['tools', 'skills', 'files', 'notes', 'knowledge', 'chats'].includes(tab);
+	$: hasInternalList = [
+		'tools',
+		'skills',
+		'image',
+		'video',
+		'files',
+		'notes',
+		'knowledge',
+		'chats',
+		'terminal',
+		'directory'
+	].includes(tab);
 
 	let showAttachWebpageModal = false;
 	$: showAddContext =
@@ -154,7 +166,7 @@
 	bind:show
 	{closeOnOutsideClick}
 	visualViewportAware
-	maxHeight="18rem"
+	maxHeight={hasInternalList ? '18rem' : undefined}
 	contentClass="flex flex-col overflow-hidden!"
 	onOpenChange={(state) => {
 		if (state === false) {
@@ -183,7 +195,7 @@
 							}}
 						>
 							<svg
-								class="size-3.5 shrink-0"
+								class="size-4 shrink-0"
 								viewBox="0 0 24 24"
 								fill="none"
 								stroke="currentColor"
@@ -215,9 +227,13 @@
 
 						<div class="h-px mx-1 my-1 bg-gray-100 dark:bg-gray-800"></div>
 					{/if}
+				</div>
+			{/if}
 
-					<slot name="terminal" />
+			<slot name="terminal" />
 
+			{#if tab === ''}
+				<div in:fly={{ x: -20, duration: 150 }}>
 					<Tooltip
 						content={fileUploadCapableModels.length !== selectedModels.length
 							? $i18n.t('Model(s) do not support file upload')
@@ -290,9 +306,9 @@
 								tab = 'attachments';
 							}}
 						>
-							<DocumentDuplicate />
+							<DocumentDuplicate className="w-4 h-4 shrink-0" />
 							<div class="flex items-center w-full justify-between">
-								<div>{$i18n.t('Add Context')}</div>
+								<div>{$i18n.t('Attachments')}</div>
 								<div class="text-gray-500"><ChevronRight /></div>
 							</div>
 						</button>
@@ -308,8 +324,8 @@
 							tab = '';
 						}}
 					>
-						<ChevronLeft />
-						<div>{$i18n.t('Add Context')}</div>
+						<ChevronLeft className="w-4 h-4 shrink-0" />
+						<div>{$i18n.t('Attachments')}</div>
 					</button>
 
 					{#if $visibleControls['chat.attach_webpage']}
@@ -358,7 +374,7 @@
 									}
 								}}
 							>
-								<DocumentArrowUp />
+								<DocumentArrowUp className="size-4 shrink-0" />
 
 								<div class="flex items-center w-full justify-between">
 									<div class="line-clamp-1">
@@ -393,7 +409,7 @@
 									}
 								}}
 							>
-								<PageEdit />
+								<PageEdit className="w-4 h-4 shrink-0" />
 
 								<div class="flex items-center w-full justify-between">
 									<div class=" line-clamp-1">
@@ -428,7 +444,7 @@
 									}
 								}}
 							>
-								<Database />
+								<Database className="size-4 shrink-0" />
 
 								<div class="flex items-center w-full justify-between">
 									<div class=" line-clamp-1">
@@ -463,7 +479,7 @@
 									}
 								}}
 							>
-								<ClockRotateRight />
+								<ClockRotateRight className="w-4 h-4 shrink-0" />
 
 								<div class="flex items-center w-full justify-between">
 									<div class=" line-clamp-1">
@@ -536,7 +552,7 @@
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
 									viewBox="0 0 32 32"
-									class="size-3.5"
+									class="size-3.5 shrink-0"
 									fill="none"
 								>
 									<mask
@@ -641,7 +657,7 @@
 							tab = '';
 						}}
 					>
-						<ChevronLeft />
+						<ChevronLeft className="w-4 h-4 shrink-0" />
 
 						<div class="flex items-center w-full justify-between">
 							<div>
@@ -693,7 +709,7 @@
 							tab = 'attachments';
 						}}
 					>
-						<ChevronLeft />
+						<ChevronLeft className="w-4 h-4 shrink-0" />
 
 						<div class="flex items-center w-full justify-between">
 							<div>
@@ -713,7 +729,7 @@
 							tab = 'attachments';
 						}}
 					>
-						<ChevronLeft />
+						<ChevronLeft className="w-4 h-4 shrink-0" />
 
 						<div class="flex items-center w-full justify-between">
 							<div>
@@ -733,7 +749,7 @@
 							tab = 'attachments';
 						}}
 					>
-						<ChevronLeft />
+						<ChevronLeft className="w-4 h-4 shrink-0" />
 
 						<div class="flex items-center w-full justify-between">
 							<div>
@@ -753,7 +769,7 @@
 							tab = 'attachments';
 						}}
 					>
-						<ChevronLeft />
+						<ChevronLeft className="w-4 h-4 shrink-0" />
 
 						<div class="flex items-center w-full justify-between">
 							<div>
@@ -762,7 +778,7 @@
 						</div>
 					</button>
 
-					<Chats {onSelect} />
+					<Chats {chatId} {onSelect} />
 				</div>
 			{:else if tab === 'microsoft_onedrive'}
 				<div in:fly={{ x: 20, duration: 150 }}>
@@ -773,7 +789,7 @@
 							tab = 'attachments';
 						}}
 					>
-						<ChevronLeft />
+						<ChevronLeft className="w-4 h-4 shrink-0" />
 
 						<div class="flex items-center w-full justify-between">
 							<div>

@@ -1,6 +1,4 @@
 <script lang="ts">
-	import type { CommentsRequest } from '$lib/components/comments/CommentsPanel.svelte';
-	export let onComment: (request: CommentsRequest) => void;
 	import { marked } from 'marked';
 
 	import { getContext, tick } from 'svelte';
@@ -10,12 +8,10 @@
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import { copyToClipboard, removeFormattings, sanitizeResponseContent } from '$lib/utils';
+	import { removeFormattings, sanitizeResponseContent } from '$lib/utils';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import { resolveLocalizedModelDescription } from '$lib/utils/localizedContent';
 	import Check from '$lib/components/icons/Check.svelte';
-	import ModelItemMenu from './ModelItemMenu.svelte';
-	import { toast } from 'svelte-sonner';
 	import Tag from '$lib/components/icons/Tag.svelte';
 	import Label from '$lib/components/icons/Label.svelte';
 
@@ -28,34 +24,20 @@
 	export let selectedValues: string[] = [];
 	export let compareEnabled = false;
 
-	export let unloadModelHandler: (model: any) => void = () => {};
-	export let pinModelHandler: (modelId: string) => void = () => {};
-	export let deleteModelHandler: (model: any) => void = () => {};
 	export let selectionOnly = false;
 
 	export let controlsEnabled = false;
 	export let onOpenControls: () => void = () => {};
 
 	export let onClick: () => void = () => {};
-	export let onEdit: () => void = () => {};
+
+	// FileNav-style handling: report the requested menu position to the owner
+	// (Selector), which owns the single context menu instance.
+	export let onContextMenu: (item: any, x: number, y: number) => void = () => {};
 
 	$: localizedDescription = resolveLocalizedModelDescription(item.model, $i18n.language);
 
-	const copyLinkHandler = async (model) => {
-		const baseUrl = window.location.origin;
-		const res = await copyToClipboard(`${baseUrl}/?model=${encodeURIComponent(model.id)}`);
-
-		if (res) {
-			toast.success($i18n.t('Copied link to clipboard'));
-		} else {
-			toast.error($i18n.t('Failed to copy link'));
-		}
-	};
-
 	const formatSize = (size?: number) => (size ? `(${(size / 1024 ** 3).toFixed(1)}GB)` : '');
-
-	let showMenu = false;
-	let menuPosition = { x: 0, y: 0 };
 
 	// Mobile long-press to open the context menu.
 	const LONG_PRESS_DURATION = 500;
@@ -72,8 +54,7 @@
 	};
 
 	const openMenuAt = (x: number, y: number) => {
-		menuPosition = { x, y };
-		showMenu = true;
+		onContextMenu(item, x, y);
 	};
 
 	// A long press still produces a synthetic click on release. Since the menu
@@ -315,47 +296,6 @@
 					{/key}
 				{/if}
 
-				{#if item.model?.direct}
-					<Tooltip content={`${$i18n.t('Direct')}`}>
-						<div class="translate-y-[1px]">
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 16 16"
-								fill="currentColor"
-								class="size-3"
-							>
-								<path
-									fill-rule="evenodd"
-									d="M2 2.75A.75.75 0 0 1 2.75 2C8.963 2 14 7.037 14 13.25a.75.75 0 0 1-1.5 0c0-5.385-4.365-9.75-9.75-9.75A.75.75 0 0 1 2 2.75Zm0 4.5a.75.75 0 0 1 .75-.75 6.75 6.75 0 0 1 6.75 6.75.75.75 0 0 1-1.5 0C8 10.35 5.65 8 2.75 8A.75.75 0 0 1 2 7.25ZM3.5 11a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3Z"
-									clip-rule="evenodd"
-								/>
-							</svg>
-						</div>
-					</Tooltip>
-				{:else if item.model.connection_type === 'external'}
-					<Tooltip content={`${$i18n.t('External')}`}>
-						<div class="translate-y-[1px]">
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								viewBox="0 0 16 16"
-								fill="currentColor"
-								class="size-3"
-							>
-								<path
-									fill-rule="evenodd"
-									d="M8.914 6.025a.75.75 0 0 1 1.06 0 3.5 3.5 0 0 1 0 4.95l-2 2a3.5 3.5 0 0 1-5.396-4.402.75.75 0 0 1 1.251.827 2 2 0 0 0 3.085 2.514l2-2a2 2 0 0 0 0-2.828.75.75 0 0 1 0-1.06Z"
-									clip-rule="evenodd"
-								/>
-								<path
-									fill-rule="evenodd"
-									d="M7.086 9.975a.75.75 0 0 1-1.06 0 3.5 3.5 0 0 1 0-4.95l2-2a3.5 3.5 0 0 1 5.396 4.402.75.75 0 0 1-1.251-.827 2 2 0 0 0-3.085-2.514l-2 2a2 2 0 0 0 0 2.828.75.75 0 0 1 0 1.06Z"
-									clip-rule="evenodd"
-								/>
-							</svg>
-						</div>
-					</Tooltip>
-				{/if}
-
 				{#if localizedDescription}
 					<span id={`model-description-${index}`} class="sr-only"
 						>{removeFormattings(localizedDescription)}</span
@@ -389,23 +329,6 @@
 	</div>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-		{#if !selectionOnly}
-			<ModelItemMenu
-				{onComment}
-				bind:show={showMenu}
-				model={item.model}
-				anchorX={menuPosition.x}
-				anchorY={menuPosition.y}
-				{pinModelHandler}
-				{deleteModelHandler}
-				{unloadModelHandler}
-				{onEdit}
-				copyLinkHandler={() => {
-					copyLinkHandler(item.model);
-				}}
-			/>
-		{/if}
-
 		{#if isSelected || (hasControls && (!$mobile || controlAlwaysVisible))}
 			<div class="relative flex size-3 shrink-0 items-center justify-center">
 				{#if isSelected && !(hasControls && controlAlwaysVisible)}

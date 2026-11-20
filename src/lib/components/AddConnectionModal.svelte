@@ -27,7 +27,6 @@
 	export let edit = false;
 
 	export let ollama = false;
-	export let direct = false;
 
 	export let connection: any = null;
 
@@ -124,24 +123,20 @@
 			}
 		}
 
-		const res = await verifyOpenAIConnection(
-			localStorage.token,
-			{
-				url,
-				key,
-				config: {
-					auth_type,
-					...(!direct && !ollama ? { forward_cookies: forwardCookies } : {}),
-					...(provider ? { provider } : {}),
-					...(azure ? { azure: true } : {}),
-					...(apiType ? { api_type: apiType } : {}),
-					api_version: apiVersion,
-					passthrough_params: parsePassthroughParams(passthroughParams),
-					...(_headers ? { headers: _headers } : {})
-				}
-			},
-			direct
-		).catch((error) => {
+		const res = await verifyOpenAIConnection(localStorage.token, {
+			url,
+			key,
+			config: {
+				auth_type,
+				...(!ollama ? { forward_cookies: forwardCookies } : {}),
+				...(provider ? { provider } : {}),
+				...(azure ? { azure: true } : {}),
+				...(apiType ? { api_type: apiType } : {}),
+				api_version: apiVersion,
+				passthrough_params: parsePassthroughParams(passthroughParams),
+				...(_headers ? { headers: _headers } : {})
+			}
+		}).catch((error) => {
 			toast.error(`${error}`);
 		});
 
@@ -243,7 +238,7 @@
 				model_ids: modelIds,
 				connection_type: connectionType,
 				auth_type,
-				...(!direct && !ollama ? { forward_cookies: forwardCookies } : {}),
+				...(!ollama ? { forward_cookies: forwardCookies } : {}),
 				headers: headers ? JSON.parse(headers) : undefined,
 				passthrough_params: parsePassthroughParams(passthroughParams),
 				...(provider ? { provider } : {}),
@@ -313,7 +308,6 @@
 	$: azure =
 		provider === 'azure' ||
 		((url.includes('azure.') || url.includes('cognitive.microsoft.com')) &&
-			!direct &&
 			provider === '' &&
 			!/\/openai\/v1(\/|$)/.test(url));
 
@@ -357,29 +351,27 @@
 					}}
 				>
 					<div class="px-1">
-						{#if !direct}
-							<div class="flex gap-2">
-								<div class="flex w-full justify-between items-center">
-									<div class=" text-xs text-gray-500">{$i18n.t('Connection Type')}</div>
+						<div class="flex gap-2">
+							<div class="flex w-full justify-between items-center">
+								<div class=" text-xs text-gray-500">{$i18n.t('Connection Type')}</div>
 
-									<div class="">
-										<button
-											on:click={() => {
-												connectionType = connectionType === 'local' ? 'external' : 'local';
-											}}
-											type="button"
-											class=" text-xs text-gray-700 dark:text-gray-300"
-										>
-											{#if connectionType === 'local'}
-												{$i18n.t('Local')}
-											{:else}
-												{$i18n.t('External')}
-											{/if}
-										</button>
-									</div>
+								<div class="">
+									<button
+										on:click={() => {
+											connectionType = connectionType === 'local' ? 'external' : 'local';
+										}}
+										type="button"
+										class=" text-xs text-gray-700 dark:text-gray-300"
+									>
+										{#if connectionType === 'local'}
+											{$i18n.t('Local')}
+										{:else}
+											{$i18n.t('External')}
+										{/if}
+									</button>
 								</div>
 							</div>
-						{/if}
+						</div>
 
 						<div class="flex gap-2 mt-1.5">
 							<div class="flex flex-col w-full">
@@ -468,10 +460,8 @@
 
 											{#if !ollama}
 												<option value="session">{$i18n.t('Session')}</option>
-												{#if !direct}
-													<option value="system_oauth">{$i18n.t('OAuth')}</option>
-													<option value="microsoft_entra_id">{$i18n.t('Entra ID')}</option>
-												{/if}
+												<option value="system_oauth">{$i18n.t('OAuth')}</option>
+												<option value="microsoft_entra_id">{$i18n.t('Entra ID')}</option>
 											{/if}
 										</select>
 									</div>
@@ -505,7 +495,7 @@
 							</div>
 						</div>
 
-						{#if !ollama && !direct}
+						{#if !ollama}
 							<div class="flex flex-row justify-between items-center w-full mt-1">
 								<label
 									for="api-type-toggle"
@@ -558,7 +548,7 @@
 						</div>
 
 						{#if showAdvanced}
-							{#if !direct && !ollama}
+							{#if !ollama}
 								<div class="flex items-center justify-between gap-3 mt-2">
 									<div>
 										<label for="forward-cookies" class="text-xs text-gray-500">
@@ -576,35 +566,33 @@
 								</div>
 							{/if}
 
-							{#if !direct}
-								<div class="flex gap-2 mt-2">
-									<div class="flex flex-col w-full">
-										<label
-											for="headers-input"
-											class={`mb-0.5 text-xs text-gray-500
-								`}>{$i18n.t('Headers')}</label
-										>
+							<div class="flex gap-2 mt-2">
+								<div class="flex flex-col w-full">
+									<label
+										for="headers-input"
+										class={`mb-0.5 text-xs text-gray-500
+							`}>{$i18n.t('Headers')}</label
+									>
 
-										<div class="flex-1">
-											<Tooltip
-												content={$i18n.t(
-													'Enter additional headers in JSON format (e.g. {"X-Custom-Header": "value"}'
-												)}
-											>
-												<Textarea
-													className="w-full text-sm outline-hidden"
-													bind:value={headers}
-													placeholder={$i18n.t('Enter additional headers in JSON format')}
-													required={false}
-													minSize={30}
-												/>
-											</Tooltip>
-										</div>
+									<div class="flex-1">
+										<Tooltip
+											content={$i18n.t(
+												'Enter additional headers in JSON format (e.g. {"X-Custom-Header": "value"}'
+											)}
+										>
+											<Textarea
+												className="w-full text-sm outline-hidden"
+												bind:value={headers}
+												placeholder={$i18n.t('Enter additional headers in JSON format')}
+												required={false}
+												minSize={30}
+											/>
+										</Tooltip>
 									</div>
 								</div>
-							{/if}
+							</div>
 
-							{#if !ollama && !direct}
+							{#if !ollama}
 								<div class="flex gap-2 mt-2">
 									<div class="flex flex-col w-full">
 										<label
@@ -660,7 +648,7 @@
 								</div>
 							</div>
 
-							{#if !ollama && !direct}
+							{#if !ollama}
 								<div class="flex flex-row justify-between items-center w-full mt-2">
 									<label
 										for="provider-select"

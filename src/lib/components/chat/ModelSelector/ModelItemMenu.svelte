@@ -1,12 +1,9 @@
 <script lang="ts">
 	import type { CommentsRequest } from '$lib/components/comments/CommentsPanel.svelte';
-	export let onComment: (request: CommentsRequest) => void;
 	import { getContext } from 'svelte';
 	import { goto } from '$app/navigation';
 
-	import Dropdown from '$lib/components/common/Dropdown.svelte';
 	import DropdownMenu from '$lib/components/common/DropdownMenu.svelte';
-	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import CommentButton from '$lib/components/comments/CommentButton.svelte';
 	import Pin from '$lib/components/icons/Pin.svelte';
 	import PinSlash from '$lib/components/icons/PinSlash.svelte';
@@ -15,14 +12,16 @@
 	import Pencil from '$lib/components/icons/Pencil.svelte';
 	import { config, pinnedModels, showSettings, user, visibleControls } from '$lib/stores';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
+	import { computePosition, flip, shift } from '@floating-ui/dom';
 
 	const i18n = getContext('i18n');
 
-	export let show = false;
-	export let model;
-	export let anchorX = 0;
-	export let anchorY = 0;
+	// FileNav-style context menu: the owner keeps the open state (null = closed) and
+	// a right-click simply replaces the coordinates, so the menu can always be
+	// re-triggered while it is open.
+	export let menu: { x: number; y: number; model: any } | null = null;
 
+	export let onComment: (request: CommentsRequest) => void = () => {};
 	export let pinModelHandler: (modelId: string) => void = () => {};
 	export let copyLinkHandler: Function = () => {};
 	export let deleteModelHandler: Function = () => {};
@@ -31,55 +30,61 @@
 
 	export let onClose: Function = () => {};
 
+	// Anchor at the pointer and keep the menu inside the viewport, mirroring
+	// FileNav's directory context menu.
+	const positionMenu = (node: HTMLElement, point: { x: number; y: number }) => {
+		const update = (point: { x: number; y: number }) => {
+			computePosition({ getBoundingClientRect: () => new DOMRect(point.x, point.y) }, node, {
+				strategy: 'fixed',
+				placement: 'bottom-start',
+				middleware: [flip(), shift({ padding: 8 })]
+			}).then(({ x, y }) => {
+				node.style.left = `${x}px`;
+				node.style.top = `${y}px`;
+			});
+		};
+		update(point);
+		return { update };
+	};
+
+	// The model selector panel is portaled to <body> at z-index 9999, so the menu
+	// must be portaled too and sit above it; rendering it in place would leave it
+	// hidden behind the panel.
+	const portalMenu = (node: HTMLElement) => {
+		document.body.appendChild(node);
+		return {
+			destroy() {
+				node.parentNode?.removeChild(node);
+			}
+		};
+	};
+
 	$: canEdit =
-		model?.owned_by !== 'terminal' &&
-		(model?.preset || model?.info?.base_model_id
-			? model?.info?.user_id === $user?.id
+		menu?.model?.owned_by !== 'terminal' &&
+		(menu?.model?.preset || menu?.model?.info?.base_model_id
+			? menu?.model?.info?.user_id === $user?.id
 			: $user?.role === 'admin');
 	const providerSupportsDelete = (provider = '') => provider === 'llama.cpp';
 
-	// The menu is opened programmatically (right-click / long-press), not through the
-	// Dropdown's trigger. Close it on any outside pointerdown — including a right-click,
-	// which never fires a `click` — so reopening on another item works and the menu never
-	// lingers. Pointerdowns inside the menu are stopped by the Dropdown content itself.
-	const handleWindowPointerDown = (event: PointerEvent) => {
-		if (!show) return;
-		if (event.target instanceof Element && event.target.closest('.model-selector-child-menu')) {
-			return;
-		}
-		show = false;
-	};
 	$: showComments =
 		$config?.features?.enable_comments &&
 		$user &&
-		model?.id &&
-		!model?.direct &&
-		!model?.arena &&
-		(model?.info || $user?.role === 'admin');
+		menu?.model?.id &&
+		!menu?.model?.owner_id &&
+		!menu?.model?.arena &&
+		(menu?.model?.info || $user?.role === 'admin');
 </script>
 
-<svelte:window on:pointerdown|capture={handleWindowPointerDown} />
-
-<Dropdown
-	bind:show
-	align="start"
-	sideOffset={-2}
-	animate={false}
-	contentClass="model-selector-child-menu"
-	onOpenChange={(state) => {
-		if (state === false) {
-			onClose();
-		}
-	}}
->
-	<span
-		class="pointer-events-none fixed"
-		style="left: {anchorX}px; top: {anchorY}px;"
-		aria-hidden="true"
-	></span>
-
-	<div slot="content">
-		<DropdownMenu className="min-w-[9.375rem] z-[9999999]">
+{#if menu}
+	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+	<div
+		use:portalMenu
+		use:positionMenu={menu}
+		class="model-selector-child-menu model-item-context-menu fixed z-[9999999]"
+		style="z-index: 9999999;"
+		on:click|stopPropagation
+	>
+		<DropdownMenu className="min-w-[9.375rem]">
 			{#if canEdit}
 				<button
 					type="button"
@@ -88,12 +93,12 @@
 						e.stopPropagation();
 						e.preventDefault();
 
-						if (model?.preset || model?.info?.base_model_id) {
-							goto(`/workspace/models/edit?id=${encodeURIComponent(model?.id ?? '')}`);
+						if (menu?.model?.preset || menu?.model?.info?.base_model_id) {
+							goto(`/workspace/models/edit?id=${encodeURIComponent(menu?.model?.id ?? '')}`);
 						} else {
-							showSettings.set({ tab: 'admin:models', state: { id: model?.id ?? null } });
+							showSettings.set({ tab: 'admin:models', state: { id: menu?.model?.id ?? null } });
 						}
-						show = false;
+						onClose();
 						onEdit();
 					}}
 				>
@@ -107,17 +112,17 @@
 				<CommentButton
 					{onComment}
 					menu
-					resource={{ resource_type: 'model', resource_id: model?.id }}
+					resource={{ resource_type: 'model', resource_id: menu?.model?.id }}
 					className="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
 					onOpen={() => {
-						show = false;
+						onClose();
 						onEdit();
 					}}
 				/>
 			{/if}
 
 			{#if canEdit}
-				{#if $user?.role === 'admin' && (model?.owned_by === 'ollama' || providerSupportsDelete(model?.provider))}
+				{#if $user?.role === 'admin' && (menu?.model?.owned_by === 'ollama' || providerSupportsDelete(menu?.model?.provider))}
 					<button
 						type="button"
 						class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
@@ -125,8 +130,8 @@
 							e.stopPropagation();
 							e.preventDefault();
 
-							deleteModelHandler(model);
-							show = false;
+							deleteModelHandler(menu?.model);
+							onClose();
 						}}
 					>
 						<svg
@@ -148,7 +153,7 @@
 					</button>
 				{/if}
 
-				{#if $user?.role === 'admin' && model?.loaded}
+				{#if $user?.role === 'admin' && menu?.model?.loaded}
 					<button
 						type="button"
 						class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
@@ -156,8 +161,8 @@
 							e.stopPropagation();
 							e.preventDefault();
 
-							unloadModelHandler(model?.id);
-							show = false;
+							unloadModelHandler(menu?.model?.id);
+							onClose();
 						}}
 					>
 						<ArrowUpTray className="size-3" />
@@ -172,24 +177,24 @@
 			{#if $visibleControls['models.pin']}
 				<button
 					type="button"
-					aria-pressed={$pinnedModels.includes(model?.id)}
+					aria-pressed={$pinnedModels.includes(menu?.model?.id)}
 					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
 					on:click={(e) => {
 						e.stopPropagation();
 						e.preventDefault();
 
-						pinModelHandler(model?.id);
-						show = false;
+						pinModelHandler(menu?.model?.id);
+						onClose();
 					}}
 				>
-					{#if $pinnedModels.includes(model?.id)}
+					{#if $pinnedModels.includes(menu?.model?.id)}
 						<PinSlash className="size-3" />
 					{:else}
 						<Pin className="size-3" />
 					{/if}
 
 					<div class="flex items-center">
-						{#if $pinnedModels.includes(model?.id)}
+						{#if $pinnedModels.includes(menu?.model?.id)}
 							{$i18n.t('Hide from Sidebar')}
 						{:else}
 							{$i18n.t('Keep in Sidebar')}
@@ -206,7 +211,7 @@
 					e.preventDefault();
 
 					copyLinkHandler();
-					show = false;
+					onClose();
 				}}
 			>
 				<Link className="size-3" />
@@ -227,10 +232,10 @@
 						e.preventDefault();
 
 						window.open(
-							`https://openwebui.com/models?q=${encodeURIComponent(model?.id ?? '')}`,
+							`https://openwebui.com/models?q=${encodeURIComponent(menu?.model?.id ?? '')}`,
 							'_blank'
 						);
-						show = false;
+						onClose();
 					}}
 				>
 					<GlobeAlt className="size-3" />
@@ -240,4 +245,4 @@
 			{/if}
 		</DropdownMenu>
 	</div>
-</Dropdown>
+{/if}

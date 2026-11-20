@@ -1,31 +1,39 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
-	import { onMount, getContext, createEventDispatcher } from 'svelte';
-	const dispatch = createEventDispatcher();
+	import { getContext } from 'svelte';
+	import type { Readable } from 'svelte/store';
 	const i18n: any = getContext('i18n');
 
-	import {
-		artifactCode,
-		chatId,
-		config,
-		settings,
-		showArtifacts,
-		showTabs,
-		artifactContents
-	} from '$lib/stores';
-	import { copyToClipboard, createMessagesList } from '$lib/utils';
+	import { config, settings } from '$lib/stores';
+	import { copyToClipboard } from '$lib/utils';
 	import { injectCsp } from '$lib/utils/csp';
 
 	import Icon from './FileNav/Icon.svelte';
 	import Tooltip from '../common/Tooltip.svelte';
 	import SvgPanZoom from '../common/SVGPanZoom.svelte';
-	import ArrowLeft from '../icons/ArrowLeft.svelte';
-	import XMark from '../icons/XMark.svelte';
 
 	export let overlay = false;
+	export let artifacts: Readable<{ type: string; content: string }[]>;
+	/** The code block to show; a new object selects it again. */
+	export let selection: { code: string } | null = null;
+	export let chatId = '';
 
-	let contents: Array<{ type: string; content: string }> = [];
+	let contents: { type: string; content: string }[] = [];
 	let selectedContentIdx = 0;
+	let appliedSelection: typeof selection = null;
+
+	const updateContents = (next: { type: string; content: string }[]) => {
+		if (next.length === 0) selectedContentIdx = 0;
+		else if (next.length > contents.length) selectedContentIdx = next.length - 1;
+		else if (selectedContentIdx > next.length - 1) selectedContentIdx = next.length - 1;
+		return next;
+	};
+	$: contents = updateContents($artifacts ?? []);
+	$: if (selection && selection !== appliedSelection && contents.length > 0) {
+		appliedSelection = selection;
+		const codeIdx = contents.findIndex((content) => content.content.includes(selection.code));
+		if (codeIdx !== -1) selectedContentIdx = codeIdx;
+	}
 
 	let copied = false;
 	let iframeElement: HTMLIFrameElement;
@@ -83,46 +91,15 @@
 		const url = URL.createObjectURL(blob);
 		const a = document.createElement('a');
 		a.href = url;
-		a.download = `artifact-${$chatId}-${selectedContentIdx}.html`;
+		a.download = `artifact-${chatId}-${selectedContentIdx}.html`;
 		document.body.appendChild(a);
 		a.click();
 		document.body.removeChild(a);
 		URL.revokeObjectURL(url);
 	};
-
-	onMount(() => {
-		const unsubscribeArtifactContents = artifactContents.subscribe((value) => {
-			const newContents = value ?? [];
-			console.log('Artifact contents updated:', newContents);
-
-			if (newContents.length === 0) {
-				showArtifacts.set(false);
-				selectedContentIdx = 0;
-			} else if (newContents.length > contents.length) {
-				selectedContentIdx = newContents.length - 1;
-			} else if (selectedContentIdx > newContents.length - 1) {
-				selectedContentIdx = newContents.length - 1;
-			}
-
-			contents = newContents;
-		});
-
-		const unsubscribeArtifactCode = artifactCode.subscribe((value) => {
-			if (contents && value) {
-				const codeIdx = contents.findIndex((content) => content.content.includes(value));
-				selectedContentIdx = codeIdx !== -1 ? codeIdx : 0;
-			}
-		});
-
-		return () => {
-			unsubscribeArtifactCode();
-			unsubscribeArtifactContents();
-			artifactCode.set(null);
-		};
-	});
 </script>
 
-<div class="w-full h-full relative flex flex-col" id="artifacts-container">
+<div class="w-full h-full relative flex flex-col">
 	<div class="w-full min-h-0 flex flex-col flex-1 relative">
 		{#if contents.length > 0}
 			<div
@@ -182,18 +159,6 @@
 						</Tooltip>
 					{/if}
 				</div>
-
-				<button
-					aria-label={$i18n.t('Close')}
-					class="self-center pointer-events-auto p-1 rounded-full bg-white dark:bg-gray-850"
-					on:click={() => {
-						dispatch('close');
-						showArtifacts.set(false);
-						showTabs.set(false);
-					}}
-				>
-					<XMark className="size-3.5 text-gray-900 dark:text-white" />
-				</button>
 			</div>
 		{/if}
 

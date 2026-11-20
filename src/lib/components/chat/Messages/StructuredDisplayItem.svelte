@@ -15,6 +15,8 @@
 	import ReasoningDisplay from '$lib/components/common/ReasoningDisplay.svelte';
 	import ContextCompactionLabel from './ContextCompactionLabel.svelte';
 	import ToolOutputFile from './ToolOutputFile.svelte';
+	import VisualizationToolCall from './VisualizationToolCall.svelte';
+	import { commentSurface, contentHash } from '$lib/components/comments/anchors';
 	import { resolveChatMessageToolCall } from '$lib/apis/chats';
 	import { settings } from '$lib/stores';
 	import { toast } from 'svelte-sonner';
@@ -36,6 +38,7 @@
 	export let messageId = '';
 	export let displayItem: OutputDisplayItem;
 	export let isLast = false;
+	export let commentToolbarId: string | undefined = undefined;
 	// True when this item is rendered inside a process group. The outer group
 	// already surfaces tool embeds and approval buttons for everything it holds,
 	// so nested items drop their own copy to avoid duplicates (and to keep them
@@ -217,7 +220,19 @@
 
 {#if displayItem.type === 'message'}
 	{#if renderMarkdown}
-		<div class="markdown-prose">
+		<div
+			class="markdown-prose"
+			use:commentSurface={{
+				resource_type: 'chat',
+				resource_id: chatId,
+				target_type: 'chat_message',
+				target_id: messageId,
+				surface_id: displayItem.id,
+				content_hash: contentHash(displayItem.text),
+				enabled: done && !compactPreview && !!chatId,
+				toolbar_id: commentToolbarId
+			}}
+		>
 			<Markdown
 				id={itemId}
 				{chatId}
@@ -241,8 +256,36 @@
 			/>
 		</div>
 	{:else}
-		<div class="whitespace-pre-wrap text-[0.9375rem]">{displayItem.text}</div>
+		<div
+			class="whitespace-pre-wrap text-[0.9375rem]"
+			use:commentSurface={{
+				resource_type: 'chat',
+				resource_id: chatId,
+				target_type: 'chat_message',
+				target_id: messageId,
+				surface_id: displayItem.id,
+				content_hash: contentHash(displayItem.text),
+				enabled: done && !compactPreview && !!chatId,
+				toolbar_id: commentToolbarId
+			}}
+		>
+			{displayItem.text}
+		</div>
 	{/if}
+{:else if displayItem.type === 'visualization'}
+	<VisualizationToolCall
+		call={displayItem.call}
+		result={displayItem.result}
+		{chatId}
+		{messageId}
+		messageDone={done}
+		{allowEmbeds}
+		{compactPreview}
+		resolvable={!!chatId && !!messageId && (save || allowToolApproval)}
+		resolving={resolvingCallId === (displayItem.call.call_id ?? displayItem.call.id)}
+		onResolve={(approved) =>
+			resolveToolCall(displayItem.call.call_id ?? displayItem.call.id ?? '', approved)}
+	/>
 {:else if displayItem.type === 'detail_group' && visibleDetailTokens.length > 0 && !detailGroupSingleToken}
 	<ConsecutiveDetailsGroup
 		id={itemId}
@@ -261,6 +304,7 @@
 					<ToolCallDisplay
 						id={`${itemId}-${detailIndex}-tool-call`}
 						attributes={detailToken.attributes}
+						view={detailToken.view ?? null}
 						resultContent={detailToken.text}
 						grouped={true}
 						{resolvable}
@@ -357,6 +401,7 @@
 					displayItem={childItem}
 					nested={true}
 					isLast={isLast && childItem === displayItem.items[displayItem.items.length - 1]}
+					{commentToolbarId}
 					{done}
 					{model}
 					{save}
@@ -382,10 +427,17 @@
 	<Image src={displayItem.src} alt={$i18n.t('Generated Image')} />
 {:else if displayItem.type === 'file'}
 	{#if displayItem.item?.displayed || $settings?.terminalFileDisplay === 'inline'}
-		<ToolOutputFile item={displayItem.item} {chatId} />
+		<ToolOutputFile item={displayItem.item} {chatId} modelId={model?.id ?? null} />
 	{/if}
 {:else if displayItem.type === 'context_compaction'}
-	<ContextCompactionLabel summary={displayItem.summary} {compactPreview} />
+	<!-- A finished reply can't still be compacting; its run was stopped first. -->
+	{#if displayItem.status !== 'in_progress' || !done}
+		<ContextCompactionLabel
+			summary={displayItem.summary}
+			status={displayItem.status}
+			{compactPreview}
+		/>
+	{/if}
 {:else if (displayItem.type === 'detail_group' && !detailGroupSingleToken) || displayItem.type === 'process_group'}
 	<!-- The group held nothing but reasoning, which "summary only" hides once the
 	     message is done (unless "show reasoning after completion" keeps it), so
@@ -397,6 +449,7 @@
 		<ToolCallDisplay
 			id={`${itemId}-tool-call`}
 			attributes={detailToken.attributes}
+			view={detailToken.view ?? null}
 			resultContent={detailToken.text}
 			allowEmbeds={nestedAllowEmbeds}
 			{resolvable}

@@ -27,18 +27,14 @@
 		getProviderModelDownloadStatus
 	} from '$lib/apis/openai';
 
-	import {
-		user,
-		MODEL_DOWNLOAD_POOL,
-		mobile,
-		models,
-		temporaryChatEnabled,
-		settings,
-		config,
-		showSettings
-	} from '$lib/stores';
+	import { user, MODEL_DOWNLOAD_POOL, mobile, settings, config, showSettings } from '$lib/stores';
 	import { toast } from 'svelte-sonner';
-	import { capitalizeFirstLetter, sanitizeResponseContent, splitStream } from '$lib/utils';
+	import {
+		capitalizeFirstLetter,
+		copyToClipboard,
+		sanitizeResponseContent,
+		splitStream
+	} from '$lib/utils';
 	import {
 		resolveLocalizedModelDescription,
 		resolveLocalizedModelName
@@ -57,7 +53,11 @@
 	import TagSelector from '$lib/components/workspace/common/TagSelector.svelte';
 
 	import ModelItem from './ModelItem.svelte';
+	import ModelItemMenu from './ModelItemMenu.svelte';
 	import ModelControls from '../MessageInput/ModelControls.svelte';
+	import { getChatContext } from '$lib/components/chat/context';
+
+	const { models, temporary } = getChatContext();
 
 	const i18n: any = getContext('i18n');
 
@@ -100,17 +100,39 @@
 
 	export let pinModelHandler: (modelId: string) => void = () => {};
 
+	// FileNav-style context menu: a single menu owned by the selector, anchored at
+	// the pointer. Right-clicking an item (again) just replaces the coordinates, so
+	// the menu can be re-triggered any number of times while it is open.
+	let modelMenu: { x: number; y: number; model: any } | null = null;
+
+	const openModelMenu = (item: any, x: number, y: number) => {
+		modelMenu = { x, y, model: item.model };
+	};
+
+	const closeModelMenu = () => {
+		modelMenu = null;
+	};
+
+	const copyModelLinkHandler = async (model: any) => {
+		const baseUrl = window.location.origin;
+		const res = await copyToClipboard(`${baseUrl}/?model=${encodeURIComponent(model.id)}`);
+
+		if (res) {
+			toast.success($i18n.t('Copied link to clipboard'));
+		} else {
+			toast.error($i18n.t('Failed to copy link'));
+		}
+	};
+
+	// The context menu only exists while the model list is open.
+	$: if (!show) closeModelMenu();
+
 	let show = false;
 	let triggerElement: HTMLElement | null = null;
 	let contentElement: HTMLElement | null = null;
 	const portal = (node: HTMLElement) => {
 		document.body.appendChild(node);
 		const panel = node.firstElementChild as HTMLElement;
-		// The palette centers on the trigger button's midline. Capture the center
-		// once on entry: the trigger's own width follows its label, so re-reading
-		// it on every recompute would shift the palette every time a control
-		// value (and with it the trigger's label) changes.
-		let centerX: number | null = null;
 		const cleanup = autoUpdate(triggerElement!, node, () => {
 			// Let flip measure the full list after content or viewport changes.
 			panel.style.maxHeight = '';
@@ -130,21 +152,6 @@
 					})
 				]
 			}).then(({ x, y }) => {
-				// In controls mode the palette stays centered on the trigger button's
-				// midline, so switching between the controls and selector views
-				// expands evenly around it instead of dragging to one side.
-				if (controlsMenuModel && triggerElement) {
-					const rect = triggerElement.getBoundingClientRect();
-					if (centerX === null) {
-						centerX = rect.left + rect.width / 2;
-					}
-					const width = node.getBoundingClientRect().width;
-					x = centerX - width / 2;
-					const margin = 8;
-					x = Math.min(Math.max(x, margin), window.innerWidth - width - margin);
-				} else {
-					centerX = null;
-				}
 				node.style.left = `${x}px`;
 				node.style.top = `${y}px`;
 			});
@@ -165,7 +172,12 @@
 	};
 	const focusChatInput = () => {
 		if (!$mobile) {
-			document.getElementById('chat-input')?.focus();
+			document
+				.getElementById(
+					triggerElement?.closest('[data-composer-id]')?.getAttribute('data-composer-id') ??
+						'chat-input'
+				)
+				?.focus();
 		}
 	};
 
@@ -233,11 +245,17 @@
 
 	const handleWindowClick = (e: MouseEvent) => {
 		if (!show || e.detail === 0) return;
-		const target = e.target as Node;
+		const target = e.target as HTMLElement;
+		if (target.closest?.('.model-item-context-menu')) {
+			return;
+		}
+		// Clicking anywhere outside the context menu dismisses it, mirroring
+		// FileNav's directory menu.
+		closeModelMenu();
 		if (
 			(triggerElement && triggerElement.contains(target)) ||
 			(contentElement && contentElement.contains(target)) ||
-			((target as HTMLElement).closest?.('.model-selector-child-menu') ?? false)
+			(target.closest?.('.model-selector-child-menu') ?? false)
 		) {
 			return;
 		}
@@ -251,12 +269,24 @@
 		if (show && e.key === 'Escape') {
 			e.preventDefault();
 			e.stopPropagation();
+			// The first Escape only dismisses the context menu.
+			if (modelMenu) {
+				closeModelMenu();
+				return;
+			}
 			show = false;
 			document.getElementById(`model-selector-${id}-button`)?.blur();
 		}
 	};
 
-	let tags = [];
+	$: tags = Array.from(
+		new Set(
+			(items ?? [])
+				.filter((item) => includeHidden || !(item.model?.info?.meta?.hidden ?? false))
+				.flatMap((item) => item.model?.tags ?? [])
+				.map((tag) => tag.name.toLowerCase())
+		)
+	).sort((a, b) => a.localeCompare(b));
 
 	let selectedModel = '';
 	$: selectedValues = values ?? (value ? [value] : []);
@@ -347,8 +377,6 @@
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
 							return item.model?.connection_type === 'external';
-						} else if (selectedConnectionType === 'direct') {
-							return item.model?.direct;
 						}
 					})
 			: items
@@ -367,8 +395,6 @@
 							return item.model?.connection_type === 'local';
 						} else if (selectedConnectionType === 'external') {
 							return item.model?.connection_type === 'external';
-						} else if (selectedConnectionType === 'direct') {
-							return item.model?.direct;
 						}
 					})
 	).filter((item) => includeHidden || !(item.model?.info?.meta?.hidden ?? false));
@@ -427,9 +453,6 @@
 		...(items.find((item) => item.model?.connection_type === 'external')
 			? [{ value: 'connection:external', label: $i18n.t('External') }]
 			: []),
-		...(items.find((item) => item.model?.direct)
-			? [{ value: 'connection:direct', label: $i18n.t('Direct') }]
-			: []),
 		...tags.map((tag) => ({ value: `tag:${tag}`, label: tag }))
 	];
 
@@ -438,6 +461,17 @@
 		: selectedTag
 			? `tag:${selectedTag}`
 			: '';
+
+	$: if (selectedTag && !modelFilterItems.some((item) => item.value === `tag:${selectedTag}`)) {
+		selectedTag = '';
+	}
+
+	$: if (
+		selectedConnectionType &&
+		!modelFilterItems.some((item) => item.value === `connection:${selectedConnectionType}`)
+	) {
+		selectedConnectionType = '';
+	}
 
 	const setModelFilter = (filterValue: string) => {
 		if (!filterValue) {
@@ -659,12 +693,7 @@
 					})
 				);
 
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				models.set(await getModels(localStorage.token));
 			} else {
 				toast.error($i18n.t('Download canceled'));
 			}
@@ -787,12 +816,7 @@
 						modelName: model
 					})
 				);
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				models.set(await getModels(localStorage.token));
 			}
 		} catch (error) {
 			if (!controller.signal.aborted) {
@@ -886,12 +910,7 @@
 
 		if (res) {
 			toast.success($i18n.t('Model unloaded successfully'));
-			models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+			models.set(await getModels(localStorage.token));
 		}
 	};
 
@@ -936,12 +955,7 @@
 				value = '';
 			}
 
-			models.set(
-				await getModels(
-					localStorage.token,
-					$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-				)
-			);
+			models.set(await getModels(localStorage.token));
 		}
 
 		deleteModelTarget = null;
@@ -993,6 +1007,20 @@
 	}}
 />
 
+<ModelItemMenu
+	menu={modelMenu}
+	{pinModelHandler}
+	{unloadModelHandler}
+	{deleteModelHandler}
+	copyLinkHandler={() => {
+		if (modelMenu) copyModelLinkHandler(modelMenu.model);
+	}}
+	onEdit={() => {
+		show = false;
+	}}
+	onClose={closeModelMenu}
+/>
+
 <svelte:window on:click|capture={handleWindowClick} on:keydown|capture={handleKeydown} />
 
 <div class="relative flex w-full">
@@ -1017,12 +1045,7 @@
 				? 'dark:placeholder-gray-100 placeholder-gray-800'
 				: 'placeholder-gray-400'}"
 			on:mouseenter={async () => {
-				models.set(
-					await getModels(
-						localStorage.token,
-						$config?.features?.enable_direct_connections && ($settings?.directConnections ?? null)
-					)
-				);
+				models.set(await getModels(localStorage.token));
 			}}
 		>
 			<span class="min-w-0 flex-1 truncate"
@@ -1196,17 +1219,12 @@
 							{item}
 							{index}
 							value={primaryValue}
-							{pinModelHandler}
-							{unloadModelHandler}
-							{deleteModelHandler}
 							{selectionOnly}
 							{compareEnabled}
 							{selectedValues}
+							onContextMenu={openModelMenu}
 							onClick={() => {
 								selectItem(item, index);
-							}}
-							onEdit={() => {
-								show = false;
 							}}
 						/>
 					{/each}

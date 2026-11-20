@@ -90,7 +90,6 @@ class InterfaceSettings(BaseModel):
     insertFollowUpPrompt: bool | None = None
     regenerateMenu: bool | None = None
     enableMessageQueue: bool | None = None
-    combineQueuedMessages: bool | None = None
     largeTextAsFile: bool | None = None
     copyFormatted: bool | None = None
     collapseCodeBlocks: bool | None = None
@@ -868,6 +867,9 @@ class UsersTable:
             from open_webui.models.chat_views import ChatViewState
 
             await session.execute(delete(ChatViewState).where(ChatViewState.user_id == id))
+            from open_webui.models.access_grants import AccessGrant
+
+            await session.execute(delete(AccessGrant).filter_by(principal_type='user', principal_id=id))
             await session.execute(delete(User).where(User.id == id))
             await session.commit()
             return True
