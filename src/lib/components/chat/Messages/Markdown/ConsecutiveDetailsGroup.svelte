@@ -226,7 +226,7 @@
 		return result;
 	})();
 
-	// Agent tool calls read as what they did ("Ran 2 commands, Read 3 files").
+	// Agent tool calls read as what they did ("Ran 2 commands · Read 3 files").
 	$: actionText = (() => {
 		const views = tokens.flatMap((t) => (t?.view ? [t.view] : []));
 		if (!views.length) return '';
@@ -283,7 +283,7 @@
 					? $i18n.t('Fetched 1 page')
 					: $i18n.t('Fetched {{COUNT}} pages', { COUNT: fetched })
 			);
-		return parts.join(', ');
+		return parts.join(' · ');
 	})();
 
 	$: summaryText = (() => {
@@ -368,15 +368,6 @@
 	// group's unfinished tool calls and stops spinning once none is left.
 	$: groupLive = liveOnActiveToolCalls ? hasActiveToolCalls : groupOpen || hasActiveDetails;
 
-	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
-	// Once it is closed it settles to "Explored" regardless of the last tool
-	// call status, which may have completed while the group kept streaming. It is
-	// the same in "show reasoning summary only" mode, where the header follows
-	// the unfinished tool calls instead of `groupOpen`.
-	$: prefixText = (liveOnActiveToolCalls ? hasActiveToolCalls : groupOpen)
-		? $i18n.t('Exploring')
-		: $i18n.t('Explored');
-
 	// A reasoning group never leads with an icon: it renders once its work is
 	// done, so the expand chevron stays on the right.
 	$: hasLeadingIcon = !isReasoningVariant;
@@ -442,41 +433,31 @@
 					</div>
 				{/if}
 
-				<!-- Summary text: while the group is still live the whole row shares a
-				     single shimmer gradient, so the prefix and the evolving preview /
-				     tool list sweep together. -->
+				<!-- Summary text: the shimmer follows `groupLive`, the same condition
+				     that drives the status icon, so the two can never disagree. -->
 				<div class="min-w-0 flex items-center gap-1.5 {isReasoningVariant ? '' : 'flex-1'}">
 					{#if isReasoningVariant}
 						<span class="min-w-0 truncate">{doneLabel}</span>
 					{:else if groupLabel}
 						<span
-							class="text-gray-400 dark:text-gray-500 {hasActiveDetails ? 'shimmer' : ''}"
-							title={`${prefixText} ${summaryText}`}>{groupLabel}</span
+							class="text-gray-400 dark:text-gray-500 transition {groupLive
+								? 'shimmer'
+								: 'group-hover/groupheader:text-gray-700 dark:group-hover/groupheader:text-gray-300'}"
+							title={summaryText}>{groupLabel}</span
 						>
-					{:else if actionText && latestReasoningPreview}
-						<!-- When a reasoning preview is streaming, it replaces the action
-						     summary entirely so the header stays a single short line. -->
+					{:else if latestReasoningPreview}
+						<!-- While a reasoning preview is streaming, it replaces the summary
+						     entirely so the header stays a single short line. -->
 						<span class="min-w-0 flex-1 truncate {groupOpen ? 'shimmer' : ''}"
 							>{latestReasoningPreview}</span
 						>
-					{:else if actionText}
-						<span class="text-gray-500 dark:text-gray-400 {hasActiveDetails ? 'shimmer' : ''}"
-							>{actionText}</span
+					{:else if actionText || summaryText}
+						<span
+							class="min-w-0 flex-1 truncate text-gray-500 dark:text-gray-400 transition {groupLive
+								? 'shimmer'
+								: 'group-hover/groupheader:text-gray-700 dark:group-hover/groupheader:text-gray-300'}"
+							>{[actionText, summaryText].filter(Boolean).join(' · ')}</span
 						>
-						{#if summaryText}
-							<span class="text-gray-400 dark:text-gray-500">{summaryText}</span>
-						{/if}
-					{:else}
-						<span class="shrink-0 text-gray-600 dark:text-gray-300">{prefixText}</span>
-						{#if latestReasoningPreview}
-							<span class="min-w-0 flex-1 truncate {groupOpen ? 'shimmer' : ''}"
-								>{latestReasoningPreview}</span
-							>
-						{:else if summaryText}
-							<span class="min-w-0 flex-1 truncate text-gray-400 dark:text-gray-500"
-								>{summaryText}</span
-							>
-						{/if}
 					{/if}
 				</div>
 
