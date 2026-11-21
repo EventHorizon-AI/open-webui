@@ -49,6 +49,7 @@
 		{messageId}
 		{displayItem}
 		isLast={displayIndex === displayItems.length - 1}
+		{commentToolbarId}
 		{done}
 		{model}
 		{save}

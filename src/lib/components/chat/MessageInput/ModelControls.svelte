@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { getContext, tick } from 'svelte';
-	import { models, mobile, settings, user, type Model } from '$lib/stores';
+	import { mobile, settings, user, type Model } from '$lib/stores';
 	import Controls from '../Controls/Controls.svelte';
 	import DropdownSub from '$lib/components/common/DropdownSub.svelte';
 	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
@@ -13,6 +13,9 @@
 	import { updateUserSettings } from '$lib/apis/users';
 	import { toast } from 'svelte-sonner';
 	import { localizeModelControls, resolveLocalizedModelName } from '$lib/utils/localizedContent';
+	import { getChatContext } from '$lib/components/chat/context';
+
+	const { models } = getChatContext();
 
 	const i18n: any = getContext('i18n');
 	// Embedded variant of the upstream model controls dropdown: instead of its own
@@ -42,7 +45,7 @@
 		.filter(
 			(model): model is Model =>
 				!!model &&
-				!('direct' in model && model.direct) &&
+				!('owner_id' in model && model.owner_id) &&
 				!('pipe' in model && model.pipe) &&
 				Object.keys(model.info?.params?.model_controls ?? {}).length > 0
 		);

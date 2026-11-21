@@ -29,18 +29,11 @@
 	$: currentSettings = (settingsValue ?? $settings ?? {}) as Record<string, any>;
 	$: externalSettings = settingsValue !== null;
 	$: defaultSettings = ($config?.ui?.default_interface_settings ?? {}) as Record<string, any>;
-	$: hasDirectToolServerAccess =
-		$user?.role === 'admin' || ($user?.permissions?.features?.direct_tool_servers ?? true);
-	$: hasDirectTerminal =
-		($terminalServers ?? []).some((server) => !server.id) ||
-		(currentSettings?.terminalServers ?? []).some((server) => server.url);
 	// Defaults apply to every user, so they follow what the instance offers.
 	$: hasTerminal =
 		$config?.features?.enable_tool_servers &&
 		(($terminalServers ?? []).some((server) => server.id) ||
-			(externalSettings
-				? $config?.features?.enable_direct_integrations
-				: hasDirectToolServerAccess && hasDirectTerminal));
+			(externalSettings && $config?.features?.tether));
 
 	let backgroundImageUrl: string | null = null;
 	let inputFiles: FileList | null = null;
@@ -82,7 +75,6 @@
 
 	let regenerateMenu = true;
 	let enableMessageQueue = true;
-	let combineQueuedMessages = false;
 
 	let landingPageMode = '';
 	let chatBubble = true;
@@ -371,7 +363,6 @@
 
 		regenerateMenu = currentSettings?.regenerateMenu ?? true;
 		enableMessageQueue = currentSettings?.enableMessageQueue ?? true;
-		combineQueuedMessages = currentSettings?.combineQueuedMessages ?? false;
 
 		largeTextAsFile = currentSettings?.largeTextAsFile ?? false;
 		copyFormatted = currentSettings?.copyFormatted ?? false;
@@ -863,35 +854,6 @@
 			{$i18n.t('settings.personal.interface.enableMessageQueue.description')}
 		</p>
 	</div>
-
-	{#if enableMessageQueue}
-		<div>
-			<div class={settingRowClass}>
-				<label
-					id="combine-queued-messages-label"
-					class={settingLabelClass}
-					for="combine-queued-messages-label-control"
-				>
-					{$i18n.t('Combine Queued Messages')}
-				</label>
-
-				<div class={settingControlClass}>
-					<Switch
-						ariaLabelledbyId="combine-queued-messages-label"
-						tooltip={true}
-						bind:state={combineQueuedMessages}
-						inherited={isDefaultSetting('combineQueuedMessages')}
-						on:change={() => {
-							saveSettings({ combineQueuedMessages });
-						}}
-					/>
-				</div>
-			</div>
-			<p class={settingDescriptionClass}>
-				{$i18n.t('Send all queued messages as a single combined message instead of one at a time.')}
-			</p>
-		</div>
-	{/if}
 
 	<div>
 		<div class={settingRowClass}>

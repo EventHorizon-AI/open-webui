@@ -401,6 +401,10 @@ select {
 	}
 }
 
+.katex {
+	text-transform: none;
+}
+
 .katex-mathml {
 	display: none;
 }
