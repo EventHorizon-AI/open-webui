@@ -89,9 +89,9 @@
 		}
 	};
 
-	// Collect every detail token a process group holds so its header can summarise
-	// the whole run (tool names, counts, running/error state) while the individual
-	// detail groups stay nested inside it.
+	// Every detail token a process group holds, so its header can summarise the
+	// whole run (duration, call count) — including reasoning that "summary
+	// only" hides from the body — while the detail groups stay nested inside it.
 	const collectDetailTokens = (items: OutputDisplayItem[]): OutputDetailToken[] => {
 		const tokens: OutputDetailToken[] = [];
 		for (const item of items) {
@@ -99,8 +99,6 @@
 				tokens.push(...item.tokens);
 			} else if (item.type === 'detail_single') {
 				tokens.push(item.token);
-			} else if (item.type === 'process_group') {
-				tokens.push(...collectDetailTokens(item.items));
 			}
 		}
 		return tokens;
@@ -110,13 +108,14 @@
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 	$: itemId = `${id}-${displayItem.id}`;
+	$: nestedAllowEmbeds = nested ? false : allowEmbeds;
+	$: resolvable = !nested && !!chatId && !!messageId && (save || allowToolApproval);
 
 	// "Show reasoning summary only" drops finished reasoning from the message, so
-	// once the message is done a detail group hides its reasoning tokens and a
-	// process group summarises only what is left. While it is still streaming the
-	// group keeps the reasoning preview, so nothing is filtered until `done`.
-	// With "show reasoning after completion" the finished reasoning stays in the
-	// group (expandable), so nothing is filtered at all.
+	// once the message is done a detail group hides its reasoning tokens. While
+	// it is still streaming the group keeps the reasoning preview, so nothing is
+	// filtered until `done`. With "show reasoning after completion" the finished
+	// reasoning stays in the group (expandable), so nothing is filtered at all.
 	$: reasoningPreviewOnly = $settings?.reasoningPreviewOnly ?? false;
 	$: showAfterCompletion =
 		reasoningPreviewOnly && ($settings?.keepReasoningAfterCompletion ?? false);
@@ -167,15 +166,6 @@
 			? visibleDetailTokens[0]
 			: null;
 
-	$: processTokens =
-		displayItem.type === 'process_group' ? collectDetailTokens(displayItem.items) : [];
-	$: visibleProcessTokens =
-		displayItem.type === 'process_group' && reasoningPreviewOnly && done && !showAfterCompletion
-			? processTokens.filter((token) => token.attributes?.type !== 'reasoning')
-			: processTokens;
-	$: nestedAllowEmbeds = nested ? false : allowEmbeds;
-	$: resolvable = !nested && !!chatId && !!messageId && (save || allowToolApproval);
-
 	// Keep dayjs' duration humanization in the active UI language, the same way
 	// Collapsible does for reasoning durations.
 	const loadDayjsLocale = (locales: readonly string[] | undefined) => {
@@ -190,6 +180,10 @@
 		}
 	};
 	$: loadDayjsLocale($i18n?.languages);
+
+	// The process group's header summarises the whole run from its detail tokens.
+	$: processTokens =
+		displayItem.type === 'process_group' ? collectDetailTokens(displayItem.items) : [];
 
 	// Only reasoning and code-interpreter items are timed, so the group's "time
 	// taken" is the span between the first and last of those (see structuredOutput).
@@ -375,15 +369,13 @@
 			{/each}
 		</div>
 	</ConsecutiveDetailsGroup>
-{:else if displayItem.type === 'process_group' && visibleProcessTokens.length > 0}
-	<!-- The process group behaves like a detail group, but its body holds the
-	     nested detail groups and the content the model narrated around them. Only
-	     built once the message is done, so the group never grows while it is shown. -->
+{:else if displayItem.type === 'process_group'}
+	<!-- The reply's process, collapsed once the message is done. Nested items
+	     drop their own embeds and approval buttons so the outer group owns them. -->
 	<ConsecutiveDetailsGroup
 		id={itemId}
-		tokens={visibleProcessTokens}
+		tokens={processTokens}
 		variant="reasoning"
-		runningLabel={$i18n.t('Processing...')}
 		doneLabel={processDoneLabel}
 		messageDone={done}
 		{compactPreview}
@@ -438,7 +430,7 @@
 			{compactPreview}
 		/>
 	{/if}
-{:else if (displayItem.type === 'detail_group' && !detailGroupSingleToken) || displayItem.type === 'process_group'}
+{:else if displayItem.type === 'detail_group' && !detailGroupSingleToken}
 	<!-- The group held nothing but reasoning, which "summary only" hides once the
 	     message is done (unless "show reasoning after completion" keeps it), so
 	     there is nothing left to render. -->

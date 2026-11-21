@@ -89,12 +89,9 @@ export type OutputDisplayItem =
 			tokens: OutputDetailToken[];
 	  }
 	| {
-			// A run of details plus the content the model narrated around them. Only
-			// built when the run holds a non-reasoning detail (a tool call, code
-			// interpreter, …); a run of reasoning alone stays flat. A content message
-			// only becomes a final answer when nothing after it can still be a tool
-			// step; a preceding run is folded here only when the output ends in a
-			// message; the output ending on anything else never folds.
+			// The reply's process — its tool/code steps plus the content narrated
+			// around them — collapsed into one collapsible group once the message
+			// is done; the answer stays outside (see foldProcessGroups).
 			type: 'process_group';
 			id: string;
 			items: OutputDisplayItem[];
@@ -528,11 +525,73 @@ function anchorCompactionMarkers(output: OutputItem[]): OutputItem[] {
 	return anchored;
 }
 
+const isProcessDetailItem = (item: OutputDisplayItem): boolean =>
+	item.type === 'detail_single' || item.type === 'detail_group';
+
+const isNonReasoningDetailItem = (item: OutputDisplayItem): boolean =>
+	item.type === 'detail_group'
+		? item.tokens.some((token) => token.attributes?.type !== 'reasoning')
+		: item.type === 'detail_single'
+			? item.token.attributes?.type !== 'reasoning'
+			: false;
+
+// Displayed artifacts are answer material, not process: they never fold.
+const isProcessArtifactItem = (item: OutputDisplayItem): boolean =>
+	item.type === 'visualization' || item.type === 'image' || item.type === 'file';
+
 /**
- * `group` mirrors the message lifecycle: while a reply is still streaming the
- * caller passes `false`, so the run renders the way it always did (narrated
- * content inline, consecutive details folded into a plain `detail_group`) and
- * only collapses into a process group once the message is done.
+ * Folds the reply's process into a `process_group`: a pure post-pass over the
+ * flat items. The run spans everything up to and including the last detail;
+ * what follows is the answer and stays top level. Artifacts are hoisted out of
+ * the run, and the run folds only when it holds a non-reasoning detail — a
+ * reasoning-only run stays flat, since reasoning is already collapsible.
+ */
+function foldProcessGroups(displayItems: OutputDisplayItem[], group: boolean): OutputDisplayItem[] {
+	if (!group) {
+		return displayItems;
+	}
+
+	let lastDetailIndex = -1;
+	displayItems.forEach((item, index) => {
+		if (isProcessDetailItem(item)) {
+			lastDetailIndex = index;
+		}
+	});
+	if (lastDetailIndex < 0 || lastDetailIndex === displayItems.length - 1) {
+		return displayItems;
+	}
+
+	const run: OutputDisplayItem[] = [];
+	const artifacts: OutputDisplayItem[] = [];
+	for (const item of displayItems.slice(0, lastDetailIndex + 1)) {
+		if (isProcessArtifactItem(item)) {
+			artifacts.push(item);
+		} else {
+			run.push(item);
+		}
+	}
+
+	if (!run.some(isNonReasoningDetailItem)) {
+		// A reasoning-and-narration-only run renders the way it always did.
+		return displayItems;
+	}
+
+	return [
+		{
+			type: 'process_group',
+			// Tie the id to the run's first member for stable re-folds.
+			id: `process-group-${run[0].id}`,
+			items: run
+		},
+		...artifacts,
+		...displayItems.slice(lastDetailIndex + 1)
+	];
+}
+
+/**
+ * `group` mirrors the message lifecycle: while streaming the caller passes
+ * `false` and everything renders the way it always did; the process group
+ * forms only once the message is done (see `foldProcessGroups`).
  */
 export function buildOutputDisplayItems(
 	output: OutputItem[] = [],
@@ -542,10 +601,11 @@ export function buildOutputDisplayItems(
 	output = anchorCompactionMarkers(output);
 
 	const displayItems: OutputDisplayItem[] = [];
-	// Details and narration accumulate here until it is known whether the run ends
-	// in a final answer or keeps going through more tool steps.
-	const processItems: OutputDisplayItem[] = [];
 	const currentDetailTokens: OutputDetailToken[] = [];
+	// Inline files held back while process grouping is active (see the file
+	// branch below): they are emitted right after the detail run they belong
+	// to, at the next flush, instead of cutting that run in two.
+	const pendingFiles: OutputDisplayItem[] = [];
 	const toolOutputByCallId: Record<string, OutputItem> = {};
 	const toolCallByCallId: Record<string, OutputItem> = {};
 	let idCounter = 0;
@@ -559,84 +619,22 @@ export function buildOutputDisplayItems(
 		}
 	}
 
-	// A content message is only a final answer when no tool step can still follow
-	// it. Any groupable output later in the list means the message was narrated on
-	// the way to a tool call, so it may join the process group when the response
-	// ends in a message.
-	const lastGroupableIndex = output.reduce(
-		(last, item, index) => (item?.type && GROUPABLE_OUTPUT_TYPES.has(item.type) ? index : last),
-		-1
-	);
-	const latestOutputIsMessage = output[output.length - 1]?.type === 'message';
-
 	const flushDetails = () => {
 		if (currentDetailTokens.length > 1) {
-			processItems.push({
+			displayItems.push({
 				type: 'detail_group',
 				id: nextId('detail-group'),
 				tokens: [...currentDetailTokens]
 			});
 		} else if (currentDetailTokens.length === 1) {
-			processItems.push({
+			displayItems.push({
 				type: 'detail_single',
 				id: nextId('detail'),
 				token: currentDetailTokens[0]
 			});
 		}
 		currentDetailTokens.length = 0;
-	};
-
-	// Emit whatever has accumulated. Only a run that holds at least one
-	// non-reasoning detail (a tool call, code interpreter, …) becomes a process
-	// group; a run of reasoning alone stays flat, since reasoning already renders
-	// as its own collapsible block. A run of pure content (the final answer) also
-	// stays flat. When a run does fold, the whole run — reasoning included — goes
-	// into the group. The response must end with a message before anything folds;
-	// an output that ends on anything else stays flat entirely.
-	const flushProcess = () => {
-		flushDetails();
-		if (processItems.length === 0) {
-			return;
-		}
-
-		if (!group) {
-			displayItems.push(...processItems);
-			processItems.length = 0;
-			return;
-		}
-
-		const isNonReasoningDetail = (item: OutputDisplayItem): boolean =>
-			item.type === 'detail_group'
-				? item.tokens.some((token) => token.attributes?.type !== 'reasoning')
-				: item.type === 'detail_single'
-					? item.token.attributes?.type !== 'reasoning'
-					: false;
-
-		if (latestOutputIsMessage && processItems.some(isNonReasoningDetail)) {
-			// Tie the id to the first member so it survives reclassification while
-			// streaming (a trailing message becoming narration must not remount it).
-			displayItems.push({
-				type: 'process_group',
-				id: `process-group-${processItems[0].id}`,
-				items: [...processItems]
-			});
-		} else {
-			displayItems.push(...processItems);
-		}
-		processItems.length = 0;
-	};
-
-	const pushContent = (index: number, id: string, text: string) => {
-		// While a later tool step can still appear the content is narrated, so it
-		// is held in the process group; otherwise it is the final answer. Grouping
-		// itself only happens once the message is done.
-		if (group && index < lastGroupableIndex) {
-			flushDetails();
-			processItems.push({ type: 'message', id, text });
-		} else {
-			flushProcess();
-			displayItems.push({ type: 'message', id, text });
-		}
+		displayItems.push(...pendingFiles.splice(0));
 	};
 
 	output.forEach((item, index) => {
@@ -659,12 +657,24 @@ export function buildOutputDisplayItems(
 
 			const inlineFile = getInlineFileFromToolOutput(call, item);
 			if (inlineFile && (inlineFile.displayed === true || forceInlineFiles)) {
-				flushProcess();
-				displayItems.push({
-					type: 'file',
-					id: item.id ?? nextId('file'),
-					item: inlineFile
-				});
+				if (group) {
+					// Process grouping is active, so the detail run will fold into
+					// one group (and the file is hoisted out as an artifact anyway).
+					// Flushing here would re-cut the run and shift the group's id
+					// on every file, re-rendering (and re-collapsing) the group.
+					pendingFiles.push({
+						type: 'file',
+						id: item.id ?? nextId('file'),
+						item: inlineFile
+					});
+				} else {
+					flushDetails();
+					displayItems.push({
+						type: 'file',
+						id: item.id ?? nextId('file'),
+						item: inlineFile
+					});
+				}
 			}
 			return;
 		}
@@ -703,12 +713,8 @@ export function buildOutputDisplayItems(
 		}
 
 		if (item.type === 'open_webui:context_compaction') {
-			// The divider folds into the process group with the narration and details
-			// around it, so buffer it like any other process item; only the detail
-			// runs need to settle first. StructuredDisplayItem renders buffered
-			// context_compaction items through its own recursive branch.
 			flushDetails();
-			processItems.push({
+			displayItems.push({
 				type: 'context_compaction',
 				id: item.id ?? nextId('context-compaction'),
 				summary: typeof item.summary === 'string' ? item.summary : '',
@@ -720,7 +726,8 @@ export function buildOutputDisplayItems(
 		if (item.type === 'message') {
 			const text = getMessageText(item);
 			if (text.trim()) {
-				pushContent(index, item.id ?? nextId('message'), text);
+				flushDetails();
+				displayItems.push({ type: 'message', id: item.id ?? nextId('message'), text });
 			}
 			return;
 		}
@@ -741,22 +748,25 @@ export function buildOutputDisplayItems(
 
 		const fallbackText = getMessageText(item);
 		if (fallbackText.trim()) {
-			pushContent(index, item.id ?? nextId('output'), fallbackText);
+			flushDetails();
+			displayItems.push({ type: 'message', id: item.id ?? nextId('output'), text: fallbackText });
 		}
 	});
 
-	flushProcess();
+	flushDetails();
+
+	const foldedItems = foldProcessGroups(displayItems, group);
 
 	// Providers can reuse item ids across tool-call rounds.
 	const seenIds = new Set<string>();
-	displayItems.forEach((displayItem, index) => {
+	foldedItems.forEach((displayItem, index) => {
 		if (seenIds.has(displayItem.id)) {
 			displayItem.id = `${displayItem.id}-${index}`;
 		}
 		seenIds.add(displayItem.id);
 	});
 
-	return displayItems;
+	return foldedItems;
 }
 
 export function getOutputText(output?: OutputItem[] | null): string {

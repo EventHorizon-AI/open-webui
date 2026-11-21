@@ -138,8 +138,8 @@
 	};
 	$: loadDayjsLocale($i18n?.languages);
 
-	// Every groupable detail token a process group holds, so its header can
-	// summarise the whole run and surface embeds / approval buttons.
+	// Every detail token a process group holds, so its header can summarise the
+	// whole run and surface embeds / approval buttons.
 	const getProcessTokens = (processToken: any) => {
 		const detailTokens: any[] = [];
 		for (const item of processToken?.items ?? []) {
@@ -187,9 +187,8 @@
 		compactPreview ? 'text-xs' : 'text-[0.90625rem]'
 	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
 
-	// Process grouping only happens once the message is done: while it is still
-	// streaming the run renders flat (narrated content inline, consecutive
-	// details folded into a plain detail group) instead of the process group.
+	// Process grouping only happens once the message is done: while streaming
+	// everything renders the way it always did, and the group forms at completion.
 	$: rawDisplayTokens = buildMarkdownDisplayTokens(tokens, done);
 
 	// "Show reasoning summary only" keeps reasoning out of detail groups
@@ -693,16 +692,14 @@
 			</div>
 		</ConsecutiveDetailsGroup>
 		{@render groupReasoningPreviewLine(rawDisplayTokens[tokenIdx])}
-	{:else if token.type === 'process_group' && (!reasoningPreviewOnly || !done || showAfterCompletion || (token.items ?? []).some((t: any) => t?.attributes?.type !== 'reasoning'))}
-		<!-- A run of details plus the content narrated around it. Rendered like the
-		     structured output path's process group: a reasoning-style header whose
-		     body re-renders the run's child tokens. Only built once the message is
-		     done, so the group never grows while it is shown. -->
+	{:else if token.type === 'process_group'}
+		<!-- The reply's process, collapsed once the message is done. Nested child
+		     tokens drop their own embeds and approval buttons so the outer group
+		     owns them. -->
 		<ConsecutiveDetailsGroup
 			id={`${rendererId}-${tokenIdx}-process-group`}
 			tokens={getProcessTokens(token)}
 			variant="reasoning"
-			runningLabel={$i18n.t('Processing...')}
 			doneLabel={getProcessDoneLabel(getProcessTokens(token))}
 			messageDone={done}
 			{compactPreview}
@@ -717,10 +714,6 @@
 				{/each}
 			</div>
 		</ConsecutiveDetailsGroup>
-	{:else if token.type === 'process_group'}
-		<!-- A process group that held nothing but reasoning, which "summary only"
-		     hides once the message is done (unless "show reasoning after
-		     completion" keeps it), so there is nothing left to render. -->
 	{:else if token.type === 'details'}
 		{@const textContent = getDetailTextContent(token)}
 

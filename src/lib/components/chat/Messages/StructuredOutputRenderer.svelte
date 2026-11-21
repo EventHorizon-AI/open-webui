@@ -32,9 +32,8 @@
 	export let onPreview: any = () => {};
 	export let onToolCallResolved: any = () => {};
 
-	// Process grouping only happens once the message is done: while it is still
-	// streaming the run renders flat (narrated content inline, consecutive
-	// details folded into a plain detail group) instead of the process group.
+	// Process grouping only happens once the message is done: while streaming
+	// everything renders the way it always did, and the group forms at completion.
 	$: displayItems = buildOutputDisplayItems(
 		output,
 		$settings?.terminalFileDisplay === 'inline',

@@ -46,11 +46,10 @@
 	export let resolvingCallId = '';
 	export let onResolve: (callId: string, approved: boolean) => void = () => {};
 
-	// 'details' is the regular tool-list header. 'reasoning' renders the header like
-	// a reasoning button instead: a spinner while the group's work is still active
-	// and a plain duration label once it is done (no tool summary).
+	// 'details' is the regular tool-list header. 'reasoning' renders a finished
+	// reasoning disclosure instead — a plain duration label, no icon. Only
+	// process groups use it, and they render only once the message is done.
 	export let variant: 'details' | 'reasoning' = 'details';
-	export let runningLabel = '';
 	export let doneLabel = '';
 
 	let open = $settings?.expandDetails ?? false;
@@ -162,7 +161,6 @@
 	}
 
 	$: toolCallCount = tokens.filter((t) => t?.attributes?.type === 'tool_calls').length;
-	$: reasoningCount = tokens.filter((t) => t?.attributes?.type === 'reasoning').length;
 	$: pendingToolTokens = tokens.filter(
 		(t) => t?.attributes?.type === 'tool_calls' && t?.attributes?.status === 'pending'
 	);
@@ -343,7 +341,6 @@
 	// display/running labels. It follows the HEAD error semantics
 	// (lastToolCallFailed) instead of upstream's hasError, so a retried failure
 	// that ends well does not suppress the label.
-	$: hasError = lastToolCallFailed;
 	$: toolLabels = tokens
 		.filter((token) => token.attributes?.type === 'tool_calls')
 		.map((token) =>
@@ -366,12 +363,9 @@
 			? toolLabels.map((label, index) => label || toolNames[index]).join(', ')
 			: '';
 
-	// One condition drives both the icon and the text of the header so they can
-	// never disagree (the spinner used to also check `hasActiveDetails` while
-	// the text only looked at `groupOpen`). With "show reasoning summary only"
-	// the reasoning is previewed instead of rendered, so it must not keep the
-	// header live: there the header follows the group's unfinished tool calls
-	// and stops spinning as soon as none is left.
+	// The header's status icon follows this. With "show reasoning summary only"
+	// the reasoning is previewed instead of rendered, so the header follows the
+	// group's unfinished tool calls and stops spinning once none is left.
 	$: groupLive = liveOnActiveToolCalls ? hasActiveToolCalls : groupOpen || hasActiveDetails;
 
 	// A group passed as `groupOpen` can still grow, so it reads as "Exploring".
@@ -383,9 +377,9 @@
 		? $i18n.t('Exploring')
 		: $i18n.t('Explored');
 
-	// Whether the header leads with a status icon. A reasoning group shows none
-	// until it starts, in which case the expand chevron stays on the right.
-	$: hasLeadingIcon = isReasoningVariant ? groupLive : true;
+	// A reasoning group never leads with an icon: it renders once its work is
+	// done, so the expand chevron stays on the right.
+	$: hasLeadingIcon = !isReasoningVariant;
 </script>
 
 <div {id} class="w-full min-w-0">
@@ -453,11 +447,7 @@
 				     tool list sweep together. -->
 				<div class="min-w-0 flex items-center gap-1.5 {isReasoningVariant ? '' : 'flex-1'}">
 					{#if isReasoningVariant}
-						{#if groupLive}
-							<span class="min-w-0 truncate shimmer">{runningLabel}</span>
-						{:else}
-							<span class="min-w-0 truncate">{doneLabel}</span>
-						{/if}
+						<span class="min-w-0 truncate">{doneLabel}</span>
 					{:else if groupLabel}
 						<span
 							class="text-gray-400 dark:text-gray-500 {hasActiveDetails ? 'shimmer' : ''}"
