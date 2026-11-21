@@ -170,6 +170,49 @@ function isDoneStatus(status?: string): boolean {
 	return status === 'completed' || status === 'failed' || status === 'incomplete';
 }
 
+/**
+ * A view copy of a streamed message that shares every leaf value instead of
+ * serializing them the way `structuredClone` does.
+ *
+ * Stream events arrive one per token and each one replaces the message's
+ * `output`, so the message view is rebuilt per event. `structuredClone` copies
+ * the whole accumulated text every time — a long reasoning body grows into
+ * hundreds of KB — which shows up as lag that worsens the longer the reply
+ * streams. Strings and numbers are immutable, so sharing them is safe (the
+ * rendering components never mutate `message`; only the stream handlers in
+ * Chat.svelte write to their own copies). Every container is still copied, so
+ * the view cannot reach the store's arrays, and change detection keeps
+ * working: grown text is a new string instance, so reference inequality holds.
+ */
+/**
+ * A view copy of a streamed message that shares every leaf value instead of
+ * serializing them the way `structuredClone` does.
+ *
+ * Stream events arrive one per token and each one replaces the message's
+ * `output`, so the message view is rebuilt per event. `structuredClone` copies
+ * the whole accumulated text every time — a long reasoning body grows into
+ * hundreds of KB — which shows up as lag that worsens the longer the reply
+ * streams. Strings and numbers are immutable, so sharing them is safe (the
+ * rendering components never mutate `message`; only the stream handlers in
+ * Chat.svelte write to their own copies). Every container is still copied, so
+ * the view cannot reach the store's arrays, and change detection keeps
+ * working: grown text is a new string instance, so reference inequality holds.
+ */
+export function cloneMessageForView<T>(message: T): T {
+	if (!message || typeof message !== 'object') {
+		return message;
+	}
+	if (Array.isArray(message)) {
+		return message.map((item) => cloneMessageForView(item)) as unknown as T;
+	}
+	const source = message as Record<string, unknown>;
+	const clone: Record<string, unknown> = {};
+	for (const key of Object.keys(source)) {
+		clone[key] = cloneMessageForView(source[key]);
+	}
+	return clone as unknown as T;
+}
+
 function getMessageText(item: OutputItem): string {
 	return getTextFromParts(item.content ?? []);
 }
@@ -308,9 +351,22 @@ export function buildToolCallToken(
 // held back. The preview is what `summary` carries for the whole lifetime of
 // the item; the duration text shown once a reasoning block finishes is rendered
 // separately.
-function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
+//
+// The token is memoized on the part array that feeds it (`summary` when the
+// item has summary parts, else `content`). Those arrays are cloned only when an
+// event touches them, so the raw deltas that keep appending to `content`
+// between two summary events carry the same `summary` array the whole time:
+// the token keeps its identity across them and the renderer (whose expanded
+// body shows the summaries) is not re-rendered per raw token at all.
+const reasoningTokenCache = new WeakMap<
+	object,
+	{ isDone: boolean; token: ReturnType<typeof buildReasoningTokenObject> }
+>();
+
+const EMPTY_OUTPUT_PARTS: OutputContentPart[] = [];
+
+function buildReasoningTokenObject(item: OutputItem, isDone: boolean) {
 	const duration = item.duration ?? '';
-	const isDone = isDoneStatus(item.status) || item.duration !== undefined || !isLastItem;
 	const reasoningText = getReasoningText(item);
 	const cacheId = item.id ?? item.call_id ?? '';
 	// The preview state is cached so a finished block is not re-scanned on every
@@ -334,6 +390,32 @@ function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 			ended_at: stringifyAttribute(item.ended_at)
 		}
 	};
+}
+
+function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
+	const isDone = isDoneStatus(item.status) || item.duration !== undefined || !isLastItem;
+	// Same field preference `getReasoningText` uses, so the cache key covers
+	// everything the token renders.
+	const parts =
+		(Array.isArray(item.summary) && item.summary.length ? item.summary : item.content) ??
+		EMPTY_OUTPUT_PARTS;
+
+	// No parts means nothing has streamed into this item yet — several empty
+	// items would share the empty key, so they build their token per call
+	// (which is also what the pre-memo behaviour did) instead of reusing
+	// another item's timing attributes.
+	if (!parts.length) {
+		return buildReasoningTokenObject(item, isDone);
+	}
+
+	const cached = reasoningTokenCache.get(parts);
+	if (cached && cached.isDone === isDone) {
+		return cached.token;
+	}
+
+	const token = buildReasoningTokenObject(item, isDone);
+	reasoningTokenCache.set(parts, { isDone, token });
+	return token;
 }
 
 function buildCodeInterpreterToken(item: OutputItem, isLastItem: boolean) {

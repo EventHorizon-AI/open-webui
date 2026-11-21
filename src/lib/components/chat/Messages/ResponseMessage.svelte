@@ -64,7 +64,12 @@
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import MCPApp from '$lib/components/chat/Messages/MCPApp.svelte';
 	import OutputEditView from './OutputEditView.svelte';
-	import { getOutputText, replaceOutputMessageText, type OutputItem } from './structuredOutput';
+	import {
+		getOutputText,
+		replaceOutputMessageText,
+		cloneMessageForView,
+		type OutputItem
+	} from './structuredOutput';
 	import { getChatContext } from '$lib/components/chat/context';
 
 	const { audioQueue, models } = getChatContext();
@@ -137,7 +142,7 @@
 	export let selectedModels = [];
 
 	let messageSource = history.messages[messageId];
-	let message: MessageType = structuredClone(messageSource);
+	let message: MessageType = cloneMessageForView(messageSource);
 	$: isAgent =
 		message.model?.startsWith('agent:') || selectedModels.some((id) => id.startsWith('agent:'));
 	// Agents regenerate on a fork of their own conversation; continuing or copying a reply has no turn to fork.
@@ -149,16 +154,16 @@
 			// Responses streams update output even when legacy content is unchanged.
 			if (source !== messageSource) {
 				messageSource = source;
-				message = structuredClone(source);
+				message = cloneMessageForView(source);
 			} else if (
 				message.content !== source.content ||
 				message.done !== source.done ||
 				message.output?.length !== source.output?.length
 			) {
-				message = structuredClone(source);
+				message = cloneMessageForView(source);
 			} else if (!equal(message, source)) {
 				// Slow path: full comparison for infrequent changes (sources, annotations, status, etc.)
-				message = structuredClone(source);
+				message = cloneMessageForView(source);
 			}
 		}
 	}
