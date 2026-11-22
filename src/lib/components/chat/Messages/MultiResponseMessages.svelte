@@ -9,7 +9,7 @@
 	import { createOpenAITextStream } from '$lib/apis/streaming';
 
 	import ResponseMessage from './ResponseMessage.svelte';
-	import { getOutputText } from './structuredOutput';
+	import { getOutputText, cloneMessageForView } from './structuredOutput';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Merge from '$lib/components/icons/Merge.svelte';
 
@@ -75,14 +75,14 @@
 
 	let selectedModelIdx = null;
 
-	let message = structuredClone(history.messages[messageId]);
+	let message = cloneMessageForView(history.messages[messageId]);
 	$: if (history.messages) {
 		const source = history.messages[messageId];
 		if (source) {
 			if (message.content !== source.content || message.done !== source.done) {
-				message = structuredClone(source);
+				message = cloneMessageForView(source);
 			} else if (!equal(message, source)) {
-				message = structuredClone(source);
+				message = cloneMessageForView(source);
 			}
 		}
 	}
