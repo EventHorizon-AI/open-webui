@@ -222,7 +222,10 @@
 				target_type: 'chat_message',
 				target_id: messageId,
 				surface_id: displayItem.id,
-				content_hash: contentHash(displayItem.text),
+				// The hash is only consumed by the comment flow, which is gated on
+				// `done` below; skipping it while streaming avoids hashing the
+				// whole growing text per token.
+				content_hash: done ? contentHash(displayItem.text) : '',
 				enabled: done && !compactPreview && !!chatId,
 				toolbar_id: commentToolbarId
 			}}
@@ -258,7 +261,7 @@
 				target_type: 'chat_message',
 				target_id: messageId,
 				surface_id: displayItem.id,
-				content_hash: contentHash(displayItem.text),
+				content_hash: done ? contentHash(displayItem.text) : '',
 				enabled: done && !compactPreview && !!chatId,
 				toolbar_id: commentToolbarId
 			}}

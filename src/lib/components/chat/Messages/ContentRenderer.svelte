@@ -317,7 +317,10 @@
 				target_type: 'chat_message',
 				target_id: messageId,
 				surface_id: 'content',
-				content_hash: contentHash(content ?? ''),
+				// Only the comment flow (gated on `done` below) consumes the hash;
+				// skipping it while streaming avoids hashing the whole growing
+				// content string per token.
+				content_hash: done ? contentHash(content ?? '') : '',
 				enabled: done && !compactPreview && !!chatId,
 				toolbar_id: floatingButtons ? `floating-buttons-${id}` : undefined
 			}}
@@ -373,7 +376,7 @@
 					target_type: 'chat_message',
 					target_id: messageId,
 					surface_id: 'content',
-					content_hash: contentHash(content ?? ''),
+					content_hash: done ? contentHash(content ?? '') : '',
 					enabled: done && !compactPreview && !!chatId,
 					toolbar_id: floatingButtons ? `floating-buttons-${id}` : undefined
 				}}

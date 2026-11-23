@@ -467,26 +467,35 @@
 	$: contextThreshold = contextCompactionEnabled
 		? getContextThreshold(atSelectedModel?.id ?? selectedModels.find((id) => id), $models, params)
 		: null;
-	$: contextUsage =
-		getContextUsage(history, $settings?.system ?? '', contextThreshold) ??
-		(contextCompactionEnabled ? serverContextUsage : null);
-
-	// Push the estimated/served usage into the store whenever the reactive
-	// contextUsage recomputes (load paths, config flags, completion snapshots).
-	const syncChatContextUsage = () => {
-		// The callers usually assign serverContextUsage right before invoking
-		// this; Svelte only flushes reactive recomputations after the current
-		// batch, so the `contextUsage` label is stale here. Re-derive the
-		// estimate from fresh inputs instead, and fall back to the server
-		// snapshot when the local estimate resolves without a threshold.
+	// Stream events rewrite `history` per token, and the estimate walks every
+	// message (stringifying outputs/files), so recompute it at most once per
+	// frame instead of twice per event.
+	let contextUsageScheduled = false;
+	const recomputeContextUsage = () => {
 		const threshold = contextCompactionEnabled
 			? getContextThreshold(atSelectedModel?.id ?? selectedModels.find((id) => id), $models, params)
 			: null;
 		const local = getContextUsage(history, $settings?.system ?? '', threshold);
 		const server = contextCompactionEnabled ? serverContextUsage : null;
-		chatContextUsage.set(local?.threshold ? local : server);
+		const next = local ?? server;
+		contextUsage = next;
+		if (next) chatContextUsage.set(local?.threshold ? local : server);
 	};
-	$: history && $config && contextUsage && syncChatContextUsage();
+	const scheduleContextUsage = () => {
+		if (contextUsageScheduled) return;
+		contextUsageScheduled = true;
+		requestAnimationFrame(() => {
+			contextUsageScheduled = false;
+			recomputeContextUsage();
+		});
+	};
+	$: history && scheduleContextUsage();
+	$: contextThreshold ?? scheduleContextUsage();
+	$: $settings?.system ?? scheduleContextUsage();
+	$: serverContextUsage ?? scheduleContextUsage();
+	// Kept for the call sites that assign `serverContextUsage` and then push the
+	// label: the deferred recompute reads the fresh value after the batch.
+	const syncChatContextUsage = scheduleContextUsage;
 	$: embeddedHeaderTitle = embeddedTitle || $chatTitle || $i18n.t('Chat');
 
 	let selectedToolIds: string[] = [];
@@ -3589,25 +3598,46 @@
 			});
 			lastScrollTop = messagesContainerElement.scrollTop;
 
-			// Re-scroll over two frames as content-visibility resolves estimated message heights.
-			requestAnimationFrame(() => {
-				if (messagesContainerElement && autoScroll) {
-					messagesContainerElement.scrollTo({
-						top: messagesContainerElement.scrollHeight,
-						behavior
-					});
-					lastScrollTop = messagesContainerElement.scrollTop;
-					requestAnimationFrame(() => {
-						if (messagesContainerElement && autoScroll) {
-							messagesContainerElement.scrollTo({
-								top: messagesContainerElement.scrollHeight,
-								behavior
-							});
-							lastScrollTop = messagesContainerElement.scrollTop;
-						}
-					});
-				}
-			});
+			// content-visibility resolves its height estimates over the next few
+			// frames, so keep re-aiming at the moving bottom until the message
+			// list height stops changing — see followBottom.
+			requestFollow(behavior);
+		}
+	};
+
+	let followRAF = null;
+	let followRequested = false;
+	let followLastHeight = -1;
+	let followBehavior = 'auto';
+	// One scrollHeight read per frame while the message list keeps changing.
+	// This replaces an unconditional nested double-rAF re-scroll that read
+	// scrollHeight (a forced layout) up to three times per stream event: every
+	// read is a full layout of the growing message, so the overhead scaled with
+	// the reply length and made the page laggy while generating.
+	const followBottom = async () => {
+		followRAF = null;
+		const requested = followRequested;
+		followRequested = false;
+		if (!messagesContainerElement || !autoScroll) return;
+		await tick();
+		if (!messagesContainerElement || !autoScroll) return;
+		const behavior = followBehavior;
+		const el = messagesContainerElement;
+		const target = el.scrollHeight;
+		const settled = target === followLastHeight;
+		followLastHeight = target;
+		el.scrollTo({ top: target, behavior });
+		lastScrollTop = el.scrollTop;
+		if ((requested || !settled) && !followRAF) {
+			followRAF = requestAnimationFrame(followBottom);
+		}
+	};
+
+	const requestFollow = (behavior = 'auto') => {
+		followRequested = true;
+		followBehavior = behavior;
+		if (!followRAF) {
+			followRAF = requestAnimationFrame(followBottom);
 		}
 	};
 
@@ -3627,17 +3657,11 @@
 	const shouldAutoScrollResponse = () =>
 		autoScroll && ($settings?.scrollOnResponseGeneration ?? true);
 
-	let scrollRAF = null;
 	let contentsRAF = null;
 	const autoScrollToBottom = () => {
 		if (!shouldAutoScrollResponse()) return;
 
-		if (!scrollRAF) {
-			scrollRAF = requestAnimationFrame(async () => {
-				scrollRAF = null;
-				if (shouldAutoScrollResponse()) await scrollToBottom();
-			});
-		}
+		requestFollow('auto');
 	};
 
 	let processingQueueChats = new Set<string>();

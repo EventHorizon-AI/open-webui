@@ -645,8 +645,21 @@
 
 	// The Chat.svelte store is re-pushed on every socket event, so the percent
 	// stays live during generation; the prop and local estimate are fallbacks.
-	$: statusContextUsage =
-		$chatContextUsage ?? contextUsage ?? getLocalContextUsage(history, $settings?.system ?? '');
+	// getLocalContextUsage walks every message, so it runs at most once per
+	// frame instead of once per socket event.
+	let localContextUsage = null;
+	let localContextUsageScheduled = false;
+	const scheduleLocalContextUsage = () => {
+		if (localContextUsageScheduled) return;
+		localContextUsageScheduled = true;
+		requestAnimationFrame(() => {
+			localContextUsageScheduled = false;
+			localContextUsage = getLocalContextUsage(history, $settings?.system ?? '');
+		});
+	};
+	$: history && scheduleLocalContextUsage();
+	$: $settings?.system ?? scheduleLocalContextUsage();
+	$: statusContextUsage = $chatContextUsage ?? contextUsage ?? localContextUsage;
 	$: contextHasThreshold = Number(statusContextUsage?.threshold) > 0;
 	$: contextPercent = contextHasThreshold
 		? Math.max(0, Math.round(statusContextUsage?.percent ?? 0))

@@ -79,15 +79,158 @@
 	let lastParsedContent = '';
 	let hasParsed = false;
 
+	// --- incremental lexing (streaming) ---
+	// Lexing the full text every frame costs O(message length), so long replies
+	// degrade the longer they stream. Markdown block structure only changes at
+	// blank lines that sit safely outside open constructs (code fence, math,
+	// colon fence, details), so the tokens before the last such boundary are
+	// reused verbatim and only the tail is re-lexed. Anything uncertain falls
+	// back to a full lex, and `done` always re-lexes everything for the final
+	// render.
+	let stableTokens = [];
+	let stableSource = '';
+	let scanner = null;
+
+	const createScanner = () => ({
+		pos: 0,
+		boundary: 0,
+		prevBoundary: 0,
+		fence: null,
+		mathParity: 0,
+		colonFence: false,
+		detailsDepth: 0,
+		// Whether `pos` starts a fresh line. A stream frame can end mid-line (no
+		// trailing newline yet); the newline that later terminates that line
+		// must not be mistaken for a blank line, or the boundary would jump
+		// into the middle of the growing block (tables stop growing until the
+		// full re-lex at done).
+		atLineStart: true
+	});
+
+	const FENCE_OPEN_RE = /^ {0,3}(`{3,}|~{3,})/;
+	const FENCE_CLOSE_RE = /^ {0,3}(?:`{3,}|~{3,})\s*$/;
+	const COLON_OPEN_RE = /^ {0,3}:::/;
+	const COLON_CLOSE_RE = /^ {0,3}:::\s*$/;
+	// A blank line followed by these starts a new block, but the construct before
+	// it may still be the same one (loose list items, quote paragraphs, indented
+	// code / footnote continuation): never split there.
+	const CONTINUATION_RE = /^ {0,3}(?:[-*+]|\d{1,9}[.)])\s|^ {0,3}>|^ {4}/;
+
+	const findStableBoundary = (text) => {
+		if (!scanner || !text.startsWith(stableSource)) {
+			scanner = createScanner();
+			stableSource = '';
+			stableTokens = [];
+		}
+		const s = scanner;
+		while (s.pos < text.length) {
+			if (text[s.pos] === '\n') {
+				if (s.atLineStart) {
+					// A genuinely empty line between two newlines.
+					if (s.fence === null && !s.colonFence && !s.mathParity && s.detailsDepth === 0) {
+						const boundary = s.pos + 1;
+						if (boundary !== s.boundary) {
+							s.prevBoundary = s.boundary;
+							s.boundary = boundary;
+						}
+					}
+					s.pos += 1;
+					continue;
+				}
+				// Terminates the line a previous frame left open.
+				s.pos += 1;
+				s.atLineStart = true;
+				continue;
+			}
+			const nl = text.indexOf('\n', s.pos);
+			const lineEnd = nl === -1 ? text.length : nl;
+			const line = text.slice(s.pos, lineEnd);
+			if (s.fence !== null) {
+				if (FENCE_CLOSE_RE.test(line)) s.fence = null;
+			} else if (s.colonFence) {
+				if (COLON_CLOSE_RE.test(line)) s.colonFence = false;
+			} else if (s.mathParity) {
+				s.mathParity ^= (line.match(/\$\$/g) ?? []).length & 1;
+			} else {
+				if (FENCE_OPEN_RE.test(line)) {
+					s.fence = (line.match(FENCE_OPEN_RE) ?? [])[1]?.[0] ?? '`';
+				} else if (COLON_OPEN_RE.test(line)) {
+					s.colonFence = true;
+				} else {
+					s.mathParity ^= (line.match(/\$\$/g) ?? []).length & 1;
+				}
+				s.detailsDepth +=
+					(line.match(/<details[\s>]/gi) ?? []).length - (line.match(/<\/details>/gi) ?? []).length;
+				if (s.detailsDepth < 0) s.detailsDepth = 0;
+			}
+			if (nl !== -1) {
+				if (
+					line.trim() === '' &&
+					s.fence === null &&
+					!s.colonFence &&
+					!s.mathParity &&
+					s.detailsDepth === 0
+				) {
+					const boundary = lineEnd + 1;
+					if (boundary !== s.boundary) {
+						s.prevBoundary = s.boundary;
+						s.boundary = boundary;
+					}
+				}
+				s.pos = lineEnd + 1;
+				s.atLineStart = true;
+			} else {
+				s.pos = text.length;
+				// The line is still open: a newline may arrive in the next frame.
+				s.atLineStart = false;
+			}
+		}
+		return s;
+	};
+
 	const parseTokens = () => {
 		if (content === lastContent) return;
 		lastContent = content;
 
 		const processed = replaceTokens(processResponseContent(content), model?.name, $user?.name);
 		if (processed === lastParsedContent) return;
-		lastParsedContent = processed;
 
-		tokens = marked.lexer(processed);
+		let nextTokens = null;
+		if (!done) {
+			try {
+				findStableBoundary(processed);
+				const boundary = scanner.boundary;
+				const tail = processed.slice(boundary);
+				if (
+					boundary > 0 &&
+					tail.length > 0 &&
+					!CONTINUATION_RE.test(tail) &&
+					boundary >= stableSource.length
+				) {
+					// Extend the stable prefix with any newly settled region
+					// (usually empty; the boundary only moves on paragraph ends).
+					const delta = processed.slice(stableSource.length, boundary);
+					if (delta) {
+						stableTokens = [...stableTokens, ...marked.lexer(delta)];
+						stableSource = processed.slice(0, boundary);
+					}
+					nextTokens = [...stableTokens, ...marked.lexer(tail)];
+				}
+			} catch {
+				nextTokens = null;
+			}
+		}
+
+		if (nextTokens === null) {
+			// Full lex: done, or no safe split was found this frame.
+			nextTokens = marked.lexer(processed);
+			stableTokens = [];
+			stableSource = '';
+			scanner = createScanner();
+		}
+		lastParsedContent = processed;
+		tokens = nextTokens;
+
 		if (!allowHtml || !allowRemoteContent) {
 			marked.walkTokens(tokens, (token) => {
 				if (
