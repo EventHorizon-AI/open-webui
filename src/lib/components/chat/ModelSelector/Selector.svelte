@@ -204,6 +204,21 @@
 		};
 	};
 
+	// The expanded list panel (`w-[20rem]`) plus the offset gap and the viewport
+	// padding it must keep.
+	const SIDE_PANEL_WIDTH = 20 * 16 + 2 + 8;
+
+	// Whether the expanded model list panel fits to the right of the controls
+	// panel. The controls panel is end-aligned with the trigger, so the trigger's
+	// right edge is where the list panel's right edge would end up; the mounted
+	// panel itself is preferred once it is positioned.
+	const sidePanelFits = () => {
+		const anchor = contentElement ?? triggerElement;
+		if (!anchor) return true;
+		const rect = anchor.getBoundingClientRect();
+		return window.innerWidth - rect.right >= SIDE_PANEL_WIDTH;
+	};
+
 	// `showList` opens the model list immediately instead of the collapsed model
 	// controls panel: expanded beside the controls on desktop, or as the palette
 	// view on mobile. Explicitly check for `true` since trigger clicks pass the
@@ -217,6 +232,13 @@
 			controlsMenuModel = selectedModel || null;
 			controlsListExpanded = showList && !!controlsMenuModel && !$mobile;
 			mobileListMode = showList && !!controlsMenuModel && $mobile;
+			desktopInlineList = false;
+			// Not enough room beside the controls panel: show the list inside the
+			// panel instead of beside it, like the mobile palette view.
+			if (controlsListExpanded && !sidePanelFits()) {
+				controlsListExpanded = false;
+				desktopInlineList = true;
+			}
 			searchValue = '';
 			listScrollTop = 0;
 			if (!selectionOnly) {
@@ -225,7 +247,7 @@
 			}
 			resetView();
 			await tick();
-			if (!controlsMenuModel || controlsListExpanded || mobileListMode) {
+			if (!controlsMenuModel || controlsListExpanded || listInline) {
 				for (const delay of [0, 50, 150]) {
 					window.setTimeout(focusSearchInput, delay);
 				}
@@ -310,6 +332,13 @@
 	// On mobile the panels can't sit side by side; the palette switches between
 	// the model controls and the model list views instead.
 	let mobileListMode = false;
+
+	// Same fallback on desktop: when there isn't enough room beside the controls
+	// panel for the expanded list (narrow viewport), the list opens inside the
+	// panel instead of beside it.
+	let desktopInlineList = false;
+
+	$: listInline = mobileListMode || desktopInlineList;
 
 	let selectedTag = '';
 	let selectedConnectionType = '';
@@ -566,6 +595,15 @@
 			return;
 		}
 		controlsListExpanded = !controlsListExpanded;
+		if (controlsListExpanded && !sidePanelFits()) {
+			// No room beside the controls panel: open the list inside the panel
+			// instead, like the mobile palette view.
+			controlsListExpanded = false;
+			desktopInlineList = true;
+			await resetView();
+			focusSearchInput();
+			return;
+		}
 		if (controlsListExpanded) {
 			await tick();
 			await resetView();
@@ -573,9 +611,10 @@
 		}
 	};
 
-	// Return from the mobile list view to the model controls panel.
+	// Return from the inline list view to the model controls panel.
 	const backToControls = () => {
 		mobileListMode = false;
+		desktopInlineList = false;
 	};
 
 	const setDefaultHandler = async () => {
@@ -1415,13 +1454,13 @@
 			style="position: fixed; z-index: 9999; top: 0; left: 0; width: max-content;"
 		>
 			<div
-				class="z-40 flex {controlsMenuModel && !($mobile && mobileListMode)
+				class="z-40 flex {controlsMenuModel && !listInline
 					? 'w-60'
 					: (className ??
 						'w-[20rem]')} max-w-[calc(100vw-1rem)] justify-start rounded-xl border border-gray-100 bg-white p-0.5 shadow-lg outline-hidden dark:border-gray-800 dark:bg-gray-850 dark:text-white flex-col overflow-hidden"
 				transition:flyAndScale
 			>
-				{#if controlsMenuModel && !($mobile && mobileListMode)}
+				{#if controlsMenuModel && !listInline}
 					<div class="flex min-h-0 flex-1 flex-col" in:fly={{ x: 20, duration: 150 }}>
 						<button
 							type="button"
@@ -1450,7 +1489,7 @@
 					</div>
 				{:else}
 					<div class="flex min-h-0 flex-1 flex-col" in:fly={{ x: 20, duration: 150 }}>
-						{#if $mobile && controlsMenuModel}
+						{#if listInline && controlsMenuModel}
 							<button
 								type="button"
 								aria-label={$i18n.t('Back')}
