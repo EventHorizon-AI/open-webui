@@ -72,6 +72,7 @@
 		getOutputText,
 		replaceOutputMessageText,
 		cloneMessageForView,
+		cloneMessageForViewIncremental,
 		type OutputItem
 	} from './structuredOutput';
 	import { getChatContext } from '$lib/components/chat/context';
@@ -147,10 +148,18 @@
 
 	let messageSource = history.messages[messageId];
 	let message: MessageType = cloneMessageForView(messageSource);
+	// The previous frame's source/view pair, for incremental cloning.
+	let lastClonedSource: any = null;
+	let lastClonedView: any = message;
 	$: isAgent =
 		message.model?.startsWith('agent:') || selectedModels.some((id) => id.startsWith('agent:'));
 	// Agents regenerate on a fork of their own conversation; continuing or copying a reply has no turn to fork.
 	$: canBranch = !isAgent;
+	const refreshMessage = (source: any) => {
+		message = cloneMessageForViewIncremental(source, lastClonedSource, lastClonedView);
+		lastClonedSource = source;
+		lastClonedView = message;
+	};
 	$: if (history.messages) {
 		const source = history.messages[messageId];
 		if (source) {
@@ -158,16 +167,16 @@
 			// Responses streams update output even when legacy content is unchanged.
 			if (source !== messageSource) {
 				messageSource = source;
-				message = cloneMessageForView(source);
+				refreshMessage(source);
 			} else if (
 				message.content !== source.content ||
 				message.done !== source.done ||
 				message.output?.length !== source.output?.length
 			) {
-				message = cloneMessageForView(source);
+				refreshMessage(source);
 			} else if (!equal(message, source)) {
 				// Slow path: full comparison for infrequent changes (sources, annotations, status, etc.)
-				message = cloneMessageForView(source);
+				refreshMessage(source);
 			}
 		}
 	}
@@ -239,9 +248,21 @@
 		(model?.info?.meta?.capabilities?.status_updates ?? true) &&
 		statusEntries.length > 0 &&
 		!(statusEntries.at(-1)?.hidden ?? false);
-	$: visibleResponseContent =
-		getOutputText(message.output) || removeAllDetails(message.content ?? '');
-	$: hasResponseContent = Boolean((message.content ?? '').trim() || message.output?.length);
+	// The full-content scan (getOutputText/removeAllDetails) only
+	// matters once the message is done (copy / speak / insert-to-note); while
+	// streaming it re-ran the whole reply through two regex passes every frame.
+	let visibleContentCache: { content: string; value: string } | null = null;
+	const computeVisibleResponseContent = (message: any): string => {
+		const outputText = getOutputText(message.output);
+		if (outputText) return outputText;
+		const content = message.content ?? '';
+		if (visibleContentCache?.content !== content) {
+			visibleContentCache = { content, value: removeAllDetails(content) };
+		}
+		return visibleContentCache.value;
+	};
+	$: visibleResponseContent = message.done ? computeVisibleResponseContent(message) : '';
+	$: hasResponseContent = Boolean(/\S/.test(message.content ?? '') || message.output?.length);
 
 	let edit = false;
 	let editButtonElement: HTMLButtonElement;

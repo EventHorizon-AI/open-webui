@@ -195,6 +195,48 @@ export function cloneMessageForView<T>(message: T): T {
 	return clone as unknown as T;
 }
 
+/**
+ * Per-key incremental variant of `cloneMessageForView`.
+ *
+ * During streaming the stream handlers replace the message object every frame,
+ * and only a couple of keys (content / output / status fields) actually differ
+ * from the previous frame. Keys whose value is reference-identical to the
+ * previous frame's source reuse the previous view's subtree instead of walking
+ * it again, so the per-frame clone cost scales with what changed rather than
+ * with the whole message. The produced values are the same as a full clone;
+ * this relies on the same invariant `cloneMessageForView` documents: rendering
+ * components never mutate `message`, only the stream handlers in Chat.svelte
+ * write to their own copies.
+ */
+export function cloneMessageForViewIncremental<T>(message: T, lastSource: any, lastView: any): T {
+	if (!message || typeof message !== 'object') {
+		return message;
+	}
+	if (Array.isArray(message)) {
+		if (lastSource === message && Array.isArray(lastView)) {
+			return lastView;
+		}
+		const lastItems = Array.isArray(lastView) ? lastView : null;
+		return message.map((item, index) =>
+			cloneMessageForViewIncremental(item, lastSource?.[index], lastItems?.[index])
+		) as unknown as T;
+	}
+	if (lastSource === message && lastView && typeof lastView === 'object') {
+		return lastView;
+	}
+	const source = message as Record<string, unknown>;
+	const clone: Record<string, unknown> = {};
+	for (const key of Object.keys(source)) {
+		const value = source[key];
+		if (lastView && lastSource?.[key] === value) {
+			clone[key] = lastView[key];
+			continue;
+		}
+		clone[key] = cloneMessageForViewIncremental(value, lastSource?.[key], lastView?.[key]);
+	}
+	return clone as unknown as T;
+}
+
 function getMessageText(item: OutputItem): string {
 	return getTextFromParts(item.content ?? []);
 }
@@ -391,7 +433,7 @@ function buildReasoningToken(item: OutputItem, isLastItem: boolean) {
 		(Array.isArray(item.summary) && item.summary.length ? item.summary : item.content) ??
 		EMPTY_OUTPUT_PARTS;
 
-	// No parts means nothing has streamed into this item yet — several empty
+	// No parts means nothing has streamed into this item yet - several empty
 	// items would share the empty key, so they build their token per call
 	// (which is also what the pre-memo behaviour did) instead of reusing
 	// another item's timing attributes.
@@ -512,8 +554,8 @@ export function isHiddenToolCall(item: OutputItem): boolean {
  * Only reasoning / code-interpreter tokens are timed: the backend stamps
  * `started_at` / `ended_at` (epoch seconds) on them and derives `duration` from the
  * pair; tool calls themselves are not timed. Prefers the span between the earliest
- * start and the latest end — which also counts the tool execution happening between
- * the steps — and falls back to summing the per-token `duration`. Returns 0 when
+ * start and the latest end - which also counts the tool execution happening between
+ * the steps - and falls back to summing the per-token `duration`. Returns 0 when
  * nothing usable was recorded.
  */
 export function getDetailsDurationSeconds(tokens: OutputDetailToken[] = []): number {
@@ -616,7 +658,7 @@ const isProcessArtifactItem = (item: OutputDisplayItem): boolean =>
  * Folds the reply's process into a `process_group`: a pure post-pass over the
  * flat items. The run spans everything up to and including the last detail;
  * what follows is the answer and stays top level. Artifacts are hoisted out of
- * the run, and the run folds only when it holds a non-reasoning detail — a
+ * the run, and the run folds only when it holds a non-reasoning detail - a
  * reasoning-only run stays flat, since reasoning is already collapsible.
  */
 function foldProcessGroups(displayItems: OutputDisplayItem[], group: boolean): OutputDisplayItem[] {

@@ -30,26 +30,54 @@ export function buildMarkdownDisplayTokens(
 	tokenList: any[] = [],
 	group = true
 ): MarkdownDisplayToken[] {
-	const displayTokens = compileDetailGroups(tokenList);
-
-	return foldProcessRun(displayTokens, group);
+	return buildMarkdownDisplayTokensStable(tokenList, group);
 }
 
-function compileDetailGroups(tokenList: any[]): MarkdownDisplayToken[] {
+// The wrapper objects below are rebuilt only when their source
+// token or group composition actually changes, so Svelte's keyed each blocks
+// see identical references for the stable prefix of a streaming reply and skip
+// re-rendering it every frame. Output values are the same as the uncached
+// path; only object identity differs.
+// ---------------------------------------------------------------------------
+
+const plainWrapperCache = new WeakMap<object, { index: number; wrapper: MarkdownDisplayToken }>();
+const loneDetailCache = new WeakMap<object, { index: number; wrapper: MarkdownDisplayToken }>();
+const detailGroupCache = new WeakMap<object, { count: number; group: MarkdownDisplayToken }>();
+
+function buildMarkdownDisplayTokensStable(
+	tokenList: any[] = [],
+	group: boolean
+): MarkdownDisplayToken[] {
 	const displayTokens: MarkdownDisplayToken[] = [];
 	let detailGroup: any[] = [];
 	let detailGroupStartIndex = 0;
 
 	const flushDetailGroup = () => {
 		if (detailGroup.length > 1) {
-			displayTokens.push({
-				type: 'detail_group',
-				id: `detail-group-${detailGroupStartIndex}`,
-				items: [...detailGroup]
-			});
+			const first = detailGroup[0];
+			const cached = detailGroupCache.get(first);
+			if (cached && cached.count === detailGroup.length) {
+				displayTokens.push(cached.group);
+			} else {
+				const groupToken: MarkdownDisplayToken = {
+					type: 'detail_group',
+					id: `detail-group-${detailGroupStartIndex}`,
+					items: [...detailGroup]
+				};
+				detailGroupCache.set(first, { count: detailGroup.length, group: groupToken });
+				displayTokens.push(groupToken);
+			}
 		} else if (detailGroup.length === 1) {
 			// A lone groupable detail keeps its own top-level rendering.
-			displayTokens.push({ ...detailGroup[0], id: `detail-${detailGroupStartIndex}` });
+			const token = detailGroup[0];
+			const cached = loneDetailCache.get(token);
+			if (cached && cached.index === detailGroupStartIndex) {
+				displayTokens.push(cached.wrapper);
+			} else {
+				const wrapper = { ...token, id: `detail-${detailGroupStartIndex}` };
+				loneDetailCache.set(token, { index: detailGroupStartIndex, wrapper });
+				displayTokens.push(wrapper);
+			}
 		}
 
 		detailGroup = [];
@@ -73,12 +101,19 @@ function compileDetailGroups(tokenList: any[]): MarkdownDisplayToken[] {
 		}
 
 		flushDetailGroup();
-		displayTokens.push({ ...token, id: `md-${index}` });
+		const cached = plainWrapperCache.get(token);
+		if (cached && cached.index === index) {
+			displayTokens.push(cached.wrapper);
+		} else {
+			const wrapper = { ...token, id: `md-${index}` };
+			plainWrapperCache.set(token, { index, wrapper });
+			displayTokens.push(wrapper);
+		}
 	});
 
 	flushDetailGroup();
 
-	return displayTokens;
+	return foldProcessRun(displayTokens, group);
 }
 
 /**

@@ -5,26 +5,70 @@
 	export let code = '';
 	export let lang = '';
 
-	$: lines = code.length > 0 ? code.split('\n') : [''];
+	// code-delta: appended text usually only extends the highlighted output, so
+	// keep the existing DOM nodes for the unchanged prefix and append just the
+	// new suffix. A full innerHTML swap (rebuilding every highlight node)
+	// happens only when the highlighting of earlier content actually changed,
+	// which is rare while a code block streams. The rendered result is
+	// identical either way; this only avoids redundant DOM churn.
+	let lastHtml = '';
+	let lastText: string | null = null;
+	let lastPlain = false;
+	const applyCode = (node: HTMLElement, params: { html: string | null; plain: string }) => {
+		const render = (html: string | null, plain: string) => {
+			if (html === null) {
+				if (!lastPlain || lastText !== plain) {
+					node.textContent = plain;
+					lastPlain = true;
+					lastText = plain;
+					lastHtml = '';
+				}
+				return;
+			}
+			if (lastPlain || html !== lastHtml) {
+				if (!lastPlain && html.startsWith(lastHtml)) {
+					node.insertAdjacentHTML('beforeend', html.slice(lastHtml.length));
+				} else {
+					node.innerHTML = html;
+				}
+				lastPlain = false;
+				lastText = null;
+				lastHtml = html;
+			}
+		};
+		render(params.html, params.plain);
+		return {
+			update(next: { html: string | null; plain: string }) {
+				render(next.html, next.plain);
+			}
+		};
+	};
 
-	$: gutterWidth = `${String(lines.length).length + 1}ch`;
-
+	$: lineCount = countLines(code);
+	$: gutterWidth = `${String(lineCount).length + 1}ch`;
 	$: canHighlight = !!lang && hljs.getLanguage(lang);
-
 	$: highlighted = canHighlight
 		? hljs.highlight(code, { language: lang, ignoreIllegals: true }).value
 		: null;
+
+	function countLines(text: string): number {
+		let count = 1;
+		for (let i = 0; i < text.length; i++) {
+			if (text.charCodeAt(i) === 10) count++;
+		}
+		return count;
+	}
 </script>
 
 <div class="code-preview" dir="ltr">
 	<div class="gutter" aria-hidden="true" style:--gutter-width={gutterWidth}>
-		{#each lines as _, index}
+		{#each { length: lineCount } as _, index}
 			<span class="number">{index + 1}</span>
 		{/each}
 	</div>
-	<pre><code class={lang ? `language-${lang}` : undefined}
-			>{#if highlighted !== null}{@html highlighted}{:else}{code}{/if}</code
-		></pre>
+	<pre><code
+			class={lang ? `language-${lang}` : undefined}
+			use:applyCode={{ html: highlighted, plain: code }}></code></pre>
 </div>
 
 <style>

@@ -3093,55 +3093,78 @@
 		message.ttsSentContentPartCount = sentContentPartCount + dispatchContentParts.length;
 	};
 
+	// Per-message artifact extraction memoized by content string.
+	// During streaming only the last message's content changes; the other
+	// messages reused to run through removeAllDetails (twice - once here and
+	// once inside getCodeBlockContents) plus the code-fence regex every frame.
+	// Cached results are the same values the full scan produces; the streaming
+	// message is recomputed while its content grows.
+	const artifactsCache = new Map<
+		string,
+		{ content: string; items: { type: string; content: string }[] }
+	>();
+
+	const messageArtifactItems = (message: any): { type: string; content: string }[] => {
+		const messageContent =
+			getOutputText(message?.output) || removeAllDetails(message?.content ?? '');
+		if (!messageContent.trim()) {
+			return [];
+		}
+		const cacheKey = message?.id ?? '';
+		const cached = artifactsCache.get(cacheKey);
+		if (cached && cached.content === messageContent) {
+			return cached.items;
+		}
+
+		const items: { type: string; content: string }[] = [];
+		const { codeBlocks: codeBlocks, htmlGroups: htmlGroups } = getCodeBlockContents(messageContent);
+
+		if (htmlGroups && htmlGroups.length > 0) {
+			htmlGroups.forEach((group) => {
+				const renderedContent = `
+                <!DOCTYPE html>
+                <html lang="en">
+                <head>
+                    <meta charset="UTF-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+					<${''}style>
+						body {
+							background-color: white; /* Ensure the iframe has a white background */
+						}
+
+						${group.css}
+					</${''}style>
+                </head>
+                <body>
+                    ${group.html}
+
+					<${''}script>
+                    	${group.js}
+					</${''}script>
+                </body>
+                </html>
+            `;
+				items.push({ type: 'iframe', content: renderedContent });
+			});
+		} else {
+			// Check for SVG content
+			for (const block of codeBlocks) {
+				if (block.lang === 'svg' || (block.lang === 'xml' && block.code.includes('<svg'))) {
+					items.push({ type: 'svg', content: block.code });
+				}
+			}
+		}
+
+		artifactsCache.set(cacheKey, { content: messageContent, items });
+		return items;
+	};
+
 	const getContents = () => {
 		const messages = history ? createMessagesList(history, history.currentId) : [];
 		let contents: { type: string; content: string }[] = [];
 		messages.forEach((message) => {
 			if (message?.role !== 'user') {
-				const messageContent =
-					getOutputText(message?.output) || removeAllDetails(message?.content ?? '');
-				if (!messageContent.trim()) {
-					return;
-				}
-
-				const { codeBlocks: codeBlocks, htmlGroups: htmlGroups } =
-					getCodeBlockContents(messageContent);
-
-				if (htmlGroups && htmlGroups.length > 0) {
-					htmlGroups.forEach((group) => {
-						const renderedContent = `
-                        <!DOCTYPE html>
-                        <html lang="en">
-                        <head>
-                            <meta charset="UTF-8">
-                            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-							<${''}style>
-								body {
-									background-color: white; /* Ensure the iframe has a white background */
-								}
-
-								${group.css}
-							</${''}style>
-                        </head>
-                        <body>
-                            ${group.html}
-
-							<${''}script>
-                            	${group.js}
-							</${''}script>
-                        </body>
-                        </html>
-                    `;
-						contents = [...contents, { type: 'iframe', content: renderedContent }];
-					});
-				} else {
-					// Check for SVG content
-					for (const block of codeBlocks) {
-						if (block.lang === 'svg' || (block.lang === 'xml' && block.code.includes('<svg'))) {
-							contents = [...contents, { type: 'svg', content: block.code }];
-						}
-					}
-				}
+				contents = [...contents, ...messageArtifactItems(message)];
 			}
 		});
 
@@ -3821,6 +3844,52 @@
 		}
 	};
 
+	// scroll-ro: pin the list to the bottom from a ResizeObserver instead of a
+	// per-frame rAF follow loop. ResizeObserver callbacks run after the frame's
+	// layout is done, so reading scrollHeight/clientHeight there is free, while
+	// the same reads inside rAF callbacks (or the on:scroll handler) force a
+	// full layout of the growing message. The cached sizes also let the scroll
+	// listener decide "still pinned?" without touching layout.
+	let followRO: ResizeObserver | null = null;
+	let observedContent: Element | null = null;
+	let cachedScrollHeight = 0;
+	let cachedClientHeight = 0;
+	// The message list (div[role="log"]) only exists once a chat has messages -
+	// a fresh chat renders the placeholder first, so (re)bind the observer for
+	// it whenever stream events arrive.
+	const ensureContentObserved = () => {
+		const container = messagesContainerElement;
+		if (!container || !followRO) return;
+		const content = container.querySelector('div[role="log"]');
+		if (content && content !== observedContent) {
+			followRO.observe(content);
+			observedContent = content;
+		}
+	};
+	const bindFollowResizeObserver = (el: HTMLElement) => {
+		if (followRO) return;
+		followRO = new ResizeObserver(() => {
+			const container = messagesContainerElement;
+			if (!container) return;
+			ensureContentObserved();
+			cachedScrollHeight = container.scrollHeight;
+			cachedClientHeight = container.clientHeight;
+			if (autoScroll) {
+				container.scrollTo({ top: cachedScrollHeight, behavior: 'auto' });
+				lastScrollTop = container.scrollTop;
+			}
+		});
+		followRO.observe(el);
+		ensureContentObserved();
+	};
+	$: if (messagesContainerElement) {
+		bindFollowResizeObserver(messagesContainerElement);
+	}
+	onDestroy(() => {
+		followRO?.disconnect();
+		followRO = null;
+	});
+
 	$: if (
 		!loading &&
 		(!fullWidthTabs || mainChatActive) &&
@@ -3841,7 +3910,9 @@
 	const autoScrollToBottom = () => {
 		if (!shouldAutoScrollResponse()) return;
 
-		requestFollow('auto');
+		// The resize observer pins the list in the same frame the content
+		// grows; a per-frame rAF follow loop would only re-read layout.
+		ensureContentObserved();
 	};
 
 	let processingQueueChats = new Set<string>();
@@ -6683,7 +6754,12 @@
 								bind:this={messagesContainerElement}
 								on:scroll={(e) => {
 									if (!messagesContainerElement) return;
-									const { scrollTop, scrollHeight, clientHeight } = messagesContainerElement;
+									const scrollTop = messagesContainerElement.scrollTop;
+									// scroll-ro: sizes come from the resize observer (read
+									// after layout, so no forced reflow); fall back to live
+									// reads until the observer has produced them.
+									const scrollHeight = cachedScrollHeight || messagesContainerElement.scrollHeight;
+									const clientHeight = cachedClientHeight || messagesContainerElement.clientHeight;
 									// Content growing below the viewport must not stop following.
 									autoScroll =
 										scrollHeight - scrollTop <= clientHeight + 5 ||
