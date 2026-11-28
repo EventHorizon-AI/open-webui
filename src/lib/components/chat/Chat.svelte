@@ -1907,7 +1907,9 @@
 			);
 			return;
 		}
-		console.log(event);
+		// Per-event logging: every stream delta passes through here, so this
+		// stays at debug level (console.log retains and renders every payload).
+		console.debug(event);
 		if (event?.data?.type === 'voice:play_animation') {
 			cb?.(
 				routeAvatarAnimation(eventTarget, event, {
@@ -2507,6 +2509,10 @@
 				$socket?.off('disconnect', clearTyping);
 				$socket?.off('disconnect', clearPresence);
 				$socket?.off('disconnect', cancelBrowserInteractions);
+				if (streamWriteBackHandle !== null) {
+					cancelAnimationFrame(streamWriteBackHandle);
+					streamWriteBackHandle = null;
+				}
 				audioQueueInstance?.destroy();
 				audioQueue.set(null);
 			} catch (e) {
@@ -4246,6 +4252,31 @@
 		}
 	};
 
+	// Stream deltas can arrive per provider token (often dozens per second), and
+	// every `history = history` invalidation re-runs the whole chat surface:
+	// each message's change detection, the pending ask-user scan, the artifacts
+	// scan and the context estimate all walk every message. Coalesce the
+	// write-back of pure delta events to one invalidation per frame: the data is
+	// applied to the message object on every event, the view just picks it up at
+	// the next frame. Anything that is not a delta (status, done, usage, item
+	// lifecycle, errors) flushes synchronously, so completion handling, tick()
+	// and scrollToBottom() keep their existing ordering.
+	let streamWriteBackHandle: number | null = null;
+	const scheduleStreamWriteBack = () => {
+		if (streamWriteBackHandle !== null) return;
+		streamWriteBackHandle = requestAnimationFrame(() => {
+			streamWriteBackHandle = null;
+			history = history;
+		});
+	};
+	const flushStreamWriteBack = () => {
+		if (streamWriteBackHandle !== null) {
+			cancelAnimationFrame(streamWriteBackHandle);
+			streamWriteBackHandle = null;
+		}
+		history = history;
+	};
+
 	const responseCompletionEventHandler = (data, message) => {
 		message.output = applyResponseStreamEvent(message.output ?? [], data);
 
@@ -4264,7 +4295,11 @@
 		}
 
 		history.messages[message.id] = message;
-		history = history;
+		if (data?.type?.endsWith('.delta') || data?.type === 'response.reasoning_summary_part.added') {
+			scheduleStreamWriteBack();
+		} else {
+			flushStreamWriteBack();
+		}
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId, shared = false) => {
@@ -4346,8 +4381,26 @@
 			captureUsageCheckpoint(message);
 		}
 
+		// A bare stream chunk (choices delta, no completion payload) is a pure
+		// delta: coalesce its write-back to one per frame. Anything that carries
+		// state the completion flow consumes (done, usage, sources, output
+		// snapshot, model id, error) is flushed synchronously.
+		const deltaOnlyStream =
+			!done &&
+			!usage &&
+			!sources &&
+			!output &&
+			!content &&
+			!selected_model_id &&
+			!error &&
+			!!choices?.[0]?.delta;
+
 		history.messages[message.id] = message;
-		history = history;
+		if (deltaOnlyStream) {
+			scheduleStreamWriteBack();
+		} else {
+			flushStreamWriteBack();
+		}
 
 		if (done) {
 			message.done = true;

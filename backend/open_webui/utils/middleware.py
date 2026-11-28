@@ -6113,8 +6113,8 @@ async def streaming_chat_response_handler(response, ctx):
 
                                         if reasoning_content:
                                             # Raw reasoning is appended to the item's
-                                            # content exactly as before (and streamed);
-                                            # the reasoning_summary task additionally
+                                            # content exactly as before; the
+                                            # reasoning_summary task additionally
                                             # buffers chunks and stores task-model
                                             # summaries on the item's `summary` field.
                                             parts = reasoning_item.get('content', [])
@@ -6128,22 +6128,21 @@ async def streaming_chat_response_handler(response, ctx):
                                                     }
                                                 ]
 
-                                            reasoning_index = output.index(reasoning_item)
-                                            data = {
-                                                'type': 'response.reasoning_text.delta',
-                                                'item_id': reasoning_item.get('id'),
-                                                'output_index': reasoning_index,
-                                                'content_index': max(
-                                                    len(reasoning_item.get('content', [])) - 1,
-                                                    0,
-                                                ),
-                                                'delta': reasoning_content,
-                                            }
-                                            await emit_response_completion_event(data)
-
-                                            data = None
-
                                             if reasoning_summary_enabled:
+                                                # With the summary task on, the raw chain
+                                                # of thought is never shown on the client
+                                                # (the renderer prefers the item's
+                                                # `summary` field), so its deltas are not
+                                                # streamed at all: a fast reasoning model
+                                                # would otherwise emit one event per token
+                                                # and re-render the whole chat for text the
+                                                # interface cannot display. The raw text
+                                                # still accumulates here for the database,
+                                                # the summary chunks and the completion
+                                                # snapshot. The provider chunk is consumed
+                                                # here, so nothing is left for the
+                                                # trailing delta queue.
+                                                data = None
                                                 if not reasoning_item.get('summary'):
                                                     # The renderer prefers the item's
                                                     # `summary` field for display, so an
@@ -6172,6 +6171,28 @@ async def streaming_chat_response_handler(response, ctx):
                                                     # Never break the provider stream on a
                                                     # summary bug; log the full traceback.
                                                     log.exception('reasoning summary emission failed')
+                                            else:
+                                                # No summary task: the raw chain of thought
+                                                # is the visible content, so it streams.
+                                                # Emitting hands the event to the delta
+                                                # queue, so the trailing `if delta and
+                                                # data:` must not queue it a second time
+                                                # (each delta would reach the client
+                                                # twice).
+                                                reasoning_index = output.index(reasoning_item)
+                                                await emit_response_completion_event(
+                                                    {
+                                                        'type': 'response.reasoning_text.delta',
+                                                        'item_id': reasoning_item.get('id'),
+                                                        'output_index': reasoning_index,
+                                                        'content_index': max(
+                                                            len(reasoning_item.get('content', [])) - 1,
+                                                            0,
+                                                        ),
+                                                        'delta': reasoning_content,
+                                                    }
+                                                )
+                                                data = None
                                         if reasoning_detail_items:
                                             merge_streamed_reasoning_details(
                                                 reasoning_item.setdefault('reasoning_details', []),

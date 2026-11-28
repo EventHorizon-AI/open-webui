@@ -370,6 +370,11 @@ function buildReasoningTokenObject(item: OutputItem, isDone: boolean) {
 		text: reasoningText,
 		attributes: {
 			type: 'reasoning',
+			// The stable item id, so consumers that derive the streaming preview
+			// from `attributes.id` share this block's incremental scan state
+			// instead of re-deriving it from the whole (hidden) reasoning text
+			// on every streaming render.
+			id: item.id ?? item.call_id ?? '',
 			done: isDone ? 'true' : 'false',
 			duration: String(duration),
 			started_at: stringifyAttribute(item.started_at),

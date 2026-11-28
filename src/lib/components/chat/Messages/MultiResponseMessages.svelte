@@ -76,11 +76,19 @@
 
 	let selectedModelIdx = null;
 
-	let message = cloneMessageForView(history.messages[messageId]);
+	let messageSource = history.messages[messageId];
+	let message = cloneMessageForView(messageSource);
 	$: if (history.messages) {
 		const source = history.messages[messageId];
 		if (source) {
-			if (message.content !== source.content || message.done !== source.done) {
+			// Same fast path as ResponseMessage: every stream event writes back a
+			// fresh clone, so a replaced entry is re-cloned directly instead of
+			// paying the deep comparison, whose string compares walk the whole
+			// accumulated output.
+			if (source !== messageSource) {
+				messageSource = source;
+				message = cloneMessageForView(source);
+			} else if (message.content !== source.content || message.done !== source.done) {
 				message = cloneMessageForView(source);
 			} else if (!equal(message, source)) {
 				message = cloneMessageForView(source);
