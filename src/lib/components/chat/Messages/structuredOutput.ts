@@ -2,11 +2,6 @@ import { encode } from 'html-entities';
 import { getDispatchedVisualizationPreviews } from '$lib/utils/visualizations/dispatch';
 import { agentView, terminalView, type AgentView } from './agentViews';
 
-import {
-	deriveReasoningSummaryPreview,
-	splitExplicitReasoningSummaries
-} from '$lib/components/common/reasoningSummary';
-
 export type OutputContentPart = {
 	type?: string;
 	text?: unknown;
@@ -50,6 +45,7 @@ export type OutputDetailToken = {
 		type: string;
 		id?: string;
 		name?: string;
+		tool_id?: string;
 		display_label?: string;
 		running_label?: string;
 		done?: string;
@@ -256,7 +252,10 @@ function getInlineFileFromToolOutput(callItem?: OutputItem, resultItem?: OutputI
 	}
 
 	const result = parseJSONStringValue(getToolResultText(resultItem)) as Record<string, unknown>;
-	const isTerminalFile = result?.source === 'open_terminal' && !!result.terminal_selector;
+	if (result && result.machine_selector === undefined && result.terminal_selector !== undefined) {
+		result.machine_selector = result.terminal_selector; // saved before the rename
+	}
+	const isMachineFile = result?.source === 'open_terminal' && !!result.machine_selector;
 	const isOpenWebUIFile = result?.source === 'open_webui';
 	if (
 		!result ||
@@ -264,7 +263,7 @@ function getInlineFileFromToolOutput(callItem?: OutputItem, resultItem?: OutputI
 		result.type !== 'file' ||
 		!result.path ||
 		result.exists === false ||
-		!(isTerminalFile || isOpenWebUIFile)
+		!(isMachineFile || isOpenWebUIFile)
 	) {
 		return null;
 	}
@@ -291,9 +290,7 @@ export function buildToolCallToken(
 				typeof item.arguments === 'string'
 					? JSON.parse(item.arguments || '{}')
 					: (item.arguments ?? {});
-			const task = typeof args.task === 'string' && args.task ? args.task : '?';
-			const label = args.background ? 'Background sub-agent' : 'Sub-agent';
-			name = `${label}: "${task.length > 60 ? `${task.slice(0, 60)}...` : task}"`;
+			name = String(args.title || args.task || 'Sub-agent').slice(0, 60);
 		} catch {
 			name = 'Sub-agent';
 		}
@@ -314,6 +311,8 @@ export function buildToolCallToken(
 			type: 'tool_calls',
 			id: callId,
 			name,
+			// Only server-set builtin ids get fixed labels; a user tool may share a builtin's name.
+			tool_id: item.tool_type === 'builtin' ? item.tool_id : undefined,
 			running_label:
 				typeof item.display_labels?.running === 'string' ? item.display_labels.running : '',
 			display_label:
@@ -332,18 +331,10 @@ export function buildToolCallToken(
 	};
 }
 
-// Reasoning is streamed as markdown; its live preview shows the last finalized
-// summary title. A block still waiting on the next block's merge decision is
-// held back. The preview is what `summary` carries for the whole lifetime of
-// the item; the duration text shown once a reasoning block finishes is rendered
-// separately.
-//
-// The token is memoized on the part array that feeds it (`summary` when the
-// item has summary parts, else `content`). Those arrays are cloned only when an
-// event touches them, so the raw deltas that keep appending to `content`
-// between two summary events carry the same `summary` array the whole time:
-// the token keeps its identity across them and the renderer (whose expanded
-// body shows the summaries) is not re-rendered per raw token at all.
+// Body is the summary parts (or raw text) joined as-is; `summary` is the
+// newest part's title, used as the live preview. The token is memoized on the
+// part array, so it keeps its identity across raw content deltas and the
+// renderer is not re-rendered per token.
 const reasoningTokenCache = new WeakMap<
 	object,
 	{ isDone: boolean; token: ReturnType<typeof buildReasoningTokenObject> }
@@ -351,19 +342,28 @@ const reasoningTokenCache = new WeakMap<
 
 const EMPTY_OUTPUT_PARTS: OutputContentPart[] = [];
 
+/** Preview line of a summary part: its `**{title}**` lead, else the first line. */
+function summaryPreviewLine(text: string): string {
+	const firstLine = text.split('\n', 1)[0] ?? '';
+	const title = /^\s*\*\*(.+?)\*\*\s*$/.exec(firstLine);
+	return (title ? title[1] : firstLine).trim().replace(/\\([*_`~\\])/g, '$1');
+}
+
 function buildReasoningTokenObject(item: OutputItem, isDone: boolean) {
 	const duration = item.duration ?? '';
 	const reasoningText = getReasoningText(item);
-	const cacheId = item.id ?? item.call_id ?? '';
-	// The preview state is cached so a finished block is not re-scanned on every
-	// render; `done` marks the state and consumers render the duration from
-	// `attributes.duration` themselves. Summaries that carry their own title
-	// (the reasoning_summary task) skip the derivation: their bold lead line is
-	// the preview title directly.
-	const explicitSummaries = splitExplicitReasoningSummaries(cacheId, reasoningText);
-	const preview = explicitSummaries
-		? ([...explicitSummaries].reverse().find((summary) => summary.title)?.title ?? '')
-		: deriveReasoningSummaryPreview(cacheId, reasoningText, isDone);
+
+	const summaryParts = Array.isArray(item.summary) ? item.summary : [];
+	let preview = '';
+	if (!isDone) {
+		for (let i = summaryParts.length - 1; i >= 0; i--) {
+			const text = summaryParts[i]?.text;
+			if (typeof text === 'string' && text.trim()) {
+				preview = summaryPreviewLine(text);
+				break;
+			}
+		}
+	}
 
 	return {
 		summary: preview,

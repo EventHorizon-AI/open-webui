@@ -12,8 +12,9 @@
 	import CheckCircle from '$lib/components/icons/CheckCircle.svelte';
 	import XMark from '$lib/components/icons/XMark.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
-	import MCPApp, { type MCPAppEmbed } from '$lib/components/chat/Messages/MCPApp.svelte';
+	import type { MCPAppEmbed } from '$lib/components/chat/Messages/MCPApp.svelte';
 	import { agentViewName, type AgentView } from '$lib/components/chat/Messages/agentViews';
+	import { toolCallLabel } from '$lib/components/chat/Messages/builtinToolLabels';
 
 	import { settings } from '$lib/stores';
 
@@ -27,6 +28,7 @@
 		attributes?: {
 			type?: string;
 			name?: string;
+			tool_id?: string;
 			display_label?: string;
 			running_label?: string;
 			done?: string;
@@ -241,47 +243,88 @@
 		const listed = count('list');
 		const webSearches = count('web');
 		const fetched = count('fetch');
+		const running = new Set(
+			tokens.flatMap((t) =>
+				t?.view &&
+				t.attributes?.done !== 'true' &&
+				!['rejected', 'failed', 'incomplete', 'pending', 'queued'].includes(
+					t.attributes?.status ?? ''
+				)
+					? [t.view.kind]
+					: []
+			)
+		);
 
 		const parts = [];
 		if (commands)
 			parts.push(
-				commands === 1
-					? $i18n.t('Ran 1 command')
-					: $i18n.t('Ran {{COUNT}} commands', { COUNT: commands })
+				running.has('command')
+					? commands === 1
+						? $i18n.t('Running 1 command')
+						: $i18n.t('Running {{COUNT}} commands', { COUNT: commands })
+					: commands === 1
+						? $i18n.t('Ran 1 command')
+						: $i18n.t('Ran {{COUNT}} commands', { COUNT: commands })
 			);
 		if (edited)
 			parts.push(
-				edited === 1
-					? $i18n.t('Edited 1 file')
-					: $i18n.t('Edited {{COUNT}} files', { COUNT: edited })
+				running.has('edit')
+					? edited === 1
+						? $i18n.t('Editing 1 file')
+						: $i18n.t('Editing {{COUNT}} files', { COUNT: edited })
+					: edited === 1
+						? $i18n.t('Edited 1 file')
+						: $i18n.t('Edited {{COUNT}} files', { COUNT: edited })
 			);
 		if (read)
 			parts.push(
-				read === 1 ? $i18n.t('Read 1 file') : $i18n.t('Read {{COUNT}} files', { COUNT: read })
+				running.has('read')
+					? read === 1
+						? $i18n.t('Reading 1 file')
+						: $i18n.t('Reading {{COUNT}} files', { COUNT: read })
+					: read === 1
+						? $i18n.t('Read 1 file')
+						: $i18n.t('Read {{COUNT}} files', { COUNT: read })
 			);
 		if (searches)
 			parts.push(
-				searches === 1
-					? $i18n.t('Searched code')
-					: $i18n.t('Searched code {{COUNT}} times', { COUNT: searches })
+				running.has('search')
+					? searches === 1
+						? $i18n.t('Searching code')
+						: $i18n.t('Searching code {{COUNT}} times', { COUNT: searches })
+					: searches === 1
+						? $i18n.t('Searched code')
+						: $i18n.t('Searched code {{COUNT}} times', { COUNT: searches })
 			);
 		if (listed)
 			parts.push(
-				listed === 1
-					? $i18n.t('Listed 1 directory')
-					: $i18n.t('Listed {{COUNT}} directories', { COUNT: listed })
+				running.has('list')
+					? listed === 1
+						? $i18n.t('Listing 1 directory')
+						: $i18n.t('Listing {{COUNT}} directories', { COUNT: listed })
+					: listed === 1
+						? $i18n.t('Listed 1 directory')
+						: $i18n.t('Listed {{COUNT}} directories', { COUNT: listed })
 			);
 		if (webSearches)
 			parts.push(
-				webSearches === 1
-					? $i18n.t('Searched the web')
-					: $i18n.t('Searched the web {{COUNT}} times', { COUNT: webSearches })
+				running.has('web')
+					? webSearches === 1
+						? $i18n.t('Searching the web')
+						: $i18n.t('Searching the web {{COUNT}} times', { COUNT: webSearches })
+					: webSearches === 1
+						? $i18n.t('Searched the web')
+						: $i18n.t('Searched the web {{COUNT}} times', { COUNT: webSearches })
 			);
 		if (fetched)
 			parts.push(
-				fetched === 1
-					? $i18n.t('Fetched 1 page')
-					: $i18n.t('Fetched {{COUNT}} pages', { COUNT: fetched })
+				running.has('fetch')
+					? fetched === 1
+						? $i18n.t('Fetching 1 page')
+						: $i18n.t('Fetching {{COUNT}} pages', { COUNT: fetched })
+					: fetched === 1
+						? $i18n.t('Fetched 1 page')
+						: $i18n.t('Fetched {{COUNT}} pages', { COUNT: fetched })
 			);
 		return parts.join(' · ');
 	})();
@@ -348,20 +391,52 @@
 				token.attributes?.status ?? ''
 			)
 				? ''
-				: token.attributes?.done === 'true'
-					? token.attributes?.display_label
-					: token.attributes?.running_label
+				: toolCallLabel(
+						token.attributes,
+						token.attributes?.done === 'true',
+						token.attributes?.status === 'failed' ||
+							(token.attributes?.done === 'true' && isToolResultError(decode(token.text ?? ''))),
+						$i18n.t
+					)
 		);
 	$: toolNames = tokens
 		.filter((token) => token.attributes?.type === 'tool_calls')
 		.map((token) => (token.view ? agentViewName(token.view) : (token.attributes?.name ?? 'tool')));
-	$: groupLabel =
-		!hasRejected &&
-		pendingToolTokens.length === 0 &&
-		codeInterpreterCount === 0 &&
-		toolLabels.some(Boolean)
-			? toolLabels.map((label, index) => label || toolNames[index]).join(', ')
-			: '';
+
+	// Identical labels collapse with a count ("Generated image ×2"), matching
+	// summaryText, so repeated calls don't repeat. First-occurrence order is
+	// kept. View calls read as counts of what they did ("Ran 2 commands ·
+	// Searched code"), the action summary taking precedence over both the tool
+	// labels and the raw view names.
+	const collapseCounts = (entries: string[]): string[] => {
+		const counts: Record<string, number> = {};
+		entries.forEach((entry) => (counts[entry] = (counts[entry] || 0) + 1));
+		const seen = new Set<string>();
+		return entries
+			.filter((entry) => {
+				if (seen.has(entry)) return false;
+				seen.add(entry);
+				return true;
+			})
+			.map((entry) => (counts[entry] > 1 ? `${entry} ×${counts[entry]}` : entry));
+	};
+	$: groupLabel = (() => {
+		if (
+			hasRejected ||
+			pendingToolTokens.length > 0 ||
+			codeInterpreterCount > 0 ||
+			!toolLabels.some(Boolean)
+		) {
+			return '';
+		}
+
+		const toolCallTokens = tokens.filter((token) => token.attributes?.type === 'tool_calls');
+		const entries = toolLabels
+			.map((label, index) => (toolCallTokens[index]?.view ? '' : label || toolNames[index]))
+			.filter(Boolean);
+
+		return [...collapseCounts(entries), actionText].filter(Boolean).join(' · ');
+	})();
 
 	// The header's status icon follows this. With "show reasoning summary only"
 	// the reasoning is previewed instead of rendered, so the header follows the
@@ -382,7 +457,7 @@
 				? 'w-fit'
 				: 'flex-1'} min-w-0 py-0.5 text-left {compactPreview
 				? 'text-xs'
-				: 'text-[0.90625rem]'} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition cursor-pointer"
+				: 'text-[0.90625rem]'} text-base-500 hover:text-base-700 dark:hover:text-base-300 transition cursor-pointer"
 			aria-label={$i18n.t('Toggle details')}
 			aria-expanded={open}
 			on:click={() => {
@@ -415,14 +490,14 @@
 									<CheckCircle className="size-4" strokeWidth="2" />
 								</div>
 							{:else}
-								<div class="text-gray-400 dark:text-gray-500">
+								<div class="text-base-400 dark:text-base-500">
 									<Sparkles className="size-3.5" />
 								</div>
 							{/if}
 						</div>
 
 						<div
-							class="absolute inset-0 hidden items-center justify-center group-hover/groupheader:flex text-gray-400 dark:text-gray-500"
+							class="absolute inset-0 hidden items-center justify-center group-hover/groupheader:flex text-base-400 dark:text-base-500"
 						>
 							{#if open}
 								<ChevronUp strokeWidth="3.5" className="size-3" />
@@ -440,22 +515,24 @@
 						<span class="min-w-0 truncate">{doneLabel}</span>
 					{:else if groupLabel}
 						<span
-							class="text-gray-400 dark:text-gray-500 transition {groupLive
+							class="min-w-0 flex-1 truncate text-base-400 dark:text-base-500 transition {groupLive
 								? 'shimmer'
-								: 'group-hover/groupheader:text-gray-700 dark:group-hover/groupheader:text-gray-300'}"
+								: 'group-hover/groupheader:text-base-700 dark:group-hover/groupheader:text-base-300'}"
 							title={summaryText}>{groupLabel}</span
 						>
 					{:else if latestReasoningPreview}
 						<!-- While a reasoning preview is streaming, it replaces the summary
-						     entirely so the header stays a single short line. -->
-						<span class="min-w-0 flex-1 truncate {groupOpen ? 'shimmer' : ''}"
+						     entirely so the header stays a single short line. The shimmer
+						     follows `groupLive` like the status icon and the other header
+						     labels, so a streaming preview shimmers the same way they do. -->
+						<span class="min-w-0 flex-1 truncate {groupLive ? 'shimmer' : ''}"
 							>{latestReasoningPreview}</span
 						>
 					{:else if actionText || summaryText}
 						<span
-							class="min-w-0 flex-1 truncate text-gray-500 dark:text-gray-400 transition {groupLive
+							class="min-w-0 flex-1 truncate text-base-500 dark:text-base-400 transition {groupLive
 								? 'shimmer'
-								: 'group-hover/groupheader:text-gray-700 dark:group-hover/groupheader:text-gray-300'}"
+								: 'group-hover/groupheader:text-base-700 dark:group-hover/groupheader:text-base-300'}"
 							>{[actionText, summaryText].filter(Boolean).join(' · ')}</span
 						>
 					{/if}
@@ -466,7 +543,7 @@
 					<span class="flex gap-1 shrink-0">
 						<button
 							type="button"
-							class="tool-call-allow-button text-[0.6875rem] px-2.5 py-0.5 rounded-md text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/8 hover:bg-gray-200 dark:hover:bg-white/12 transition-colors duration-100 disabled:opacity-50"
+							class="tool-call-allow-button text-[0.6875rem] px-2.5 py-0.5 rounded-md text-base-600 dark:text-base-300 bg-base-100 dark:bg-base-0/8 hover:bg-base-200 dark:hover:bg-base-0/12 transition-colors duration-100 disabled:opacity-50"
 							disabled={!pendingCallId || resolvingCallId === pendingCallId}
 							on:click|stopPropagation={() => onResolve(pendingCallId, true)}
 						>
@@ -474,7 +551,7 @@
 						</button>
 						<button
 							type="button"
-							class="tool-call-deny-button text-[0.6875rem] px-2 py-0.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 disabled:opacity-50"
+							class="tool-call-deny-button text-[0.6875rem] px-2 py-0.5 rounded-md text-base-400 dark:text-base-500 hover:text-base-600 dark:hover:text-base-300 transition-colors duration-100 disabled:opacity-50"
 							disabled={!pendingCallId || resolvingCallId === pendingCallId}
 							on:click|stopPropagation={() => onResolve(pendingCallId, false)}
 						>
@@ -482,7 +559,7 @@
 						</button>
 					</span>
 				{:else if !hasLeadingIcon}
-					<div class="flex shrink-0 self-center text-gray-400 dark:text-gray-500">
+					<div class="flex shrink-0 self-center text-base-400 dark:text-base-500">
 						{#if open}
 							<ChevronUp strokeWidth="3.5" className="size-3" />
 						{:else}
@@ -499,14 +576,14 @@
 			{#each pendingToolTokens as token}
 				{@const pendingCallId = token?.attributes?.id ?? ''}
 				<div class="flex items-center gap-2 py-1 px-1">
-					<span class="text-xs text-gray-500 dark:text-gray-400 flex-1 min-w-0 line-clamp-1">
+					<span class="text-xs text-base-500 dark:text-base-400 flex-1 min-w-0 line-clamp-1">
 						{token?.attributes?.name ?? $i18n.t('tool')}
 					</span>
 					{#if token?.attributes?.name !== 'ask_user'}
 						<span class="flex gap-1 shrink-0">
 							<button
 								type="button"
-								class="tool-call-allow-button text-[0.6875rem] px-2.5 py-0.5 rounded-md text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-white/8 hover:bg-gray-200 dark:hover:bg-white/12 transition-colors duration-100 disabled:opacity-50"
+								class="tool-call-allow-button text-[0.6875rem] px-2.5 py-0.5 rounded-md text-base-600 dark:text-base-300 bg-base-100 dark:bg-base-0/8 hover:bg-base-200 dark:hover:bg-base-0/12 transition-colors duration-100 disabled:opacity-50"
 								disabled={!pendingCallId || resolvingCallId === pendingCallId}
 								on:click={() => onResolve(pendingCallId, true)}
 							>
@@ -514,7 +591,7 @@
 							</button>
 							<button
 								type="button"
-								class="tool-call-deny-button text-[0.6875rem] px-2 py-0.5 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition-colors duration-100 disabled:opacity-50"
+								class="tool-call-deny-button text-[0.6875rem] px-2 py-0.5 rounded-md text-base-400 dark:text-base-500 hover:text-base-600 dark:hover:text-base-300 transition-colors duration-100 disabled:opacity-50"
 								disabled={!pendingCallId || resolvingCallId === pendingCallId}
 								on:click={() => onResolve(pendingCallId, false)}
 							>
@@ -537,7 +614,9 @@
 		{#each allEmbeds as embedItem, idx}
 			<div id={`${id}-embed-${idx}`}>
 				{#if typeof embedItem.embed === 'object' && embedItem.embed?.type === 'mcp_app'}
-					{#key JSON.stringify(embedItem.embed)}<MCPApp app={embedItem.embed} />{/key}
+					{#key JSON.stringify(embedItem.embed)}{#await import('$lib/components/chat/Messages/MCPApp.svelte') then { default: MCPApp }}<MCPApp
+								app={embedItem.embed}
+							/>{/await}{/key}
 				{:else if typeof embedItem.embed === 'string'}
 					<FullHeightIframe
 						src={embedItem.embed}

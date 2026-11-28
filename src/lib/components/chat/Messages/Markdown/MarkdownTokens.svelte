@@ -5,6 +5,7 @@
 	import type { Action } from 'svelte/action';
 	import type { i18n as i18nType } from 'i18next';
 	const i18n = getContext<Writable<i18nType>>('i18n');
+	const exporting = getContext('exporting');
 	const markdown = getContext<
 		| {
 				document?: boolean;
@@ -45,7 +46,6 @@
 	import Collapsible from '$lib/components/common/Collapsible.svelte';
 	import ToolCallDisplay from '$lib/components/common/ToolCallDisplay.svelte';
 	import ReasoningDisplay from '$lib/components/common/ReasoningDisplay.svelte';
-	import { deriveReasoningSummaryPreview } from '$lib/components/common/reasoningSummary';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Download from '$lib/components/icons/Download.svelte';
 	import ConsecutiveDetailsGroup from './ConsecutiveDetailsGroup.svelte';
@@ -174,18 +174,16 @@
 		return $i18n.t('Completed, called {{count}} times', { count: callCount });
 	};
 
-	// "Show reasoning summary only" drops finished reasoning from the message.
+	// "Show reasoning summary only" hides finished reasoning and previews
+	// streaming reasoning; "show reasoning after completion" keeps it instead.
 	$: reasoningPreviewOnly = $settings?.reasoningPreviewOnly ?? false;
 
-	// "Show reasoning after completion" (only meaningful with the summary option)
-	// keeps the finished reasoning in the message: nothing is filtered once the
-	// message is done, and the reasoning renders as an expandable Collapsible.
 	$: showAfterCompletion =
 		reasoningPreviewOnly && ($settings?.keepReasoningAfterCompletion ?? false);
 
 	$: detailButtonClassName = `py-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.90625rem]'
-	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
+	} text-base-500 hover:text-base-700 dark:hover:text-base-300 transition`;
 
 	// Process grouping only happens once the message is done: while streaming
 	// everything renders the way it always did, and the group forms at completion.
@@ -228,11 +226,8 @@
 	// The live preview of the newest reasoning block a detail group holds,
 	// rendered as a plain text line right below the group. The filtered token
 	// dropped its reasoning entries, so this reads the raw token at the same
-	// index (`displayTokens` maps `rawDisplayTokens` one-to-one). The preview is
-	// the title derived from that block's first line. Empty once that block is
-	// done, so the line disappears with it. While the block is still streaming
-	// but has no preview yet (its first line is not complete), it falls back to
-	// "Thinking...".
+	// index (`displayTokens` maps `rawDisplayTokens` one-to-one). The preview
+	// falls back to "Thinking..." while the block is still streaming.
 	const getGroupReasoningPreview = (rawToken: any): string => {
 		if (rawToken?.type !== 'detail_group') {
 			return '';
@@ -241,11 +236,7 @@
 		for (let i = items.length - 1; i >= 0; i--) {
 			const item = items[i];
 			if (item?.attributes?.type === 'reasoning' && item?.attributes?.done !== 'true') {
-				return (
-					deriveReasoningSummaryPreview(item.attributes?.id ?? '', item.text ?? '') ||
-					item.summary ||
-					$i18n.t('Thinking...')
-				);
+				return item.summary || $i18n.t('Thinking...');
 			}
 		}
 		return '';
@@ -316,15 +307,15 @@
 		<div
 			class="w-full select-none py-0.5 text-start {compactPreview
 				? 'text-xs'
-				: 'text-[0.9375rem]'} text-gray-500"
+				: 'text-[0.9375rem]'} text-base-500"
 		>
-			<span class="block w-full truncate shimmer">{preview}</span>
+			<span class="block w-fit max-w-full truncate shimmer">{preview}</span>
 		</div>
 	{/if}
 {/snippet}
 {#snippet tokenRenderer(token: any, tokenIdx: number, nested: boolean, rendererId: string)}
 	{#if token.type === 'hr'}
-		<hr class="border-gray-50 dark:border-gray-850/30" />
+		<hr class="border-base-50 dark:border-base-850/30" />
 	{:else if token.type === 'heading'}
 		<svelte:element this={headerComponent(token.depth)} dir="auto">
 			<MarkdownInlineTokens
@@ -340,7 +331,9 @@
 			<CodeBlock
 				id={`${id}-${tokenIdx}`}
 				className={markdown?.document ? 'document-code-block' : ''}
-				collapsed={markdown?.document ? false : ($settings?.collapseCodeBlocks ?? false)}
+				collapsed={markdown?.document || exporting
+					? false
+					: ($settings?.collapseCodeBlocks ?? false)}
 				{token}
 				lang={token?.lang ?? ''}
 				code={token?.text ?? ''}
@@ -367,15 +360,15 @@
 		<div class="relative w-full group mb-2">
 			<div class="scrollbar-hidden relative overflow-x-auto max-w-full">
 				<table
-					class=" w-full text-sm text-start text-gray-500 dark:text-gray-400 max-w-full rounded-xl"
+					class=" w-full text-sm text-start text-base-500 dark:text-base-400 max-w-full rounded-xl"
 					dir="auto"
 				>
-					<thead class="text-xs text-gray-700 uppercase dark:text-gray-400 border-none">
+					<thead class="text-xs text-base-700 uppercase dark:text-base-400 border-none">
 						<tr class="">
 							{#each token.header as header, headerIdx}
 								<th
 									scope="col"
-									class="px-2.5! py-2! cursor-pointer border-b border-gray-100! dark:border-gray-800!"
+									class="px-2.5! py-2! cursor-pointer border-b border-base-100! dark:border-base-800!"
 									style={token.align[headerIdx] ? `text-align: ${token.align[headerIdx]}` : ''}
 								>
 									<div class="gap-1.5 text-start">
@@ -398,11 +391,11 @@
 							<tr class="text-xs">
 								{#each row ?? [] as cell, cellIdx}
 									<td
-										class="px-3! py-2! text-gray-900 dark:text-white w-max {token.rows.length -
+										class="px-3! py-2! text-base-900 dark:text-base-0 w-max {token.rows.length -
 											1 ===
 										rowIdx
 											? ''
-											: 'border-b border-gray-50! dark:border-gray-850!'}"
+											: 'border-b border-base-50! dark:border-base-850!'}"
 										style={token.align[cellIdx] ? `text-align: ${token.align[cellIdx]}` : ''}
 									>
 										<div class="break-normal">
@@ -624,26 +617,38 @@
 							className="w-full"
 							buttonClassName={detailButtonClassName}
 						/>
-					{:else if detailToken?.attributes?.type === 'reasoning' && textContent.length > 0}
-						<ReasoningDisplay
-							id={`${rendererId}-${tokenIdx}-${detailIdx}-d`}
-							title={detailToken.summary}
-							attributes={detailToken?.attributes}
-							content={decode(detailToken.text)}
-							{chatId}
-							{messageId}
-							messageDone={done}
-							{done}
-							{save}
-							{preview}
-							{compactPreview}
-							{editCodeBlock}
-							{onTaskClick}
-							{sourceIds}
-							{onSourceClick}
-							className="w-full"
-							buttonClassName={detailButtonClassName}
-						/>
+					{:else if detailToken?.attributes?.type === 'reasoning'}
+						{#if !done && detailToken?.attributes?.done !== 'true' && (reasoningPreviewOnly || !(detailToken.text ?? '').trim())}
+							<!-- Streaming with no body, or previewed by "summary only":
+							     a non-interactive status line, not a collapsible. -->
+							<div class="w-full {detailButtonClassName} block select-none text-start">
+								<span class="block w-fit max-w-full truncate shimmer"
+									>{detailToken.summary || $i18n.t('Thinking...')}</span
+								>
+							</div>
+						{:else if reasoningPreviewOnly && !showAfterCompletion}
+							<!-- Finished reasoning is hidden by "summary only". -->
+						{:else}
+							<ReasoningDisplay
+								id={`${rendererId}-${tokenIdx}-${detailIdx}-d`}
+								title={detailToken.summary}
+								attributes={detailToken?.attributes}
+								content={decode(detailToken.text)}
+								{chatId}
+								{messageId}
+								messageDone={done}
+								{done}
+								{save}
+								{preview}
+								{compactPreview}
+								{editCodeBlock}
+								{onTaskClick}
+								{sourceIds}
+								{onSourceClick}
+								className="w-full"
+								buttonClassName={detailButtonClassName}
+							/>
+						{/if}
 					{:else if textContent.length > 0}
 						<Collapsible
 							title={detailToken.summary}
@@ -674,8 +679,6 @@
 								/>
 							</div>
 						</Collapsible>
-					{:else if detailToken?.attributes?.type === 'reasoning' && reasoningPreviewOnly}
-						<!-- Reasoning is hidden here by "summary only"; nothing to render. -->
 					{:else}
 						<Collapsible
 							title={detailToken.summary}
@@ -731,26 +734,38 @@
 				className="w-full"
 				buttonClassName={detailButtonClassName}
 			/>
-		{:else if token?.attributes?.type === 'reasoning' && textContent.length > 0}
-			<ReasoningDisplay
-				id={`${rendererId}-${tokenIdx}-d`}
-				title={token.summary}
-				attributes={token?.attributes}
-				content={decode(token.text)}
-				{chatId}
-				{messageId}
-				messageDone={done}
-				{done}
-				{save}
-				{preview}
-				{compactPreview}
-				{editCodeBlock}
-				{onTaskClick}
-				{sourceIds}
-				{onSourceClick}
-				className="w-full"
-				buttonClassName={detailButtonClassName}
-			/>
+		{:else if token?.attributes?.type === 'reasoning'}
+			{#if !done && token?.attributes?.done !== 'true' && (reasoningPreviewOnly || !(token.text ?? '').trim())}
+				<!-- Streaming with no body, or previewed by "summary only":
+				     a non-interactive status line, not a collapsible. -->
+				<div class="w-full {detailButtonClassName} block select-none text-start">
+					<span class="block w-fit max-w-full truncate shimmer"
+						>{token.summary || $i18n.t('Thinking...')}</span
+					>
+				</div>
+			{:else if reasoningPreviewOnly && !showAfterCompletion}
+				<!-- Finished reasoning is hidden by "summary only". -->
+			{:else}
+				<ReasoningDisplay
+					id={`${rendererId}-${tokenIdx}-d`}
+					title={token.summary}
+					attributes={token?.attributes}
+					content={decode(token.text)}
+					{chatId}
+					{messageId}
+					messageDone={done}
+					{done}
+					{save}
+					{preview}
+					{compactPreview}
+					{editCodeBlock}
+					{onTaskClick}
+					{sourceIds}
+					{onSourceClick}
+					className="w-full"
+					buttonClassName={detailButtonClassName}
+				/>
+			{/if}
 		{:else if textContent.length > 0}
 			<Collapsible
 				title={token.summary}
@@ -781,8 +796,6 @@
 					/>
 				</div>
 			</Collapsible>
-		{:else if reasoningPreviewOnly && token?.attributes?.type === 'reasoning'}
-			<!-- Reasoning is hidden here by "summary only"; nothing to render. -->
 		{:else}
 			<Collapsible
 				title={token.summary}

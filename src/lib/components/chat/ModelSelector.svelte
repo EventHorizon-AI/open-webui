@@ -16,9 +16,6 @@
 	export let onModelSelect: (models: string[]) => void = () => {};
 	export let disabled = false;
 	export let multipleEnabled = true;
-	export let chatFiles: any[] = [];
-	export let params: Record<string, any> = {};
-	export let onParamChange: (key: string, value: unknown) => void = () => {};
 
 	export let showSetDefault = true;
 	export let triggerClassName = 'text-lg';
@@ -53,9 +50,9 @@
 		await updateUserSettings(localStorage.token, { ui: { pinnedModels: $settings.pinnedModels } });
 	};
 
-	$: if (selectedModels.length > 0 && $models.length > 0) {
+	$: if (selectedModels.length > 0 && ($models ?? []).length > 0) {
 		const _selectedModels = selectedModels.map((model) =>
-			model.startsWith('agent:') || $models.map((m) => m.id).includes(model) ? model : ''
+			model.startsWith('agent:') || ($models ?? []).map((m) => m.id).includes(model) ? model : ''
 		);
 
 		if (!equal(_selectedModels, selectedModels)) {
@@ -103,7 +100,7 @@
 					bind:this={selector}
 					id="model"
 					placeholder={$i18n.t('Select a model')}
-					items={$models.map((model) => ({
+					items={($models ?? []).map((model) => ({
 						value: model.id,
 						label: resolveLocalizedModelName(model, $i18n.language),
 						model: model
@@ -115,13 +112,9 @@
 					{align}
 					{showSetDefault}
 					onSetDefault={saveDefaultModel}
-					bind:chatFiles
-					bind:params
-					{onParamChange}
+					controlLabel={selectedControlLabel}
 					multipleEnabled={canCompare}
 					{disabled}
-					controlLabel={selectedControlLabel}
-					controlsEnabled
 					bind:compareEnabled={compareModels}
 					bind:values={selectedModels}
 					{onModelSelect}

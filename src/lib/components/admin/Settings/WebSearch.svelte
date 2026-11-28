@@ -182,9 +182,9 @@
 		'EXTERNAL_WEB_LOADER_API_KEY'
 	];
 	const inputClass =
-		'w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors placeholder:text-gray-300 focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:placeholder:text-gray-700 dark:focus:border-blue-500';
+		'w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors placeholder:text-base-300 focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:placeholder:text-base-700 dark:focus:border-blue-500';
 	const textareaClass =
-		'w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors placeholder:text-gray-300 focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:placeholder:text-gray-700 dark:focus:border-blue-500';
+		'w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors placeholder:text-base-300 focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:placeholder:text-base-700 dark:focus:border-blue-500';
 
 	const submitHandler = async () => {
 		// Convert domain filter string to array before sending
@@ -298,7 +298,7 @@
 		saveHandler();
 	}}
 >
-	<h2 class="text-sm font-medium text-gray-900 dark:text-white mb-4">
+	<h2 class="text-sm font-medium text-base-900 dark:text-base-0 mb-4">
 		{$i18n.t('settings.admin.web.title')}
 	</h2>
 
@@ -370,7 +370,7 @@
 					{#if webConfig.WEB_SEARCH_ENGINE === 'ollama_cloud'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.ollamaCloudApiKey.label')}
 								</div>
 
@@ -390,7 +390,7 @@
 							<div>
 								<label
 									for="perplexity-search-api-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.perplexitySearchApiUrl.label')}
 								</label>
@@ -399,7 +399,7 @@
 									<div class="flex-1">
 										<input
 											id="perplexity-search-api-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Perplexity Search API URL')}
 											bind:value={webConfig.PERPLEXITY_SEARCH_API_URL}
@@ -412,7 +412,7 @@
 
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.perplexityApiKey.label')}
 								</div>
 
@@ -432,7 +432,7 @@
 							<div>
 								<label
 									for="searxng-query-url"
-									class=" self-left text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-left text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.searxngQueryUrl.label')}
 								</label>
@@ -441,7 +441,7 @@
 									<div class="flex-1">
 										<input
 											id="searxng-query-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Searxng Query URL')}
 											bind:value={webConfig.SEARXNG_QUERY_URL}
@@ -454,7 +454,7 @@
 							<div class="mb-2.5 flex w-full flex-col">
 								<label
 									for="searxng-language"
-									class=" self-left text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-left text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.searxngSearchLanguageAllEnEsDeFrEtc.label')}
 								</label>
@@ -463,7 +463,7 @@
 									<div class="flex-1">
 										<input
 											id="searxng-language"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Searxng search language')}
 											bind:value={webConfig.SEARXNG_LANGUAGE}
@@ -479,7 +479,7 @@
 							<div>
 								<label
 									for="yacy-query-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.yacyInstanceUrl.label')}
 								</label>
@@ -488,7 +488,7 @@
 									<div class="flex-1">
 										<input
 											id="yacy-query-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Yacy URL (e.g. http://yacy.example.com:8090)')}
 											bind:value={webConfig.YACY_QUERY_URL}
@@ -503,14 +503,14 @@
 								<div class="w-full">
 									<label
 										for="yacy-username"
-										class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+										class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 									>
 										{$i18n.t('settings.admin.web.yacyUsername.label')}
 									</label>
 
 									<input
 										id="yacy-username"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										placeholder={$i18n.t('Enter Yacy Username')}
 										bind:value={webConfig.YACY_USERNAME}
 										required
@@ -518,7 +518,7 @@
 								</div>
 
 								<div class="w-full">
-									<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+									<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 										{$i18n.t('settings.admin.web.yacyPassword.label')}
 									</div>
 
@@ -533,7 +533,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'google_pse'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.googlePseApiKey.label')}
 								</div>
 
@@ -546,7 +546,7 @@
 							<div class="mt-1.5">
 								<label
 									for="google-pse-engine-id"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.googlePseEngineId.label')}
 								</label>
@@ -555,7 +555,7 @@
 									<div class="flex-1">
 										<input
 											id="google-pse-engine-id"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Google PSE Engine Id')}
 											bind:value={webConfig.GOOGLE_PSE_ENGINE_ID}
@@ -568,7 +568,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'brave'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.braveSearchApiKey.label')}
 								</div>
 
@@ -582,7 +582,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'brave_llm_context'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.braveSearchApiKey.label')}
 								</div>
 
@@ -595,7 +595,7 @@
 							<div class="mt-1.5">
 								<label
 									for="brave-context-tokens"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.contextTokens.label')}
 								</label>
@@ -604,7 +604,7 @@
 									<div class="flex-1">
 										<input
 											id="brave-context-tokens"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="number"
 											min="1024"
 											max="32768"
@@ -620,7 +620,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'kagi'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.kagiSearchApiKey.label')}
 								</div>
 
@@ -634,7 +634,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'mojeek'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.mojeekSearchApiKey.label')}
 								</div>
 
@@ -648,7 +648,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'bocha'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.bochaSearchApiKey.label')}
 								</div>
 
@@ -662,7 +662,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'serpstack'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.serpstackApiKey.label')}
 								</div>
 
@@ -676,7 +676,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'serper'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.serperApiKey.label')}
 								</div>
 
@@ -690,7 +690,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'serphouse'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.serphouseApiKey.label')}
 								</div>
 
@@ -703,7 +703,7 @@
 							<div class="mt-1.5">
 								<label
 									for="serphouse-domain"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.serphouseDomain.label')}
 								</label>
@@ -712,7 +712,7 @@
 									<div class="flex-1">
 										<input
 											id="serphouse-domain"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder="google.com"
 											bind:value={webConfig.SERPHOUSE_DOMAIN}
@@ -725,7 +725,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'serply'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.serplyApiKey.label')}
 								</div>
 
@@ -739,7 +739,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'tavily'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.tavilyApiKey.label')}
 								</div>
 
@@ -755,7 +755,7 @@
 							<div>
 								<label
 									for="tavily-search-depth"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.tavilySearchDepth.label')}
 								</label>
@@ -774,7 +774,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'staan'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('Staan API Key')}
 								</div>
 
@@ -818,7 +818,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'searchapi'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.searchapiApiKey.label')}
 								</div>
 
@@ -831,7 +831,7 @@
 							<div class="mt-1.5">
 								<label
 									for="searchapi-engine"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.searchapiEngine.label')}
 								</label>
@@ -840,7 +840,7 @@
 									<div class="flex-1">
 										<input
 											id="searchapi-engine"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter SearchApi Engine')}
 											bind:value={webConfig.SEARCHAPI_ENGINE}
@@ -853,7 +853,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'serpapi'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.serpapiApiKey.label')}
 								</div>
 
@@ -866,7 +866,7 @@
 							<div class="mt-1.5">
 								<label
 									for="serpapi-engine"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.serpapiEngine.label')}
 								</label>
@@ -875,7 +875,7 @@
 									<div class="flex-1">
 										<input
 											id="serpapi-engine"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter SerpApi Engine')}
 											bind:value={webConfig.SERPAPI_ENGINE}
@@ -890,7 +890,7 @@
 							<div>
 								<label
 									for="jina-api-base-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.jinaApiBaseUrl.label')}
 								</label>
@@ -899,7 +899,7 @@
 									<div class="flex-1">
 										<input
 											id="jina-api-base-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Jina API Base URL')}
 											bind:value={webConfig.JINA_API_BASE_URL}
@@ -910,7 +910,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.jinaApiKey.label')}
 								</div>
 
@@ -926,7 +926,7 @@
 							<div>
 								<label
 									for="bing-search-v7-endpoint"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.bingSearchV7Endpoint.label')}
 								</label>
@@ -935,7 +935,7 @@
 									<div class="flex-1">
 										<input
 											id="bing-search-v7-endpoint"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Bing Search V7 Endpoint')}
 											bind:value={webConfig.BING_SEARCH_V7_ENDPOINT}
@@ -946,7 +946,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.bingSearchV7SubscriptionKey.label')}
 								</div>
 
@@ -960,7 +960,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'exa'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.exaApiKey.label')}
 								</div>
 
@@ -990,7 +990,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'perplexity'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.perplexityApiKey.label')}
 								</div>
 
@@ -1006,14 +1006,14 @@
 							<div>
 								<label
 									for="perplexity-model"
-									class="self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class="self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.perplexityModel.label')}
 								</label>
 								<input
 									id="perplexity-model"
 									list="perplexity-model-list"
-									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+									class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 									bind:value={webConfig.PERPLEXITY_MODEL}
 								/>
 
@@ -1031,7 +1031,7 @@
 							<div>
 								<label
 									for="perplexity-search-context-usage"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.perplexitySearchContextUsage.label')}
 								</label>
@@ -1051,7 +1051,7 @@
 							<div>
 								<label
 									for="microsoft-web-iq-api-base-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.microsoftWebIqApiBaseUrl.label')}
 								</label>
@@ -1060,7 +1060,7 @@
 									<div class="flex-1">
 										<input
 											id="microsoft-web-iq-api-base-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Microsoft Web IQ API Base URL')}
 											bind:value={webConfig.MICROSOFT_WEB_IQ_API_BASE_URL}
@@ -1071,7 +1071,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.microsoftWebIqApiKey.label')}
 								</div>
 
@@ -1085,14 +1085,14 @@
 							<div class="mt-2">
 								<label
 									for="microsoft-web-iq-language"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.language.label')}
 								</label>
 
 								<input
 									id="microsoft-web-iq-language"
-									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+									class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 									type="text"
 									placeholder={$i18n.t('Enter language')}
 									bind:value={webConfig.MICROSOFT_WEB_IQ_LANGUAGE}
@@ -1103,7 +1103,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'sougou'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.sougouSearchApiSid.label')}
 								</div>
 
@@ -1116,7 +1116,7 @@
 						</div>
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.sougouSearchApiSk.label')}
 								</div>
 
@@ -1132,7 +1132,7 @@
 							<div>
 								<label
 									for="firecrawl-api-base-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.firecrawlApiBaseUrl.label')}
 								</label>
@@ -1141,7 +1141,7 @@
 									<div class="flex-1">
 										<input
 											id="firecrawl-api-base-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Firecrawl API Base URL')}
 											bind:value={webConfig.FIRECRAWL_API_BASE_URL}
@@ -1152,7 +1152,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.firecrawlApiKey.label')}
 								</div>
 
@@ -1166,7 +1166,7 @@
 							<div class="mt-2">
 								<label
 									for="firecrawl-timeout"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.firecrawlTimeoutS.label')}
 								</label>
@@ -1175,7 +1175,7 @@
 									<div class="flex-1">
 										<input
 											id="firecrawl-timeout"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="number"
 											placeholder={$i18n.t('Enter Firecrawl Timeout')}
 											bind:value={webConfig.FIRECRAWL_TIMEOUT}
@@ -1190,7 +1190,7 @@
 							<div>
 								<label
 									for="external-web-search-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.externalWebSearchUrl.label')}
 								</label>
@@ -1199,7 +1199,7 @@
 									<div class="flex-1">
 										<input
 											id="external-web-search-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter External Web Search URL')}
 											bind:value={webConfig.EXTERNAL_WEB_SEARCH_URL}
@@ -1210,7 +1210,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.externalWebSearchApiKey.label')}
 								</div>
 
@@ -1226,7 +1226,7 @@
 							<div>
 								<label
 									for="yandex-web-search-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.yandexWebSearchUrl.label')}
 								</label>
@@ -1235,7 +1235,7 @@
 									<div class="flex-1">
 										<input
 											id="yandex-web-search-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Yandex Web Search URL')}
 											bind:value={webConfig.YANDEX_WEB_SEARCH_URL}
@@ -1246,7 +1246,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.yandexWebSearchApiKey.label')}
 								</div>
 
@@ -1258,7 +1258,7 @@
 							</div>
 
 							<div class="mb-2.5">
-								<div class=" mb-1 text-xs text-gray-600 dark:text-gray-400">
+								<div class=" mb-1 text-xs text-base-600 dark:text-base-400">
 									{$i18n.t('settings.admin.web.yandexWebSearchConfig.label')}
 								</div>
 
@@ -1282,7 +1282,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'youcom'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.youComApiKey.label')}
 								</div>
 
@@ -1296,7 +1296,7 @@
 					{:else if webConfig.WEB_SEARCH_ENGINE === 'linkup'}
 						<div class="mb-2.5 flex w-full flex-col">
 							<div>
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.linkupApiKey.label')}
 								</div>
 
@@ -1308,7 +1308,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.parameters.label')}
 								</div>
 
@@ -1325,7 +1325,7 @@
 							<div>
 								<label
 									for="openserp-base-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.openserpUrl.label')}
 								</label>
@@ -1333,7 +1333,7 @@
 								<div class="flex-1">
 									<input
 										id="openserp-base-url"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter OpenSERP Base URL')}
 										bind:value={webConfig.OPENSERP_BASE_URL}
@@ -1350,7 +1350,7 @@
 							<div>
 								<label
 									for="ddgs-backend"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.ddgsBackend.label')}
 								</label>
@@ -1389,14 +1389,14 @@
 							<div class="w-full">
 								<label
 									for="web-search-result-count"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.searchResultCount.label')}
 								</label>
 
 								<input
 									id="web-search-result-count"
-									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+									class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 									placeholder={$i18n.t('settings.admin.web.searchResultCount.label')}
 									bind:value={webConfig.WEB_SEARCH_RESULT_COUNT}
 									required
@@ -1406,7 +1406,7 @@
 							<div class="w-full">
 								<label
 									for="web-search-concurrent-requests"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									<Tooltip
 										content={$i18n.t('settings.admin.web.searchResultCount.description')}
@@ -1418,7 +1418,7 @@
 
 								<input
 									id="web-search-concurrent-requests"
-									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+									class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 									placeholder={$i18n.t('settings.admin.web.concurrentRequests.label')}
 									bind:value={webConfig.WEB_SEARCH_CONCURRENT_REQUESTS}
 									type="number"
@@ -1518,7 +1518,7 @@
 
 				{#if webConfig.WEB_LOADER_ENGINE === 'exa'}
 					{#if webConfig.ENABLE_WEB_SEARCH && webConfig.WEB_SEARCH_ENGINE === 'exa'}
-						<p class="text-xs text-gray-500 dark:text-gray-400">
+						<p class="text-xs text-base-500 dark:text-base-400">
 							{$i18n.t('Exa search and web loading share the API key configured above.')}
 						</p>
 					{:else}
@@ -1561,7 +1561,7 @@
 						<div>
 							<label
 								for="playwright-ws-url"
-								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 							>
 								{$i18n.t('settings.admin.web.playwrightWebsocketUrl.label')}
 							</label>
@@ -1570,7 +1570,7 @@
 								<div class="flex-1">
 									<input
 										id="playwright-ws-url"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Playwright WebSocket URL')}
 										bind:value={webConfig.PLAYWRIGHT_WS_URL}
@@ -1583,7 +1583,7 @@
 						<div class="mt-2">
 							<label
 								for="playwright-timeout"
-								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 							>
 								{$i18n.t('settings.admin.web.playwrightTimeoutMs.label')}
 							</label>
@@ -1592,7 +1592,7 @@
 								<div class="flex-1">
 									<input
 										id="playwright-timeout"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										placeholder={$i18n.t('Enter Playwright Timeout')}
 										bind:value={webConfig.PLAYWRIGHT_TIMEOUT}
 										autocomplete="off"
@@ -1606,7 +1606,7 @@
 						<div>
 							<label
 								for="web-loader-firecrawl-api-base-url"
-								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 							>
 								{$i18n.t('settings.admin.web.firecrawlApiBaseUrl.label')}
 							</label>
@@ -1615,7 +1615,7 @@
 								<div class="flex-1">
 									<input
 										id="web-loader-firecrawl-api-base-url"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Firecrawl API Base URL')}
 										bind:value={webConfig.FIRECRAWL_API_BASE_URL}
@@ -1626,7 +1626,7 @@
 						</div>
 
 						<div class="mt-2">
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 								{$i18n.t('settings.admin.web.firecrawlApiKey.label')}
 							</div>
 
@@ -1640,14 +1640,14 @@
 				{:else if webConfig.WEB_LOADER_ENGINE === 'jina_reader'}
 					<div class="mb-2.5 flex w-full flex-col">
 						<div>
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 								{$i18n.t('settings.admin.web.jinaReaderBaseUrl.label')}
 							</div>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Jina Reader Base URL')}
 										bind:value={webConfig.JINA_READER_BASE_URL}
@@ -1658,7 +1658,7 @@
 						</div>
 
 						<div class="mt-2">
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 								{$i18n.t('settings.admin.web.jinaReaderApiKey.label')}
 							</div>
 
@@ -1671,14 +1671,14 @@
 						</div>
 
 						<div class="mt-2">
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 								{$i18n.t('settings.admin.web.jinaReaderRespondWith.label')}
 							</div>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('markdown, frontmatter, html, ...')}
 										bind:value={webConfig.JINA_READER_RESPOND_WITH}
@@ -1689,14 +1689,14 @@
 						</div>
 
 						<div class="mt-2">
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 								{$i18n.t('settings.admin.web.jinaReaderTimeout.label')}
 							</div>
 
 							<div class="flex w-full">
 								<div class="flex-1">
 									<input
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Jina Reader Timeout (s)')}
 										bind:value={webConfig.JINA_READER_TIMEOUT}
@@ -1711,7 +1711,7 @@
 						<div>
 							<label
 								for="tavily-extract-depth"
-								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 							>
 								{$i18n.t('settings.admin.web.tavilyExtractDepth.label')}
 							</label>
@@ -1720,7 +1720,7 @@
 								<div class="flex-1">
 									<input
 										id="tavily-extract-depth"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter Tavily Extract Depth')}
 										bind:value={webConfig.TAVILY_EXTRACT_DEPTH}
@@ -1732,7 +1732,7 @@
 
 						{#if !webConfig.ENABLE_WEB_SEARCH || webConfig.WEB_SEARCH_ENGINE !== 'tavily'}
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.tavilyApiKey.label')}
 								</div>
 
@@ -1750,7 +1750,7 @@
 							<div>
 								<label
 									for="web-loader-microsoft-web-iq-api-base-url"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.microsoftWebIqApiBaseUrl.label')}
 								</label>
@@ -1759,7 +1759,7 @@
 									<div class="flex-1">
 										<input
 											id="web-loader-microsoft-web-iq-api-base-url"
-											class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+											class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 											type="text"
 											placeholder={$i18n.t('Enter Microsoft Web IQ API Base URL')}
 											bind:value={webConfig.MICROSOFT_WEB_IQ_API_BASE_URL}
@@ -1770,7 +1770,7 @@
 							</div>
 
 							<div class="mt-2">
-								<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+								<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 									{$i18n.t('settings.admin.web.microsoftWebIqApiKey.label')}
 								</div>
 
@@ -1784,14 +1784,14 @@
 							<div class="mt-2">
 								<label
 									for="web-loader-microsoft-web-iq-language"
-									class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+									class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 								>
 									{$i18n.t('settings.admin.web.language.label')}
 								</label>
 
 								<input
 									id="web-loader-microsoft-web-iq-language"
-									class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+									class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 									type="text"
 									placeholder={$i18n.t('Enter language')}
 									bind:value={webConfig.MICROSOFT_WEB_IQ_LANGUAGE}
@@ -1805,7 +1805,7 @@
 						<div>
 							<label
 								for="external-web-loader-url"
-								class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1 block"
+								class=" self-center text-xs text-base-600 dark:text-base-400 mb-1 block"
 							>
 								{$i18n.t('settings.admin.web.externalWebLoaderUrl.label')}
 							</label>
@@ -1814,7 +1814,7 @@
 								<div class="flex-1">
 									<input
 										id="external-web-loader-url"
-										class="w-full rounded-lg border border-gray-100/50 bg-gray-50/40 px-2 py-1.5 text-xs text-gray-700 outline-hidden transition-colors focus:border-blue-400 dark:border-white/[0.04] dark:bg-white/[0.03] dark:text-gray-300 dark:focus:border-blue-500"
+										class="w-full rounded-lg border border-base-100/50 bg-base-50/40 px-2 py-1.5 text-xs text-base-700 outline-hidden transition-colors focus:border-blue-400 dark:border-base-0/[0.04] dark:bg-base-0/[0.03] dark:text-base-300 dark:focus:border-blue-500"
 										type="text"
 										placeholder={$i18n.t('Enter External Web Loader URL')}
 										bind:value={webConfig.EXTERNAL_WEB_LOADER_URL}
@@ -1825,7 +1825,7 @@
 						</div>
 
 						<div class="mt-2">
-							<div class=" self-center text-xs text-gray-600 dark:text-gray-400 mb-1">
+							<div class=" self-center text-xs text-base-600 dark:text-base-400 mb-1">
 								{$i18n.t('settings.admin.web.externalWebLoaderApiKey.label')}
 							</div>
 

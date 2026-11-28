@@ -954,10 +954,10 @@
 		style:top={`${previewTop}px`}
 	>
 		<div
-			class="w-full max-w-full rounded-lg border border-gray-900 bg-gray-950 text-xs text-white shadow-xl"
+			class="w-full max-w-full rounded-lg border border-base-900 bg-base-950 text-xs text-white shadow-xl"
 		>
 			<div class="px-[11px] py-[9px]">
-				<div class="mb-1 flex items-center justify-between gap-2 text-[11px] text-gray-400">
+				<div class="mb-1 flex items-center justify-between gap-2 text-[11px] text-base-400">
 					<strong class="font-semibold">
 						{$i18n.t(previewRole)} · {Math.min(items.length, hovered + 1)} / {items.length}
 					</strong>
@@ -995,7 +995,7 @@
 				{/if}
 
 				{#if outputs.length}
-					<div class="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-gray-400">
+					<div class="mt-2 flex min-w-0 items-center gap-2 text-[11px] text-base-400">
 						{#each outputs as label}
 							<span class="min-w-0 truncate" title={label}>{label}</span>
 						{/each}

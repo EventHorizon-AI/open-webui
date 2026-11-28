@@ -10,11 +10,11 @@
 
 	$: rowClass = `flex w-full min-w-0 items-center gap-1.5 pt-0.5 pb-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.90625rem]'
-	} text-gray-400 dark:text-gray-500`;
+	} text-base-400 dark:text-base-500`;
 
 	// Shared by the static (non-Collapsible) rows: both sides of the label are
 	// dashed dividers that recolor with the row text via border-current.
-	$: dashedRowClass = `flex w-full items-center gap-2 pt-0.5 pb-0.5 text-xs leading-5 text-gray-500 select-none before:flex-1 before:border-t before:border-dashed before:border-current before:opacity-25 after:flex-1 after:border-t after:border-dashed after:border-current after:opacity-25 dark:text-gray-400`;
+	$: dashedRowClass = `flex w-full items-center gap-2 pt-0.5 pb-0.5 text-xs leading-5 text-base-500 select-none before:flex-1 before:border-t before:border-dashed before:border-current before:opacity-25 after:flex-1 after:border-t after:border-dashed after:border-current after:opacity-25 dark:text-base-400`;
 </script>
 
 {#if status === 'in_progress'}
@@ -32,12 +32,12 @@
 	<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
 	<div on:click|stopPropagation>
 		<Collapsible
-			buttonClassName="w-full cursor-pointer pt-0.5 pb-0.5 outline-offset-4 transition-colors hover:text-gray-700 focus-visible:outline-2 focus-visible:outline-gray-400 dark:hover:text-gray-200"
+			buttonClassName="w-full cursor-pointer pt-0.5 pb-0.5 outline-offset-4 transition-colors hover:text-base-700 focus-visible:outline-2 focus-visible:outline-base-400 dark:hover:text-base-200"
 		>
 			<!-- Dashed dividers sit on both sides of the label; text-* on the row
 			     recolors them too since they use border-current. -->
 			<div
-				class="flex w-full items-center gap-2 text-xs leading-5 text-gray-500 before:flex-1 before:border-t before:border-dashed before:border-current before:opacity-25 after:flex-1 after:border-t after:border-dashed after:border-current after:opacity-25 dark:text-gray-400"
+				class="flex w-full items-center gap-2 text-xs leading-5 text-base-500 before:flex-1 before:border-t before:border-dashed before:border-current before:opacity-25 after:flex-1 after:border-t after:border-dashed after:border-current after:opacity-25 dark:text-base-400"
 			>
 				<span class="min-w-0 px-2 text-center">{$i18n.t('Context compacted')}</span>
 			</div>
@@ -46,7 +46,7 @@
 				slot="content"
 				role="region"
 				aria-label={$i18n.t('Compaction summary')}
-				class="my-1.5 max-h-80 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-gray-600 dark:text-gray-300"
+				class="my-1.5 max-h-80 overflow-y-auto whitespace-pre-wrap break-words text-xs leading-5 text-base-600 dark:text-base-300"
 			>
 				{summary}
 			</div>

@@ -106,16 +106,13 @@
 
 	$: detailButtonClassName = `py-0.5 ${
 		compactPreview ? 'text-xs' : 'text-[0.9375rem]'
-	} text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition`;
+	} text-base-500 hover:text-base-700 dark:hover:text-base-300 transition`;
 	$: itemId = `${id}-${displayItem.id}`;
 	$: nestedAllowEmbeds = nested ? false : allowEmbeds;
 	$: resolvable = !nested && !!chatId && !!messageId && (save || allowToolApproval);
 
-	// "Show reasoning summary only" drops finished reasoning from the message, so
-	// once the message is done a detail group hides its reasoning tokens. While
-	// it is still streaming the group keeps the reasoning preview, so nothing is
-	// filtered until `done`. With "show reasoning after completion" the finished
-	// reasoning stays in the group (expandable), so nothing is filtered at all.
+	// "Show reasoning summary only" hides finished reasoning and previews
+	// streaming reasoning; "show reasoning after completion" keeps it instead.
 	$: reasoningPreviewOnly = $settings?.reasoningPreviewOnly ?? false;
 	$: showAfterCompletion =
 		reasoningPreviewOnly && ($settings?.keepReasoningAfterCompletion ?? false);
@@ -312,23 +309,35 @@
 						buttonClassName={detailButtonClassName}
 					/>
 				{:else if detailToken.attributes?.type === 'reasoning'}
-					<ReasoningDisplay
-						id={`${itemId}-${detailIndex}-detail`}
-						title={getDetailTitle(detailToken)}
-						attributes={getDetailAttributes(detailToken)}
-						content={detailToken.text}
-						{chatId}
-						{messageId}
-						messageDone={done}
-						{done}
-						{save}
-						{preview}
-						{compactPreview}
-						{editCodeBlock}
-						{onToolCallResolved}
-						className="w-full"
-						buttonClassName={detailButtonClassName}
-					/>
+					{#if !done && detailToken.attributes?.done !== 'true' && (reasoningPreviewOnly || !(detailToken.text ?? '').trim())}
+						<!-- Streaming with no body, or previewed by "summary only":
+						     a non-interactive status line, not a collapsible. -->
+						<div class="w-full {detailButtonClassName} block select-none text-start">
+							<span class="block w-fit max-w-full truncate shimmer"
+								>{detailToken.summary || $i18n.t('Thinking...')}</span
+							>
+						</div>
+					{:else if reasoningPreviewOnly && !showAfterCompletion}
+						<!-- Finished reasoning is hidden by "summary only". -->
+					{:else}
+						<ReasoningDisplay
+							id={`${itemId}-${detailIndex}-detail`}
+							title={getDetailTitle(detailToken)}
+							attributes={getDetailAttributes(detailToken)}
+							content={detailToken.text}
+							{chatId}
+							{messageId}
+							messageDone={done}
+							{done}
+							{save}
+							{preview}
+							{compactPreview}
+							{editCodeBlock}
+							{onToolCallResolved}
+							className="w-full"
+							buttonClassName={detailButtonClassName}
+						/>
+					{/if}
 				{:else if detailToken.text?.length > 0}
 					<Collapsible
 						title={getDetailTitle(detailToken)}
@@ -356,8 +365,6 @@
 							</div>
 						</div>
 					</Collapsible>
-				{:else if detailToken.attributes?.type === 'reasoning' && reasoningPreviewOnly}
-					<!-- Reasoning is hidden here by "summary only"; nothing to render. -->
 				{:else}
 					<Collapsible
 						title={getDetailTitle(detailToken)}
@@ -455,23 +462,35 @@
 			buttonClassName={detailButtonClassName}
 		/>
 	{:else if detailToken.attributes?.type === 'reasoning'}
-		<ReasoningDisplay
-			id={`${itemId}-detail`}
-			title={getDetailTitle(detailToken)}
-			attributes={getDetailAttributes(detailToken)}
-			content={detailToken.text}
-			{chatId}
-			{messageId}
-			messageDone={done}
-			{done}
-			{save}
-			{preview}
-			{compactPreview}
-			{editCodeBlock}
-			{onToolCallResolved}
-			className="w-full"
-			buttonClassName={detailButtonClassName}
-		/>
+		{#if !done && detailToken.attributes?.done !== 'true' && (reasoningPreviewOnly || !(detailToken.text ?? '').trim())}
+			<!-- Streaming with no body, or previewed by "summary only":
+			     a non-interactive status line, not a collapsible. -->
+			<div class="w-full {detailButtonClassName} block select-none text-start">
+				<span class="block w-fit max-w-full truncate shimmer"
+					>{detailToken.summary || $i18n.t('Thinking...')}</span
+				>
+			</div>
+		{:else if reasoningPreviewOnly && !showAfterCompletion}
+			<!-- Finished reasoning is hidden by "summary only". -->
+		{:else}
+			<ReasoningDisplay
+				id={`${itemId}-detail`}
+				title={getDetailTitle(detailToken)}
+				attributes={getDetailAttributes(detailToken)}
+				content={detailToken.text}
+				{chatId}
+				{messageId}
+				messageDone={done}
+				{done}
+				{save}
+				{preview}
+				{compactPreview}
+				{editCodeBlock}
+				{onToolCallResolved}
+				className="w-full"
+				buttonClassName={detailButtonClassName}
+			/>
+		{/if}
 	{:else if detailToken.text?.length > 0}
 		<Collapsible
 			title={getDetailTitle(detailToken)}
@@ -499,8 +518,6 @@
 				</div>
 			</div>
 		</Collapsible>
-	{:else if detailToken.attributes?.type === 'reasoning' && reasoningPreviewOnly}
-		<!-- Reasoning is hidden here by "summary only"; nothing to render. -->
 	{:else}
 		<Collapsible
 			title={getDetailTitle(detailToken)}
@@ -523,8 +540,8 @@
 	<div
 		class="w-full select-none py-0.5 text-start {compactPreview
 			? 'text-xs'
-			: 'text-[0.9375rem]'} text-gray-500"
+			: 'text-[0.9375rem]'} text-base-500"
 	>
-		<span class="block w-full truncate shimmer">{groupReasoningPreview}</span>
+		<span class="block w-fit max-w-full truncate shimmer">{groupReasoningPreview}</span>
 	</div>
 {/if}

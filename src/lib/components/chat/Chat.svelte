@@ -1,7 +1,7 @@
 <script lang="ts">
-	import { getTerminalServers } from '$lib/apis/terminal';
+	import { getMachines } from '$lib/apis/machines';
 	import { resolveToolApprovalMode } from '$lib/utils/toolPermissions';
-	import type { AppLayoutContext, TerminalContext } from '$lib/types';
+	import type { AppLayoutContext, MachineContext } from '$lib/types';
 	import { setChatContext } from './context';
 	import {
 		estimateTokens,
@@ -48,13 +48,13 @@
 		chatTitle as _chatTitle,
 		tools,
 		skills,
-		terminalSkills as _terminalSkills,
-		terminalServers,
+		machineSkills as _machineSkills,
+		machines,
 		functions,
 		selectedFolder as _selectedFolder,
 		folders as _folders,
 		showEmbeds as _showEmbeds,
-		selectedTerminalId as _selectedTerminalId,
+		selectedMachineId as _selectedMachineId,
 		showFileNavPath,
 		showFileNavDir,
 		chatRequestQueues,
@@ -65,6 +65,8 @@
 	import { refreshChatList, refreshFolderChatLists, setChatTitle } from '$lib/stores/chatList';
 	import { updateFolderById } from '$lib/apis/folders';
 	import {
+		loadFolderDetails,
+		findFolderChat,
 		getFolderAgentModels,
 		loadFolderAgentModels,
 		setFolderModelConnections,
@@ -74,6 +76,13 @@
 		type FolderDetails
 	} from '$lib/stores/folderStates';
 	import { closeChatTabs } from '$lib/stores/chatViewStates';
+	import {
+		cacheChat,
+		cachedChats,
+		getCachedChat,
+		pendingChatRequest,
+		requestChat
+	} from '$lib/stores/chatCache';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -104,6 +113,7 @@
 		isTemporaryChatId
 	} from '$lib/utils/chatId';
 	import { canUseTemporaryChats } from '$lib/utils/settings-access';
+	import { resolveLocalizedModelPromptSuggestions } from '$lib/utils/localizedContent';
 	import { resumeTemporaryChat } from '$lib/apis';
 	import {
 		applyResponseStreamEvent,
@@ -122,7 +132,6 @@
 		forkChatById,
 		getAllTags,
 		getChatById,
-		getTagsById,
 		importChats,
 		resolveChatMessageToolCall,
 		updateChatById,
@@ -130,11 +139,11 @@
 		updateChatFolderIdById
 	} from '$lib/apis/chats';
 	import {
-		listTerminalSkills,
-		resolveTerminalTarget,
+		listMachineSkills,
+		resolveMachineTarget,
 		setCwd,
 		type FilesystemFile
-	} from '$lib/apis/terminal';
+	} from '$lib/apis/machines';
 	import { generateOpenAIChatCompletion, getErrorMessage } from '$lib/apis/openai';
 	import { processUrl, processWebSearch } from '$lib/apis/retrieval';
 	import {
@@ -164,6 +173,7 @@
 	import MessageInput from '$lib/components/chat/MessageInput.svelte';
 	import Messages from '$lib/components/chat/Messages.svelte';
 	import Navbar from '$lib/components/chat/Navbar.svelte';
+	import ChatStatus from './ChatStatus.svelte';
 	import Sparkles from '$lib/components/layout/Sidebar/icons/Sparkles.svelte';
 	import Tabs from './Tabs.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
@@ -171,6 +181,7 @@
 	import DeleteConfirmDialog from '../common/ConfirmDialog.svelte';
 	import WebSearchConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
+	import Suggestions from './Suggestions.svelte';
 	import FilesOverlay from './MessageInput/FilesOverlay.svelte';
 	import NotificationToast from '../NotificationToast.svelte';
 	import Spinner from '../common/Spinner.svelte';
@@ -180,11 +191,19 @@
 	import Sidebar from '../icons/Sidebar.svelte';
 	import Image from '../common/Image.svelte';
 	import XMark from '../icons/XMark.svelte';
+	import ChevronDown from '../icons/ChevronDown.svelte';
 	import EmbeddedChatHistoryDropdown from './EmbeddedChatHistoryDropdown.svelte';
 	import ChatMenu from '$lib/components/layout/Navbar/Menu.svelte';
 	import ShareChatModal from './ShareChatModal.svelte';
 	import EllipsisHorizontal from '../icons/EllipsisHorizontal.svelte';
 	import InputVariablesModal from './MessageInput/InputVariablesModal.svelte';
+	import {
+		isMachine,
+		isMachineRef,
+		machineEventName,
+		machineIdOf,
+		metaMachineIdOf
+	} from '$lib/utils/machines';
 
 	export let chatIdProp = '';
 	export let initialPage = '';
@@ -207,8 +226,8 @@
 	// the call lives in the main chat's voice tab, so a side chat is never in it
 	const voiceCall = embedded ? writable(false) : _voiceCall;
 	const showEmbeds = embedded ? writable(false) : _showEmbeds;
-	const selectedTerminalId = tabbed ? writable(get(_selectedTerminalId)) : _selectedTerminalId;
-	const terminalSkills = tabbed ? writable<any[]>([]) : _terminalSkills;
+	const selectedMachineId = tabbed ? writable(get(_selectedMachineId)) : _selectedMachineId;
+	const machineSkills = tabbed ? writable<any[]>([]) : _machineSkills;
 	const models = tabbed ? writable(get(_models)) : _models;
 	setChatContext({
 		chatId,
@@ -216,12 +235,17 @@
 		temporary: temporaryChat,
 		audioQueue,
 		submitPrompt: (prompt) => submitHandler(prompt),
-		getCurrentDirectory: (terminalId) => tabs?.getCurrentDirectory(terminalId)
+		getCurrentDirectory: (machineId) => tabs?.getCurrentDirectory(machineId)
 	});
 	export let embeddedTitle = '';
 	export let embeddedChats = [];
 	export let embeddedDraftKey = '';
 	export let embeddedDraft: {
+		controls?: ReturnType<typeof getChatInputControls>;
+		machineId?: string | null;
+		machineContext?: MachineContext | null;
+		chatVariables?: Record<string, any>;
+		submit?: boolean;
 		selectedModels: string[];
 		params: Record<string, any>;
 		history: typeof history;
@@ -241,6 +265,12 @@
 	export let onBeforeNoteSubmit: (() => Promise<void>) | null = null;
 	export let onInsertToNote: ((content: string) => void) | null = null;
 	export let onCloseEmbedded: (() => void) | null = null;
+	// Collapsed embedded chats render only the composer; the host expands them on demand.
+	export let embeddedCollapsed = false;
+	export let onCollapseEmbedded: (() => void) | null = null;
+	// Pads the header and messages when the host draws the composer flush to its frame.
+	export let embeddedInset = false;
+	export let onRecordedAudio: ((file: File) => unknown) | null = null;
 	export let onNewEmbeddedChat: (() => void | Promise<void>) | null = null;
 	export let onCreateEmbeddedChat:
 		| ((chat: {
@@ -289,14 +319,14 @@
 
 	const eventTarget = new EventTarget();
 
-	let messageInput: MessageInput | undefined;
+	export let messageInput: MessageInput | undefined = undefined;
 	let messagesRef: Messages | undefined;
 
 	let autoScroll = true;
-	let lastScrollTop = 0;
-	let isNearTop = true;
 	let processing = '';
 	let messagesContainerElement: HTMLDivElement;
+	$: lastScrollTop = messagesContainerElement?.scrollTop ?? 0;
+	$: isNearTop = lastScrollTop <= 100;
 
 	let showEventConfirmation = false;
 	let pendingUrlActions: { urls: string[]; call: boolean } | null = null;
@@ -341,7 +371,7 @@
 		: ($selectedFolder as { meta?: { background_image_url?: string } } | null)?.meta
 				?.background_image_url ||
 			atSelectedModel?.info?.meta?.background_image_url ||
-			$models.find((model) => model.id === selectedModels[selectedModelIdx])?.info?.meta
+			($models ?? []).find((model) => model.id === selectedModels[selectedModelIdx])?.info?.meta
 				?.background_image_url ||
 			($settings?.backgroundImageUrl ?? $config?.license_metadata?.background_image_url);
 
@@ -352,22 +382,30 @@
 	} else {
 		selectedModelIds = selectedModels;
 	}
+	$: modelSuggestionPrompts =
+		resolveLocalizedModelPromptSuggestions(atSelectedModel, $i18n.language) ??
+		resolveLocalizedModelPromptSuggestions(
+			($models ?? []).find((model) => model.id === selectedModels[selectedModelIdx]),
+			$i18n.language
+		);
 	let serverContextUsage = null;
 	let contextUsage = null;
 
 	const normalizeSelectedModels = (modelIds: string[] = []) => {
 		if (
+			isMachineAvailable($selectedMachineId) &&
 			modelIds.some(
 				(id) =>
-					id.startsWith('agent:') && decodeURIComponent(id.split(':')[1]) === $selectedTerminalId
+					id.startsWith('agent:') && decodeURIComponent(id.split(':')[1]) === $selectedMachineId
 			)
 		)
 			return modelIds;
 		const selected = resolveDefaultModelIds(
-			$models,
+			$models ?? [],
 			modelIds,
 			$settings?.models,
-			$config?.default_models?.split(',')
+			$config?.default_models?.split(','),
+			$config?.fallback_default_models?.split(',')
 		);
 		return selected.length ? selected : [''];
 	};
@@ -378,7 +416,7 @@
 
 		if (
 			chatIdProp === '' &&
-			$models.length > 0 &&
+			($models ?? []).length > 0 &&
 			!selectedModels?.some((modelId) => modelId) &&
 			!modelSearchParam
 		) {
@@ -465,7 +503,13 @@
 	};
 
 	$: contextThreshold = contextCompactionEnabled
-		? getContextThreshold(atSelectedModel?.id ?? selectedModels.find((id) => id), $models, params)
+		? (getContextThreshold(
+				atSelectedModel?.id ?? selectedModels.find((id) => id),
+				$models ?? [],
+				params
+			) ??
+			serverContextUsage?.threshold ??
+			null)
 		: null;
 	// Stream events rewrite `history` per token, and the estimate walks every
 	// message (stringifying outputs/files), so recompute it at most once per
@@ -473,7 +517,11 @@
 	let contextUsageScheduled = false;
 	const recomputeContextUsage = () => {
 		const threshold = contextCompactionEnabled
-			? getContextThreshold(atSelectedModel?.id ?? selectedModels.find((id) => id), $models, params)
+			? getContextThreshold(
+					atSelectedModel?.id ?? selectedModels.find((id) => id),
+					$models ?? [],
+					params
+				)
 			: null;
 		const local = getContextUsage(history, $settings?.system ?? '', threshold);
 		const server = contextCompactionEnabled ? serverContextUsage : null;
@@ -524,7 +572,8 @@
 		const currentModels = atSelectedModel?.id ? [atSelectedModel.id] : selectedModels;
 		const allModelsSupportWebSearch =
 			currentModels.filter(
-				(model) => $models.find((m) => m.id === model)?.info?.meta?.capabilities?.web_search ?? true
+				(model) =>
+					($models ?? []).find((m) => m.id === model)?.info?.meta?.capabilities?.web_search ?? true
 			).length === currentModels.length;
 
 		webSearchActive = Boolean(
@@ -542,6 +591,7 @@
 	};
 
 	const handleWebSearchToggle = (enabled: boolean) => {
+		if ($selectedFolder && !$chatId) return;
 		if (enabled && $config?.features?.enable_web_search_confirmation && !webSearchConfirmed) {
 			webSearchEnabled = false;
 			pendingWebSearchPrompt = null;
@@ -574,7 +624,17 @@
 	$: canOpenArtifacts = !embedded || !!onOpenArtifacts;
 
 	let chat: any = null;
-	let tags = [];
+	// A folder on a machine fixes it for its chats. One per chat or model is only suggested.
+	let machineFixed = false;
+	const checkFolderMachine = async (id: string | null) => {
+		machineFixed = false;
+		const folder = id ? await loadFolderDetails(localStorage.token, id).catch(() => null) : null;
+		const machineId = machineIdOf(folder?.data);
+		const scope = ($machines ?? []).find((machine) => machine.id === machineId)?.scope;
+		if (id === chatFolderId) machineFixed = !!machineId && scope !== 'chat' && scope !== 'model';
+	};
+	$: chatFolderId = (chat ? chat.folder_id : (draftFolderId ?? $selectedFolder?.id)) ?? null;
+	$: if ($machines) void checkFolderMachine(chatFolderId);
 
 	// Non-owners may reply when the sharing mode allows it, but cannot save chat edits.
 	$: isShared = chat != null && chat.user_id !== $user?.id;
@@ -583,6 +643,14 @@
 	$: canOpenChatTab =
 		$user?.role === 'admin' ||
 		($user?.role === 'user' && ($user.permissions?.chat?.side_chat ?? false));
+	// A fixed machine has to be reachable. Replies in someone else's chat may run on its owner's access.
+	$: canUseMachine =
+		!$config?.features?.enable_tool_servers ||
+		!machineFixed ||
+		isShared ||
+		!$selectedMachineId ||
+		$machines === null ||
+		$machines.some((machine) => machine.id === $selectedMachineId);
 	let cloning = false;
 
 	const cloneSharedChat = async () => {
@@ -667,7 +735,7 @@
 	export let prompt = '';
 	let chatFiles: any[] = [];
 	export let files: any[] = [];
-	let terminalContext: TerminalContext | null = null;
+	let machineContext: MachineContext | null = null;
 	const askFile = async (instruction: string, file: FilesystemFile) => {
 		if (selectedModels.includes('')) throw new Error($i18n.t('Model not selected'));
 		const attachments = [structuredClone(file)];
@@ -803,9 +871,12 @@
 		return null;
 	};
 
-	const messageHasPendingAskUser = (message) => {
-		return !!getPendingAskUserFromMessage(message);
-	};
+	// With no active tasks, only finish our own replies that aren't waiting on a tool.
+	const canFinish = (message) =>
+		message?.role === 'assistant' &&
+		(message.user_id ?? chat?.user_id) === $user?.id &&
+		!message.done &&
+		!message.output?.some((item) => item?.type === 'function_call' && item.status === 'pending');
 
 	const answerPendingAskUser = async (messageId, callId, answers, timedOut = false) => {
 		if (!$chatId || !messageId || !callId) {
@@ -991,6 +1062,18 @@
 		});
 	};
 
+	const applyChatInputControls = (input: Partial<ReturnType<typeof getChatInputControls>>) => {
+		selectedToolIds = input.selectedToolIds ?? [];
+		selectedSkillIds = input.selectedSkillIds ?? [];
+		selectedFilterIds = input.selectedFilterIds ?? [];
+		webSearchEnabled = input.webSearchEnabled ?? false;
+		imageGenerationEnabled = input.imageGenerationEnabled ?? false;
+		selectedImageModelId = input.selectedImageModelId ?? '';
+		videoGenerationEnabled = input.videoGenerationEnabled ?? false;
+		selectedVideoModelId = input.selectedVideoModelId ?? '';
+		codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
+	};
+
 	const restoreChatInput = async (storageChatInput: string | null) => {
 		if (!storageChatInput || $temporaryChat) {
 			return false;
@@ -1001,15 +1084,7 @@
 			prompt = input.prompt ?? '';
 			messageInput?.setText(prompt);
 			files = input.files ?? [];
-			selectedToolIds = input.selectedToolIds ?? [];
-			selectedSkillIds = input.selectedSkillIds ?? [];
-			selectedFilterIds = input.selectedFilterIds ?? [];
-			webSearchEnabled = input.webSearchEnabled ?? false;
-			imageGenerationEnabled = input.imageGenerationEnabled ?? false;
-			selectedImageModelId = input.selectedImageModelId ?? '';
-			videoGenerationEnabled = input.videoGenerationEnabled ?? false;
-			selectedVideoModelId = input.selectedVideoModelId ?? '';
-			codeInterpreterEnabled = input.codeInterpreterEnabled ?? false;
+			applyChatInputControls(input);
 			// Ignore approval modes in older drafts. Restoring input must not overwrite chat
 			// parameters or invoke the change handler, which can save settings and approve tools.
 			return true;
@@ -1066,7 +1141,32 @@
 		return chatLoadController.signal;
 	};
 	onDestroy(() => chatLoadController.abort());
+	const cacheOpenChat = () => {
+		if (loading || generating || taskIds?.length || $temporaryChat || chat?.id !== $chatId) return;
+		cacheChat({
+			...chat,
+			variables: chatVariables,
+			tasks: chatTasks,
+			task_ids: [],
+			context_usage: serverContextUsage,
+			current_message_id: history.currentId,
+			chat: {
+				...chat.chat,
+				title: $chatTitle,
+				history,
+				params,
+				files: chatFiles,
+				machine_id: $selectedMachineId,
+				working_directory:
+					machineContext?.machineId === $selectedMachineId
+						? machineContext?.currentDirectory
+						: undefined
+			}
+		});
+	};
+
 	const navigateHandler = async () => {
+		cacheOpenChat();
 		loading = true;
 		selectedFolder.set(null);
 		tabs?.resetForChatSwitch();
@@ -1112,9 +1212,9 @@
 	};
 
 	const initEmbeddedDraft = async () => {
-		startChatLoad();
+		const signal = startChatLoad();
 		modelDefaults = null;
-		terminalContext = null;
+		machineContext = embeddedDraft?.machineContext ?? null;
 		clearTimeout(saveControlsTimer);
 		await saveControls();
 
@@ -1125,7 +1225,6 @@
 		loading = true;
 		loadedChatIdProp = '';
 		chat = null;
-		tags = [];
 		taskIds = null;
 		chatTasks = [];
 		serverContextUsage = null;
@@ -1157,7 +1256,12 @@
 			await temporaryChat.set(isTemporaryEnforced() || embeddedDraft.temporary);
 		}
 
-		await setDefaults();
+		if (embeddedDraft?.controls) {
+			chatVariables = embeddedDraft.chatVariables ?? {};
+			selectedMachineId.set(embeddedDraft.machineId ?? null);
+			applyChatInputControls(embeddedDraft.controls);
+		}
+		await setDefaults(!!embeddedDraft?.controls);
 		loading = false;
 		await tick();
 		if (embeddedDraft) {
@@ -1165,9 +1269,10 @@
 			messageInput?.setText(prompt);
 		}
 		if (!$mobile) messageInput?.focus({ preventScroll: true });
-		if (initialPrompt) {
+		if (embeddedDraft?.submit || initialPrompt) {
 			await tick();
-			submitHandler(initialPrompt);
+			if (!signal.aborted)
+				submitHandler(embeddedDraft?.submit ? embeddedDraft.prompt : initialPrompt);
 		}
 	};
 
@@ -1238,58 +1343,42 @@
 	const resetInput = async () => {
 		// Let the $: update finish first, or webSearchActive misses the default-feature writes
 		await tick();
-		selectedToolIds = [];
-		selectedSkillIds = [];
-		selectedFilterIds = [];
 		pendingOAuthTools = [];
-		webSearchEnabled = false;
-		imageGenerationEnabled = false;
-		codeInterpreterEnabled = false;
-		selectedImageModelId = '';
-		videoGenerationEnabled = false;
-		selectedVideoModelId = '';
-
-		if (selectedModelIds.filter((id) => id).length > 0) {
-			await setDefaults();
-		}
+		applyChatInputControls({});
 	};
 
-	/** Check whether a terminal ID references an available terminal. */
-	const isTerminalAvailable = (tid: string): boolean => {
+	/** Check whether a machine ID references an available machine. */
+	const isMachineAvailable = (tid: string | null): boolean => {
 		return (
 			$config?.features?.enable_tool_servers === true &&
-			($terminalServers ?? []).some((t) => !!tid && t.id === tid)
+			($machines ?? []).some((t) => !!tid && t.id === tid)
 		);
 	};
 
-	$: if (
-		$temporaryChat &&
-		($terminalServers ?? []).some(
-			(t) => !!$selectedTerminalId && t.id === $selectedTerminalId && t.scope === 'chat'
-		)
-	) {
-		selectedTerminalId.set(null);
+	const isPerChatMachine = (id: string | null | undefined) =>
+		($machines ?? []).find((machine) => machine.id === id)?.scope === 'chat';
+
+	$: if ($temporaryChat && $machines && isPerChatMachine($selectedMachineId)) {
+		selectedMachineId.set(null);
 	}
 
-	let lastTerminalSkillSelector: string | null = null;
+	let lastMachineSkillSelector: string | null = null;
 
 	let appliedFolderDefaults: FolderDetails['data'] = null;
 	let loadedAgentEnvironment: { key: string; models: Model[] } | null = null;
-	$: setFolderModelConnections($terminalServers);
+	$: setFolderModelConnections($machines);
 
 	const getAgentEnvironment = () => {
-		const terminalId = $selectedTerminalId;
-		const directory = terminalContext?.currentDirectory;
-		return terminalId && directory
+		const machineId = $selectedMachineId;
+		const directory = machineContext?.currentDirectory;
+		return machineId && directory
 			? JSON.stringify([
-					terminalId,
+					machineId,
 					directory,
-					($terminalServers ?? []).find((server) => server.id === terminalId)?.scope === 'chat'
-						? $chatId
-						: null,
+					isPerChatMachine(machineId) ? $chatId : null,
 					$config,
 					$settings,
-					$terminalServers
+					$machines
 				])
 			: null;
 	};
@@ -1298,15 +1387,14 @@
 		folder: FolderDetails | null = null,
 		signal = chatLoadController.signal
 	) => {
-		const terminalId = $selectedTerminalId;
+		const machineId = $selectedMachineId;
 		const environment = folder ? null : getAgentEnvironment();
 		loadedAgentEnvironment = null;
 		const retained = folder ? getFolderAgentModels(folder) : null;
 		models.update((available) => [
-			...available.filter(
+			...(available ?? []).filter(
 				(model) =>
-					model.owned_by !== 'terminal' ||
-					(!folder && model.agent.terminal_id === $selectedTerminalId)
+					!isMachine(model.owned_by) || (!folder && machineIdOf(model.agent) === $selectedMachineId)
 			),
 			...(retained ?? [])
 		]);
@@ -1316,32 +1404,33 @@
 				const discovered = folder
 					? await loadFolderAgentModels(localStorage.token, folder, !!retained)
 					: await getModels(localStorage.token, false, false, {
-							terminalId,
+							machineId,
 							chatId: $chatId,
-							cwd: terminalContext?.currentDirectory ?? null
+							cwd: machineContext?.currentDirectory ?? null
 						});
-				if (signal.aborted || terminalId !== $selectedTerminalId) return;
+				if (signal.aborted || machineId !== $selectedMachineId) return;
 				if (
 					folder &&
 					($selectedFolder?.id !== folder.id ||
-						$selectedTerminalId !== folder.data?.terminal_id ||
-						terminalContext?.currentDirectory !== (folder.data?.working_directory ?? '') ||
+						$selectedMachineId !== machineIdOf(folder.data) ||
+						machineContext?.currentDirectory !== (folder.data?.working_directory ?? '') ||
 						!getFolderAgentModels(folder))
 				)
 					return;
 
 				const available = folder
-					? [...$models.filter((model) => model.owned_by !== 'terminal'), ...discovered]
+					? [...($models ?? []).filter((model) => !isMachine(model.owned_by)), ...discovered]
 					: discovered;
 				models.set(available);
 				loadedAgentEnvironment = environment ? { key: environment, models: available } : null;
 				// Folder refreshes update the catalog without overwriting a draft's model choice.
 				if (folder) return;
+				// A per-chat machine lists no agents until its chat is saved.
 				const remaining = selectedModels.filter(
 					(id) =>
 						!id.startsWith('agent:') ||
-						(chat?.chat?.models?.includes(id) &&
-							decodeURIComponent(id.split(':')[1]) === $selectedTerminalId) ||
+						((chat?.chat?.models?.includes(id) || (!$chatId && isPerChatMachine(machineId))) &&
+							decodeURIComponent(id.split(':')[1]) === $selectedMachineId) ||
 						available.some((model: Model) => model.id === id)
 				);
 				selectedModels =
@@ -1356,40 +1445,40 @@
 		else await refresh();
 	};
 
-	$: if ($selectedTerminalId !== lastTerminalSkillSelector) {
-		if (terminalContext?.terminalId !== $selectedTerminalId) terminalContext = null;
-		selectedSkillIds = selectedSkillIds.filter((id) => !id.startsWith('terminal:'));
-		terminalSkills.set([]);
-		lastTerminalSkillSelector = $selectedTerminalId;
+	$: if ($models !== null && $selectedMachineId !== lastMachineSkillSelector) {
+		if (machineContext?.machineId !== $selectedMachineId) machineContext = null;
+		selectedSkillIds = selectedSkillIds.filter((id) => !isMachineRef(id));
+		machineSkills.set([]);
+		lastMachineSkillSelector = $selectedMachineId;
 		// Folder initialization already requests this exact environment.
 		if (
 			!(
 				(loading || !history.currentId) &&
-				$selectedFolder?.data?.terminal_id === $selectedTerminalId
+				machineIdOf($selectedFolder?.data) === $selectedMachineId
 			)
 		) {
 			void refreshAgentModels();
 		}
 	}
 
-	// Sent skill mentions and the + menu's Skills entry need the terminal's skills before any list opens.
+	// Sent skill mentions and the + menu's Skills entry need the machine's skills before any list opens.
 	$: {
-		const terminalId = $selectedTerminalId;
-		void listTerminalSkills(
-			resolveTerminalTarget(terminalId, $terminalServers ?? [], localStorage.token, {
+		const machineId = $selectedMachineId;
+		void listMachineSkills(
+			resolveMachineTarget(machineId, $machines ?? [], localStorage.token, {
 				chatId: $chatId || null,
 				modelId: selectedModels[0] ?? null
 			})
 		).then((items) => {
-			if (terminalId === $selectedTerminalId) terminalSkills.set(items);
+			if (machineId === $selectedMachineId) machineSkills.set(items);
 		});
 	}
 
-	const applyFolderTerminal = (folder: any) => {
-		const terminalId = folder?.data?.terminal_id;
-		if (!terminalId) return;
-		selectedTerminalId.set(terminalId);
-		terminalContext = { terminalId, currentDirectory: folder.data?.working_directory ?? '' };
+	const applyFolderMachine = (folder: any) => {
+		const machineId = machineIdOf(folder?.data);
+		if (!machineId || !$config?.features?.enable_tool_servers) return;
+		selectedMachineId.set(machineId);
+		machineContext = { machineId, currentDirectory: folder.data?.working_directory ?? '' };
 	};
 
 	let defaultsModelIds: string[] = [];
@@ -1416,7 +1505,9 @@
 			)
 				return;
 
-			const currentModels: any[] = modelIds.map((id) => $models.find((model) => model.id === id));
+			const currentModels: any[] = modelIds.map((id) =>
+				($models ?? []).find((model) => model.id === id)
+			);
 			if (!currentModels.length || currentModels.some((model) => !model)) return;
 			const supports = (feature: string) =>
 				currentModels.every((model) => model.info?.meta?.capabilities?.[feature] ?? true);
@@ -1431,11 +1522,12 @@
 			) =>
 				featureAvailable(feature) &&
 				currentModels.every((model) => model.info?.meta?.defaultFeatureIds?.includes(feature));
-			// Loading a saved chat must preserve its terminal, including an explicit deselection.
-			const terminalId =
-				(loading && $chatId) || (!history.currentId && $selectedFolder)
+			// A saved chat keeps its machine, including an explicit deselection, and a folder's machine
+			// overrides the model's.
+			const machineId =
+				(loading && $chatId) || (!history.currentId && machineIdOf($selectedFolder?.data))
 					? null
-					: currentModels[0]?.info?.meta?.terminalId;
+					: metaMachineIdOf(currentModels[0]?.info?.meta);
 			const defaults: Record<string, any> = {
 				selectedToolIds: [
 					...new Set(
@@ -1478,14 +1570,12 @@
 				)
 					? (currentModels[0]?.info?.meta?.videoModelId ?? '')
 					: '',
-				terminalId:
-					terminalId &&
-					isTerminalAvailable(terminalId) &&
-					currentModels.every((model) => model.info?.meta?.terminalId === terminalId)
-						? terminalId
-						: // A model without a terminal preset must not clear the user's
-							// existing selection; only meta.terminalId presets may switch it.
-							$selectedTerminalId
+				machineId:
+					machineId &&
+					isMachineAvailable(machineId) &&
+					currentModels.every((model) => metaMachineIdOf(model.info?.meta) === machineId)
+						? machineId
+						: $selectedMachineId
 			};
 
 			if (preserveSelections) {
@@ -1499,7 +1589,7 @@
 					codeInterpreterEnabled,
 					selectedImageModelId,
 					selectedVideoModelId,
-					terminalId: $selectedTerminalId
+					machineId: $selectedMachineId
 				};
 				if (!modelDefaults) {
 					modelDefaults = structuredClone(defaults);
@@ -1518,7 +1608,7 @@
 							...new Set([...defaults[key].filter((id: string) => !removed.includes(id)), ...added])
 						];
 					} else if (
-						(key !== 'terminalId' || equal(modelIds, defaultsModelIds)) &&
+						(key !== 'machineId' || equal(modelIds, defaultsModelIds)) &&
 						current[key] !== previous
 					) {
 						defaults[key] = current[key];
@@ -1540,9 +1630,9 @@
 			defaults.videoGenerationEnabled &&= !!featureAvailable('video_generation');
 			defaults.codeInterpreterEnabled &&= !!featureAvailable('code_interpreter');
 			if (!currentModels.some((model) => model.info?.meta?.capabilities?.terminal ?? true)) {
-				defaults.terminalId = null;
+				defaults.machineId = null;
 			}
-			if (defaults.terminalId) defaults.codeInterpreterEnabled = false;
+			if (defaults.machineId) defaults.codeInterpreterEnabled = false;
 			defaultsModelIds = modelIds;
 			({
 				selectedToolIds,
@@ -1555,7 +1645,7 @@
 				selectedImageModelId,
 				selectedVideoModelId
 			} = defaults);
-			selectedTerminalId.set(defaults.terminalId);
+			selectedMachineId.set(defaults.machineId);
 
 			pendingOAuthTools = [];
 			selectedToolIds = selectedToolIds.filter((id) => {
@@ -1627,24 +1717,25 @@
 		});
 	};
 
-	const terminalEventHandler = (type: string, data: any, message: any) => {
+	const machineEventHandler = (type: string, data: any, message: any) => {
 		const attachment = history.messages[message?.parentId]?.files?.find(
 			(file: any) => file.type === 'filesystem'
 		);
 		if (attachment) {
-			if (attachment.terminal_id && attachment.terminal_id !== $selectedTerminalId) return;
-			if (type === 'terminal:display_file' && terminalContext?.file?.path === data.path)
+			if (machineIdOf(attachment) && machineIdOf(attachment) !== $selectedMachineId) return;
+			if (machineEventName(type) === 'display_file' && machineContext?.file?.path === data.path)
 				showFileNavDir.set(data.path);
 			return;
 		}
-		if (type === 'terminal:display_file') {
+		const event = machineEventName(type);
+		if (event === 'display_file') {
 			if (!data?.path) return;
-			if ($settings?.terminalFileDisplay === 'inline') return;
+			if (($settings?.machineFileDisplay ?? $settings?.terminalFileDisplay) === 'inline') return;
 			displayFileHandler(data.path, { showTabs, showFileNavPath }, { page: data?.page });
-		} else if (type === 'terminal:write_file' || type === 'terminal:replace_file_content') {
+		} else if (event === 'write_file' || event === 'replace_file_content') {
 			if (!data?.path) return;
 			showFileNavDir.set(data.path);
-		} else if (type === 'terminal:run_command' && !terminalContext?.file) {
+		} else if (event === 'run_command' && !machineContext?.file) {
 			showFileNavDir.set('/');
 		}
 	};
@@ -1689,6 +1780,7 @@
 	) => {
 		const currentId = history.currentId;
 		const next = incoming?.messages ?? {};
+		const idleRefresh = baseline && chat?.task_ids?.length === 0 && !taskIds?.length && !generating;
 		// An edited prompt adds a sibling; other viewers should keep their selected branch.
 		const hasNewBranch = Object.values(next).some(
 			(message: any) =>
@@ -1719,13 +1811,12 @@
 				(taskIds?.length || generating);
 			if (!local || (!ownActive && (!baseline || baseline[id] === local))) {
 				history.messages[id] = { ...local, ...message };
-				// Keep recovered replies finished unless their task is active or has been replaced.
+				const taskId = local?.meta?.task_id;
 				if (
 					local?.done === true &&
 					message.done === false &&
-					local.meta?.task_id &&
-					local.meta.task_id === message.meta?.task_id &&
-					!taskIds?.includes(local.meta.task_id)
+					taskId === message.meta?.task_id &&
+					(taskId ? !taskIds?.includes(taskId) : idleRefresh && canFinish(message))
 				) {
 					history.messages[id].done = true;
 				}
@@ -1754,7 +1845,13 @@
 			try {
 				const fresh = await getChatById(localStorage.token, id, signal);
 				if ($chatId !== id || joinedChatId !== id || signal.aborted) return;
+				// Nothing happened since the chat was shown from the cache: load the server's copy.
+				if (fresh && cachedHistory && !loading && !generating && equal(history, cachedHistory)) {
+					await loadChat(signal, fresh);
+					return;
+				}
 				chat = fresh;
+				serverContextUsage = fresh.context_usage ?? null;
 				mergeChatMessages(fresh.chat.history, baseline);
 			} catch (error) {
 				if ($chatId === id && joinedChatId === id && !signal.aborted) {
@@ -1906,6 +2003,14 @@
 				await loadChat();
 				return;
 			}
+			// A reply this page has not loaded yet ended.
+			if (
+				type === 'chat:active' &&
+				!event.data.data?.active &&
+				!$temporaryChat &&
+				!history.messages[event.message_id]
+			)
+				await loadChat();
 			if (type === 'chat:list') {
 				return;
 			}
@@ -2114,8 +2219,8 @@
 					eventConfirmationInputValue = data?.value ?? '';
 					eventConfirmationInputType = data?.input?.type ?? data?.type ?? '';
 					eventConfirmationInputOptions = data?.input?.options ?? data?.options ?? [];
-				} else if (type.startsWith('terminal:')) {
-					terminalEventHandler(type, data, message);
+				} else if (machineEventName(type)) {
+					machineEventHandler(type, data, message);
 				} else {
 					console.log('Unknown message type', data);
 				}
@@ -2304,8 +2409,8 @@
 			)
 				return;
 			appliedFolderDefaults = folder.data;
-			applyFolderTerminal(folder);
-			if (folder.data?.terminal_id) await refreshAgentModels(folder);
+			applyFolderMachine(folder);
+			if (machineIdOf(folder.data)) await refreshAgentModels(folder);
 			if (
 				history.currentId ||
 				$selectedFolder?.id !== folder.id ||
@@ -2360,11 +2465,12 @@
 		if (embedded) init();
 		else
 			void tick().then(() => {
-				if (!routeInitialized) void followRoute();
+				if (!routeInitialized) routeChanged = true;
 			});
 
 		return () => {
 			try {
+				cacheOpenChat();
 				cancelBrowserInteractions();
 				clearTimeout(saveControlsTimer);
 				saveControls();
@@ -2798,12 +2904,12 @@
 			context: () => {
 				const model =
 					selectedModelIds.length === 1
-						? $models.find((model) => model.id === selectedModelIds[0])
+						? ($models ?? []).find((model) => model.id === selectedModelIds[0])
 						: null;
 				return {
 					chatId: isTemporaryChatId($chatId) ? undefined : $chatId || undefined,
 					modelId: model ? model.id : '',
-					terminalId: $selectedTerminalId || undefined,
+					machineId: $selectedMachineId || undefined,
 					voiceModel: $config?.audio?.realtime?.model,
 					voice: model?.info?.meta?.voice?.voice || $config?.audio?.realtime?.voice,
 					messages: createMessagesList(history, history.currentId).map((message) => {
@@ -2859,25 +2965,79 @@
 		});
 		return () => bridge?.end();
 	});
+	/** A chat in a folder opens as one of the folder's tabs. */
+	const openInFolder = async (id: string, preserveTabs: boolean) => {
+		// Phones show one chat at a time, and links into a message need the chat itself.
+		if ($mobile || $page.url.search || $page.url.hash) return false;
+		const mounted = $openEmbeddedChatIds.has(id);
+		if (!$pendingChatRequest && !mounted && !getCachedChat(id)) void requestChat(id);
+		const found: any =
+			findFolderChat(id) ??
+			cachedChats.get(id) ??
+			(await ($pendingChatRequest?.promise ?? requestChat(id)).catch(() => null));
+		const folder = found?.folder_id
+			? await loadFolderDetails(localStorage.token, found.folder_id).catch(() => null)
+			: null;
+		if ($page.params.id !== id) return true;
+		if (!folder) return false;
+		if (mounted) pendingChatRequest.set(null);
+		const href = `/folders/${folder.id}`;
+		if ($selectedFolder?.id !== folder.id || $chatId || mainChatHref !== href) {
+			selectedFolder.set(folder);
+			await initNewChat({ preserveTabs, url: new URL(href, location.origin) });
+			await tick();
+			if ($page.params.id !== id) return true;
+		}
+		tabs?.openPageTab({ href: `/c/${id}`, label: found?.title ?? '' });
+		void tabs?.joinChatSessions(id);
+		return true;
+	};
+	const refreshFolder = async (id: string) => {
+		const folder = await loadFolderDetails(localStorage.token, id, true).catch(() => null);
+		// The sidebar copies the rest.
+		if (folder && $selectedFolder?.id === id && !equal($selectedFolder.data, folder.data))
+			selectedFolder.set({ ...$selectedFolder, data: folder.data });
+	};
 	// The layout keeps this component mounted; route changes update only the main pane.
 	let routeInitialized = false;
 	const followRoute = async () => {
 		const preserveTabs = routeInitialized;
 		routeInitialized = true;
 		await tick();
-		if ($page.route.id === '/(app)/c/[id]') {
-			chatIdProp = $page.params.id ?? '';
+		const id = $page.route.id === '/(app)/c/[id]' ? ($page.params.id ?? null) : null;
+		if ($pendingChatRequest?.id !== id) pendingChatRequest.set(null);
+		if (id) {
+			if (await openInFolder(id, preserveTabs)) return;
+			if ($page.params.id !== id) return;
+			chatIdProp = id;
 		} else if ($page.params.folderId || $page.url.pathname === '/') {
 			selectedFolder.set($page.data.folder ?? null);
-			await initNewChat({ preserveTabs, url: $page.url });
+			if ($page.data.folder) void refreshFolder($page.data.folder.id);
+			// On a first load the input is on screen before set-up, so what was entered there stays.
+			await initNewChat({ preserveTabs, preserveInput: !preserveTabs, url: $page.url });
 		} else if (initialPage) {
 			if (!preserveTabs) await initNewChat();
 			loading = false;
 			tabs?.openPageTab({ href: initialPage, label: '' });
 		}
 	};
+	// Set-up checks its choices against the model list, so a page is followed once the list is in.
+	let routeChanged = false;
+	$: if (routeChanged && $models !== null) {
+		routeChanged = false;
+		void followRoute();
+	}
+	// A chat opened by link needs no model list, so its request starts before the list is in.
+	$: if (
+		routeChanged &&
+		$models === null &&
+		$page.route.id === '/(app)/c/[id]' &&
+		$page.params.id &&
+		$page.params.id !== $pendingChatRequest?.id
+	)
+		void requestChat($page.params.id);
 	afterNavigate(() => {
-		if (!embedded) void followRoute();
+		routeChanged = !embedded;
 		stopAudio();
 	});
 	beforeNavigate(() => {
@@ -3020,6 +3180,7 @@
 
 	const initNewChat: NonNullable<AppLayoutContext['initNewChat']> = async ({
 		preserveTabs = false,
+		preserveInput = false,
 		temporary,
 		url = initialPage || preserveTabs ? undefined : $page.url
 	} = {}) => {
@@ -3036,6 +3197,7 @@
 
 		if (preserveTabs) tabs?.carryPagesToNewChat();
 		else tabs?.resetForChatSwitch();
+		cacheOpenChat();
 		loading = true;
 		if (
 			!embedded &&
@@ -3048,8 +3210,7 @@
 		clearTimeout(saveControlsTimer);
 		await saveControls();
 		if (signal.aborted) return;
-
-		if ($chatId) terminalContext = null;
+		if ($chatId) machineContext = null;
 		cancelBrowserInteractions();
 		bridge?.end();
 		console.log('initNewChat');
@@ -3068,11 +3229,12 @@
 					(temporary ?? (param ? param === 'true' : !!$settings?.temporaryChatByDefault)))
 		);
 
-		const availableModels = $models
+		const availableModels = ($models ?? [])
 			.filter((m) => !(m?.info?.meta?.hidden ?? false))
 			.map((m) => m.id);
 
 		const defaultModels = normalizeSelectedModels();
+		let agentModels: Promise<void> | null = null;
 
 		let modelSearch = '';
 		const openModelSelectorWithSearch = async (modelId: string) => {
@@ -3081,18 +3243,9 @@
 
 			await tick();
 
-			let modelSelectorInput = document.getElementById(
+			const modelSelectorInput = document.getElementById(
 				'model-search-input'
 			) as HTMLInputElement | null;
-			if (!modelSelectorInput) {
-				// The selector opened on the model controls page; expand the model
-				// list first, then prefill its search input.
-				document.getElementById('model-selector-model-list-button')?.click();
-				await tick();
-				modelSelectorInput = document.getElementById(
-					'model-search-input'
-				) as HTMLInputElement | null;
-			}
 			if (modelSelectorInput) {
 				modelSelectorInput.focus();
 				modelSelectorInput.value = modelId;
@@ -3104,7 +3257,7 @@
 			const urlModels = (searchParams.get('models') || searchParams.get('model') || '')?.split(',');
 
 			if (urlModels.length === 1) {
-				if (!$models.find((m) => m.id === urlModels[0])) {
+				if (!($models ?? []).find((m) => m.id === urlModels[0])) {
 					// Model not found; open model selector and prefill
 					modelSearch = urlModels[0];
 				} else {
@@ -3118,14 +3271,17 @@
 
 			// Unavailable models filtering
 			selectedModels = selectedModels.filter(
-				(modelId) => modelId.startsWith('agent:') || $models.map((m) => m.id).includes(modelId)
+				(modelId) =>
+					modelId.startsWith('agent:') || ($models ?? []).map((m) => m.id).includes(modelId)
 			);
 		} else {
 			if (destinationFolder) {
-				// A configured folder terminal overrides the previous selection.
-				applyFolderTerminal(destinationFolder);
-				if (destinationFolder.data?.terminal_id) {
-					await refreshAgentModels(destinationFolder, signal);
+				// A configured folder machine overrides the previous selection.
+				applyFolderMachine(destinationFolder);
+				if (machineIdOf(destinationFolder.data)) {
+					agentModels = refreshAgentModels(destinationFolder, signal);
+					// Without models of its own, the folder may default to one of the machine's agents.
+					if (!destinationFolder.data?.model_ids?.length) await agentModels;
 					if (signal.aborted) return;
 				}
 				selectedModels = normalizeSelectedModels(destinationFolder.data?.model_ids ?? []);
@@ -3185,27 +3341,26 @@
 
 		autoScroll = true;
 
+		const input = preserveInput ? { prompt, files, controls: getChatInputControls() } : null;
 		// resetInput() must stay last: the selected model's defaults override the draft's selection.
 		prompt = '';
 		files = [];
 		const chatInputPrompt = (await restoreChatInput(sessionStorage.getItem(getChatInputKey())))
 			? prompt
 			: null;
-		const previousChatId = $chatId;
-		const previousMessageId = history.currentId;
-		await resetInput();
+		if (input) files = [...input.files, ...files];
 		if (signal.aborted) return;
-		// A chat opened or a message sent in the meantime keeps its id and history
-		if (($chatId && $chatId !== previousChatId) || history.currentId !== previousMessageId) {
-			loading = false;
-			return;
-		}
+		// Clear the previous chat first, so its id and history don't affect the new chat's defaults.
 		await chatId.set('');
+		if (!machineIdOf(destinationFolder?.data)) {
+			selectedMachineId.set(
+				$config?.features?.enable_tool_servers ? (localStorage.selectedMachineId ?? null) : null
+			);
+		}
 		if (preserveTabs) {
 			chatIdProp = '';
 			loadedChatIdProp = '';
 			chat = null;
-			tags = [];
 			serverContextUsage = null;
 		}
 		await chatTitle.set('');
@@ -3220,14 +3375,32 @@
 		serverContextUsage = null;
 		chatContextUsage.set(null);
 
-		// Apply folder defaults after restoring the draft and model defaults.
-		applyFolderTerminal(destinationFolder);
-
 		chatFiles = [];
 		params = {};
 		chatVariables = {};
 		taskIds = null;
 		chatTasks = [];
+
+		await resetInput();
+		if (signal.aborted) return;
+		// No defaults are applied yet, so setDefaults() adds the model's to what was picked.
+		modelDefaults = getChatInputControls();
+		defaultsModelIds = [];
+		if (input) applyChatInputControls(input.controls);
+		if (selectedModelIds.some((id) => id)) await setDefaults(true);
+		if (signal.aborted) return;
+		// An agent's defaults wait for the machine to list it.
+		void agentModels?.then(() => {
+			if (!signal.aborted && !$chatId && !history.currentId) return setDefaults(true);
+		});
+		// A chat opened or a message sent in the meantime keeps its id and history
+		if ($chatId || history.currentId) {
+			loading = false;
+			return;
+		}
+
+		// Apply folder defaults after restoring the draft and model defaults.
+		applyFolderMachine(destinationFolder);
 
 		const youtube = searchParams.get('youtube');
 		const loadUrl = searchParams.get('load-url');
@@ -3278,11 +3451,12 @@
 		}
 
 		if (signal.aborted) return;
+		if (preserveTabs) tabs?.focusMainChat();
 		loading = false;
 		await tick();
 		if (signal.aborted) return;
-		// Mounting the editor clears prompt, so apply the saved text afterward.
-		if (chatInputPrompt !== null) messageInput?.setText(chatInputPrompt);
+		// The new-chat input stays mounted through set-up, so set its text either way.
+		messageInput?.setText(input?.prompt || chatInputPrompt || '');
 		if (modelSearch) await openModelSelectorWithSearch(modelSearch);
 
 		// Consume call requests or the acknowledged Tether handoff.
@@ -3326,18 +3500,23 @@
 		}
 
 		selectedModels = selectedModels.map((modelId) =>
-			modelId.startsWith('agent:') || $models.map((m) => m.id).includes(modelId) ? modelId : ''
+			modelId.startsWith('agent:') || ($models ?? []).map((m) => m.id).includes(modelId)
+				? modelId
+				: ''
 		);
 
 		await tick();
-		if (preserveTabs) tabs?.focusMainChat();
 		if (!$mobile) messageInput?.focus({ preventScroll: true });
 	};
 
-	const loadChat = async (signal = startChatLoad()) => {
-		if (chatIdProp && chatIdProp !== $chatId) tabs?.resetForChatSwitch();
-		if (chatIdProp && chatIdProp !== $chatId) {
-			terminalContext = null;
+	// The history of a chat shown from the cache, until the server's copy replaces it.
+	let cachedHistory: typeof history | null = null;
+	const loadChat = async (signal = startChatLoad(), fresh: any = null) => {
+		const switching = chatIdProp && chatIdProp !== $chatId;
+		const activeTaskIds = taskIds;
+		if (switching) {
+			tabs?.resetForChatSwitch();
+			machineContext = null;
 			history = { messages: {}, currentId: null };
 		}
 		const initialHistory = { ...history, messages: { ...history.messages } };
@@ -3352,15 +3531,24 @@
 		}
 
 		const id = $chatId;
-		const loadedChat = await getChatById(localStorage.token, id, signal).catch(async (error) => {
-			if (tabbed && !signal.aborted) toast.error(`${error}`);
-			console.error('[note-chat] getChatById failed', {
-				chatIdProp,
-				activeChatId: $chatId,
-				error
-			});
-			return null;
-		});
+		// Queued messages are sent once the chat loads, so they wait for the server's copy.
+		const cached = switching && !$chatRequestQueues[id]?.length ? getCachedChat(id) : null;
+		// Loading changes the copy it is given; leaving the chat caches it again.
+		cachedChats.delete(id);
+		const pending = $pendingChatRequest?.id === id ? $pendingChatRequest.promise : null;
+		if (pending) pendingChatRequest.set(null);
+		const loadedChat =
+			fresh ??
+			cached ??
+			(await (pending ?? getChatById(localStorage.token, id, signal)).catch((error) => {
+				if (tabbed && !signal.aborted) toast.error(`${error}`);
+				console.error('[note-chat] getChatById failed', {
+					chatIdProp,
+					activeChatId: $chatId,
+					error
+				});
+				return null;
+			}));
 		if (signal.aborted) return;
 		noteChatDebug('getChatById completed', {
 			found: !!loadedChat,
@@ -3370,18 +3558,7 @@
 		});
 
 		if (loadedChat) {
-			const loadedTags = await getTagsById(localStorage.token, id, signal).catch(async (error) => {
-				console.warn('[note-chat] getTagsById failed; continuing without tags', {
-					chatIdProp,
-					activeChatId: $chatId,
-					error
-				});
-				return [];
-			});
-			if (signal.aborted) return;
 			chat = loadedChat;
-			tags = loadedTags;
-			noteChatDebug('getTagsById completed', { tagCount: tags?.length ?? 0 });
 
 			const chatContent = chat.chat;
 			chatVariables = chat?.variables ?? {};
@@ -3397,28 +3574,32 @@
 					(chatContent?.models ?? undefined) !== undefined
 						? chatContent.models
 						: [chatContent.models ?? ''];
-				if ($terminalServers === null) {
-					const servers = await getTerminalServers(localStorage.token);
+				if ($machines === null) {
+					const servers = await getMachines(localStorage.token);
 					if (signal.aborted) return;
-					terminalServers.set(servers);
+					machines.set(servers);
 				}
-				const terminalId = chatContent.terminal_id;
-				selectedTerminalId.set(terminalId && isTerminalAvailable(terminalId) ? terminalId : null);
-				terminalContext =
-					$selectedTerminalId &&
-					$selectedTerminalId === terminalId &&
+				const machineId = machineIdOf(chatContent);
+				const previousEnvironment = getAgentEnvironment();
+				let agentModels: Promise<void> | null = null;
+				// A machine missing from the list may only be unreachable for now.
+				selectedMachineId.set($config?.features?.enable_tool_servers ? (machineId ?? null) : null);
+				machineContext =
+					$selectedMachineId &&
+					$selectedMachineId === machineId &&
 					typeof chatContent.working_directory === 'string'
-						? { terminalId: $selectedTerminalId, currentDirectory: chatContent.working_directory }
+						? { machineId: $selectedMachineId, currentDirectory: chatContent.working_directory }
 						: null;
 				if (selectedModels[0]?.startsWith('agent:')) {
-					if ($selectedTerminalId) {
+					if (isMachineAvailable($selectedMachineId)) {
 						const environment = getAgentEnvironment();
 						if (
-							!environment ||
-							environment !== loadedAgentEnvironment?.key ||
-							$models !== loadedAgentEnvironment?.models
+							!(fresh && environment === previousEnvironment) &&
+							(!environment ||
+								environment !== loadedAgentEnvironment?.key ||
+								$models !== loadedAgentEnvironment?.models)
 						) {
-							await refreshAgentModels(null, signal);
+							agentModels = refreshAgentModels(null, signal);
 						}
 					} else selectedModels = selectedModels.filter((modelId) => !modelId.startsWith('agent:'));
 				}
@@ -3426,9 +3607,10 @@
 				if (signal.aborted) return;
 
 				// An empty model list is not evidence that the chat's models are gone.
-				if ($models.length > 0) {
+				if (($models ?? []).length > 0) {
 					selectedModels = selectedModels.filter(
-						(modelId) => modelId.startsWith('agent:') || $models.map((m) => m.id).includes(modelId)
+						(modelId) =>
+							modelId.startsWith('agent:') || ($models ?? []).map((m) => m.id).includes(modelId)
 					);
 				}
 
@@ -3444,7 +3626,7 @@
 				}
 
 				chatContent.history ??= convertMessagesToHistory(chatContent.messages);
-				// Keep live updates received while the chat and tags were loading.
+				// Keep live updates received while the chat was loading.
 				for (const [id, message] of Object.entries(history.messages)) {
 					if (initialHistory.messages[id] !== message)
 						chatContent.history.messages[id] = { ...chatContent.history.messages[id], ...message };
@@ -3459,6 +3641,7 @@
 				// Sanitize history: repair orphaned references and structurally-malformed
 				// nodes from failed regenerations (#24424, #24157, #20474)
 				sanitizeHistory(history);
+				cachedHistory = cached ? { ...history, messages: { ...history.messages } } : null;
 
 				chatTitle.set(chatContent.title);
 				branchPointMessageId =
@@ -3476,7 +3659,7 @@
 				serverContextUsage = chat?.context_usage ?? null;
 				syncChatContextUsage();
 
-				autoScroll = true;
+				if (!fresh) autoScroll = true;
 				await tick();
 				if (signal.aborted) return;
 
@@ -3497,18 +3680,7 @@
 				// Reconcile active tasks with message state:
 				// If the response is already done, remaining tasks are just background
 				// work (follow-ups, title gen) that shouldn't block the input.
-				const activeTaskIds = taskIds;
-				const pendingTaskIds = await getTaskIdsByChatId(localStorage.token, id, signal)
-					.then((res) => res?.task_ids ?? [])
-					.catch((error) => {
-						console.warn('[note-chat] getTaskIdsByChatId failed; continuing without tasks', {
-							chatIdProp,
-							activeChatId: $chatId,
-							error
-						});
-						return [];
-					});
-				if (signal.aborted) return;
+				const pendingTaskIds = loadedChat.task_ids ?? [];
 				const currentMessage = history.currentId ? history.messages[history.currentId] : null;
 				noteChatDebug('task reconciliation completed', {
 					pendingTaskCount: pendingTaskIds.length,
@@ -3524,15 +3696,7 @@
 						// No active tasks and message incomplete → generation was interrupted
 						if (pendingTaskIds.length === 0) {
 							for (const message of Object.values(history.messages)) {
-								if (
-									message?.role === 'assistant' &&
-									(message.user_id ?? chat?.user_id) === $user?.id &&
-									!message.done &&
-									!messageHasPendingAskUser(message) &&
-									!message.output?.some(
-										(item) => item?.type === 'function_call' && item?.status === 'pending'
-									)
-								) {
+								if (canFinish(message)) {
 									message.done = true;
 									history = history;
 								}
@@ -3559,6 +3723,16 @@
 					if (signal.aborted) return;
 					await setDefaults(restored);
 					if (signal.aborted) return;
+					if (agentModels && !modelDefaults) {
+						// An agent's defaults wait for the machine to list it, and add to what is picked.
+						if (!restored) {
+							modelDefaults = getChatInputControls();
+							defaultsModelIds = [];
+						}
+						void agentModels.then(() => {
+							if (!signal.aborted) return setDefaults(true);
+						});
+					}
 					loading = false;
 					await tick();
 					if (signal.aborted) return;
@@ -3720,7 +3894,7 @@
 	};
 
 	// The backend queues messages sent to your own saved chat while a reply runs; the reply ends at its next
-	// step and they are answered next. Files on a terminal stay in this browser's queue.
+	// step and they are answered next. Files on a machine stay in this browser's queue.
 	const usesBackendQueue = (messageFiles: any[] = []) =>
 		($settings?.enableMessageQueue ?? true) &&
 		!$temporaryChat &&
@@ -3837,6 +4011,20 @@
 		await processNextInQueue($chatId);
 	};
 
+	// Takes back a message whose chat could not be set up; it returns to the input after any draft.
+	const unsendMessage = async (id: string) => {
+		const message = history.messages[id];
+		const parent = history.messages[message?.parentId];
+		if (parent) parent.childrenIds = parent.childrenIds.filter((childId: string) => childId !== id);
+		delete history.messages[id];
+		if (history.currentId === id) history.currentId = message.parentId;
+		history = history;
+		files = [...files, ...(message.files ?? [])];
+		// An emptied chat shows the placeholder's input again.
+		await tick();
+		await draftPrompt(message.content);
+	};
+
 	const chatCompletedHandler = async (_chatId, modelId, responseMessageId, messages) => {
 		// Backend handles outlet filters and persistence inline.
 		// Just refresh the sidebar chat list.
@@ -3927,7 +4115,7 @@
 
 			const responseMessages = [];
 			for (const [modelIdx, modelId] of selectedModels.entries()) {
-				const model = $models.filter((m) => m.id === modelId).at(0);
+				const model = ($models ?? []).filter((m) => m.id === modelId).at(0);
 
 				if (model) {
 					const responseMessageId = uuidv4();
@@ -3985,16 +4173,18 @@
 				scrollToBottom();
 			}
 
-			if (!$chatId) {
-				await initChatHandler(history);
+			const _chatId = $chatId || (await getChatId(history));
+			if (_chatId === null) return;
+			if (_chatId) {
+				await saveChatHandler(_chatId, history);
 			} else {
-				await saveChatHandler($chatId, history);
+				await initChatHandler(history);
 			}
 		}
 	};
 
 	const addMessages = async ({ modelId, parentId, messages }) => {
-		const model = $models.filter((m) => m.id === modelId).at(0);
+		const model = ($models ?? []).filter((m) => m.id === modelId).at(0);
 
 		let parentMessage = history.messages[parentId];
 		let currentParentId = parentMessage ? parentMessage.id : null;
@@ -4078,7 +4268,18 @@
 	};
 
 	const chatCompletionEventHandler = async (data, message, chatId, shared = false) => {
-		const { id, done, choices, content, output, sources, selected_model_id, error, usage } = data;
+		const {
+			id,
+			done,
+			choices,
+			content,
+			output,
+			sources,
+			selected_model_id,
+			strategy,
+			error,
+			usage
+		} = data;
 
 		if (error) {
 			if (shared) message.error = error;
@@ -4137,7 +4338,7 @@
 
 		if (selected_model_id) {
 			message.selectedModelId = selected_model_id;
-			message.arena = true;
+			message.strategy = strategy ?? null;
 		}
 
 		if (usage) {
@@ -4212,6 +4413,16 @@
 		bridgeRequest: { userMessageId: string; modelId: string } | null = null
 	) => {
 		if (selectedModels.includes('')) throw new Error($i18n.t('Model not selected'));
+		if ($selectedFolder && !$chatId && !bridgeRequest) {
+			if (tabs?.openFeatureTab('chat', false, inputContent, inputFiles)) {
+				atSelectedModel = undefined;
+				return { status: 'submitted' as const };
+			}
+			prompt = inputContent;
+			files = inputFiles;
+			messageInput?.setText(prompt);
+			return { status: 'deferred' as const };
+		}
 		const _files = structuredClone(inputFiles);
 
 		chatFiles.push(
@@ -4226,11 +4437,11 @@
 			(item, index, array) => array.findIndex((i) => equal(i, item)) === index
 		);
 
-		const runningReply = history.currentId ? history.messages[history.currentId] : null;
+		const lastMessage = history.currentId ? history.messages[history.currentId] : null;
 		const queued =
 			!bridgeRequest &&
-			runningReply?.role === 'assistant' &&
-			runningReply.done === false &&
+			lastMessage?.role === 'assistant' &&
+			(lastMessage.done === false || backendQueue.length > 0) &&
 			usesBackendQueue(_files);
 
 		// Create user message
@@ -4271,17 +4482,20 @@
 		saveSessionSelectedModels();
 
 		const currentHistory = history;
+		let _chatId: string | null = null;
 		processing = 'uploading';
 		try {
 			await tick();
 			if (history !== currentHistory) return { status: 'rejected' as const };
-			if ((await getChatId(currentHistory, _files)) === null)
-				return { status: 'rejected' as const };
+			_chatId = await getChatId(currentHistory, _files);
 		} catch (error) {
 			toast.error(`${error}`);
-			return { status: 'rejected' as const };
 		} finally {
 			processing = '';
+		}
+		if (_chatId === null) {
+			if (!existingUserMessage && history === currentHistory) await unsendMessage(userMessageId);
+			return { status: 'rejected' as const };
 		}
 
 		return await sendMessage(history, userMessageId, {
@@ -4371,7 +4585,7 @@
 			return;
 		}
 
-		const model = $models.find((model) => model.id === modelId);
+		const model = ($models ?? []).find((model) => model.id === modelId);
 		if (!model) {
 			toast.error(`Model not found: ${modelId}`);
 			messageInput?.setText('');
@@ -4475,7 +4689,10 @@
 			($user?.permissions?.chat?.export ?? true));
 	// Renaming hides the menu, like the tab's close button.
 	$: chatMenu = showChatMenu && !editingTitle ? renderChatMenu : undefined;
+	$: chatStatus = showChatMenu && !$temporaryChat && !isShared ? renderChatStatus : undefined;
 	$: if (embedded && tabbed) tabActions = chatMenu;
+
+	export const getOverview = () => ({ history, chatUser: chatOwner, showMessage });
 
 	export const startRename = async () => {
 		if (
@@ -4527,13 +4744,18 @@
 		const id = $chatId;
 		generatingTitle = true;
 		titleDraft = '';
-		const messages = createMessagesList(history, history.currentId).map((message) => ({
+		const branch = createMessagesList(history, history.currentId);
+		const messages = branch.map((message) => ({
 			role: message.role,
 			content: getOutputText(message.output) || message.content || ''
 		}));
+		const modelId = selectedModels.find((modelId: string) => modelId) ?? '';
+		const responseMessage = branch
+			.filter((message) => message.role === 'assistant' && message.model === modelId)
+			.at(-1);
 		const generatedTitle = await generateTitle(
 			localStorage.token,
-			selectedModels.find((modelId: string) => modelId) ?? '',
+			responseMessage?.selectedModelId ?? modelId,
 			messages
 		).catch((error) => {
 			toast.error(`${error}`);
@@ -4564,36 +4786,32 @@
 
 	let tabBarActions: import('svelte').Snippet | undefined;
 
-	let initializedTerminalChatId: string | null = null;
-	const initializeTerminalDirectory = async (id: string, context: TerminalContext | null) => {
-		if (initializedTerminalChatId === id) return;
+	let initializedMachineChatId: string | null = null;
+	const initializeMachineDirectory = async (id: string, context: MachineContext | null) => {
+		if (initializedMachineChatId === id) return;
 		if (!$config?.features?.enable_tool_servers || !context?.currentDirectory) return;
 		const userSettings: any = $settings;
-		const target = resolveTerminalTarget(
-			context.terminalId,
-			$terminalServers ?? [],
-			localStorage.token,
-			{ chatId: id, modelId: selectedModels[0] ?? null }
-		);
-		if (!target) throw new Error($i18n.t('Terminal Not Found'));
+		const target = resolveMachineTarget(context.machineId, $machines ?? [], localStorage.token, {
+			chatId: id,
+			modelId: selectedModels[0] ?? null
+		});
+		if (!target) throw new Error($i18n.t('Machine Not Found'));
 		const result = await setCwd(target, context.currentDirectory);
 		if (!result?.cwd)
-			throw new Error(
-				$i18n.t('Working directory is unavailable. Check the terminal connection and path.')
-			);
-		initializedTerminalChatId = id;
+			throw new Error($i18n.t('Working directory is unavailable. Check the machine and path.'));
+		initializedMachineChatId = id;
 	};
 
 	const getChatId = async (_history: typeof history, inputFiles = files) => {
 		let _chatId = $chatId;
-		const terminalId =
-			inputFiles.find((file) => file.type === 'filesystem')?.terminal_id ?? $selectedTerminalId;
+		const machineId =
+			machineIdOf(inputFiles.find((file) => file.type === 'filesystem')) ?? $selectedMachineId;
 		const context =
 			$config?.features?.enable_tool_servers &&
 			!Object.values(_history.messages).some((message) => message.role === 'assistant') &&
-			terminalContext &&
-			terminalContext.terminalId === terminalId
-				? terminalContext
+			machineContext &&
+			machineContext.machineId === machineId
+				? machineContext
 				: null;
 		// Empty embedded drafts create their backing chat only when the first message is sent.
 		if (!_chatId) {
@@ -4623,16 +4841,23 @@
 				_chatId = createTemporaryChatId($socket?.id);
 				await chatId.set(_chatId);
 			}
-			if (!_chatId && (tabbed || context?.currentDirectory || tabs?.hasTerminalTabs())) {
+			if (
+				!_chatId &&
+				(tabbed ||
+					context?.currentDirectory ||
+					tabs?.hasTerminalTabs() ||
+					isPerChatMachine(machineId))
+			) {
 				_chatId = await initChatHandler(_history);
 			}
 			await tick();
+			if (isPerChatMachine($selectedMachineId)) void refreshAgentModels();
 		}
 		if (history !== _history) return null;
 		if (_chatId) await tabs?.attachChatViewTo(_chatId);
 		if (history !== _history || $chatId !== _chatId) return null;
 		// Also covers temporary/embedded chats and retries after a failed initialization.
-		if (_chatId) await initializeTerminalDirectory(_chatId, context);
+		if (_chatId) await initializeMachineDirectory(_chatId, context);
 		if (history !== _history || $chatId !== _chatId) return null;
 		return _chatId;
 	};
@@ -4653,12 +4878,15 @@
 			}
 		}
 		if (processing === 'uploading') return { status: 'deferred' };
+		if ($models === null) return { status: 'deferred' };
 		emitTyping(false);
 		if (bridgeRequest && (selectedModelIds.length !== 1 || !bridgeRequest.modelId))
 			return { status: 'rejected' };
 
 		const _selectedModels = selectedModels.map((modelId) =>
-			modelId.startsWith('agent:') || $models.map((m) => m.id).includes(modelId) ? modelId : ''
+			modelId.startsWith('agent:') || ($models ?? []).map((m) => m.id).includes(modelId)
+				? modelId
+				: ''
 		);
 
 		if (!equal(selectedModels, _selectedModels)) {
@@ -4710,6 +4938,10 @@
 			return { status: 'rejected' };
 		}
 
+		if (!canUseMachine) {
+			toast.error($i18n.t('This machine is offline or not shared with you'));
+			return { status: 'rejected' };
+		}
 		if (pendingOAuthTools.some((tool) => !isSystemOAuthTool(tool.id))) {
 			toast.warning($i18n.t('Please connect all required integrations before sending a message'));
 			return { status: 'rejected' };
@@ -4722,7 +4954,7 @@
 			toast.error($i18n.t('Model not selected'));
 			return { status: 'rejected' };
 		}
-		const form = getChatVariablesForm(selectedModelIds, chatVariables, $models);
+		const form = getChatVariablesForm(selectedModelIds, chatVariables, $models ?? []);
 		if (form.conflicts.length > 0) {
 			showChatVariablesModal = true;
 			toast.error($i18n.t('Chat Variables have conflicting model definitions'));
@@ -4745,7 +4977,9 @@
 			return { status: 'rejected' };
 		}
 
+		const openingFolderTab = $selectedFolder && !$chatId && !bridgeRequest;
 		if (
+			!openingFolderTab &&
 			$config?.features?.enable_web_search_confirmation &&
 			webSearchActive &&
 			!webSearchConfirmed
@@ -4755,25 +4989,26 @@
 			return { status: 'deferred' };
 		}
 
-		const currentHistory = history;
-		processing = 'uploading';
-		try {
-			// Set up the chat before the message is posted and the input cleared, so a refusal
-			// (e.g. a missing working directory) leaves the draft in place.
-			const _chatId = await getChatId(currentHistory);
-			if (_chatId === null) return { status: 'rejected' };
-			if (history !== currentHistory) return { status: 'rejected' };
-			if (
-				files.some((file) => file.status === 'pending' && file.file instanceof File) &&
-				!(await messageInput?.uploadPendingFiles(_chatId || (await initChatHandler(history))))
-			)
+		// Uploads need the chat first. Otherwise the message shows at once and submitPrompt sets
+		// up the chat, which can take several round trips (e.g. a folder's working directory).
+		if (
+			!openingFolderTab &&
+			files.some((file) => file.status === 'pending' && file.file instanceof File)
+		) {
+			const currentHistory = history;
+			processing = 'uploading';
+			try {
+				const _chatId = await getChatId(currentHistory);
+				if (_chatId === null || history !== currentHistory) return { status: 'rejected' };
+				if (!(await messageInput?.uploadPendingFiles(_chatId || (await initChatHandler(history)))))
+					return { status: 'rejected' };
+				if (history !== currentHistory) return { status: 'rejected' };
+			} catch (error) {
+				toast.error(`${error}`);
 				return { status: 'rejected' };
-			if (history !== currentHistory) return { status: 'rejected' };
-		} catch (error) {
-			toast.error(`${error}`);
-			return { status: 'rejected' };
-		} finally {
-			processing = '';
+			} finally {
+				processing = '';
+			}
 		}
 
 		if (
@@ -4837,6 +5072,11 @@
 		);
 	};
 
+	// Agent ids are checked by the backend, so an unlisted one can still be sent.
+	const getModel = (id: string) =>
+		($models ?? []).find((model) => model.id === id) ??
+		(id.startsWith('agent:') ? { id, name: id.split(':').slice(2).join('/') } : undefined);
+
 	const sendMessage = async (
 		_history,
 		parentId: string,
@@ -4857,17 +5097,17 @@
 		const parent = _history.messages[parentId];
 		if (parent?.files?.some((file: any) => file.type === 'filesystem')) {
 			const attached = parent.files.filter((file: any) => file.type === 'filesystem');
-			const terminal = attached.find((file: any) => file.terminal_id)?.terminal_id;
+			const machine = machineIdOf(attached.find((file: any) => machineIdOf(file)));
 			if (
 				attached.some(
 					(file: any) =>
-						(file.terminal_id && file.terminal_id !== terminal) ||
+						(machineIdOf(file) && machineIdOf(file) !== machine) ||
 						(file.session_id && file.session_id !== $chatId)
 				)
 			)
-				throw new Error('Attached files must belong to this chat and the same terminal.');
-			if (terminal && !isTerminalAvailable(terminal))
-				throw new Error('The attached file’s terminal is unavailable.');
+				throw new Error('Attached files must belong to this chat and the same machine.');
+			if (machine && !isMachineAvailable(machine))
+				throw new Error('The attached file’s machine is unavailable.');
 		}
 		if (autoScroll) {
 			scrollToBottom();
@@ -4893,7 +5133,7 @@
 		// Use a message_ids array with modelIdx to preserve separate columns for duplicate models.
 		const messageIdsList: Array<{ model_id: string; message_id: string; modelIdx: number }> = [];
 		for (const [_modelIdx, modelId] of selectedModelIds.entries()) {
-			const model = $models.filter((m) => m.id === modelId).at(0);
+			const model = getModel(modelId);
 
 			if (model) {
 				let responseMessageId = uuidv4();
@@ -4940,7 +5180,7 @@
 
 		// Vision capability check
 		for (const mid of selectedModelIds) {
-			const model = $models.filter((m) => m.id === mid).at(0);
+			const model = ($models ?? []).filter((m) => m.id === mid).at(0);
 			if (model) {
 				const hasImages = createMessagesList(_history, parentId).some((message) =>
 					message.files?.some(
@@ -4965,7 +5205,7 @@
 
 		// Single request — backend fans out to all models
 		const primaryModelId = selectedModelIds[0];
-		const primaryModel = $models.filter((m) => m.id === primaryModelId).at(0);
+		const primaryModel = getModel(primaryModelId);
 		const primaryResponseMessageId = messageIdsList[0]?.message_id;
 		let submittedTaskIds: string[] = [];
 
@@ -5080,10 +5320,10 @@
 		const filesystemAttachment = userMessage?.files?.find(
 			(file: any) => file.type === 'filesystem'
 		);
-		const requestTerminalId = filesystemAttachment?.terminal_id ?? $selectedTerminalId;
-		const requestTerminalCwd =
-			terminalContext && terminalContext.terminalId === requestTerminalId
-				? terminalContext.currentDirectory
+		const requestMachineId = machineIdOf(filesystemAttachment) ?? $selectedMachineId;
+		const requestMachineCwd =
+			machineContext && machineContext.machineId === requestMachineId
+				? machineContext.currentDirectory
 				: undefined;
 
 		const chatMessageFiles = _messages
@@ -5205,8 +5445,8 @@
 		// Keep mentions in the message so the backend can resolve them.
 		const skillIds = [...selectedSkillIds];
 
-		// Only send terminal_id if the model has terminal capability enabled
-		const terminalEnabled =
+		// Only send machine_id if the model has the machine capability enabled
+		const machineEnabled =
 			$config?.features?.enable_tool_servers && (model.info?.meta?.capabilities?.terminal ?? true);
 		const useChatVariablesFallback = !_chatId || $temporaryChat || isTemporaryChatId(_chatId);
 
@@ -5239,8 +5479,8 @@
 						: $config?.features?.enable_tools
 				),
 				skill_ids: skillIds.length > 0 ? skillIds : undefined,
-				terminal_id: terminalEnabled && requestTerminalId ? requestTerminalId : null,
-				terminal_cwd: !_chatId ? requestTerminalCwd : undefined,
+				machine_id: machineEnabled && requestMachineId ? requestMachineId : null,
+				machine_cwd: !_chatId ? requestMachineCwd : undefined,
 				features: getFeatures(),
 				variables: {
 					...getPromptVariables(
@@ -5253,11 +5493,13 @@
 
 				session_id: $socket?.id,
 				chat_id: _chatId || undefined,
-				folder_id: $selectedFolder?.id ?? undefined,
+				folder_id:
+					$selectedFolder?.id ?? ($temporaryChat && draftFolderId ? draftFolderId : undefined),
 
 				id: responseMessageId,
 				...(messageIdsList ? { message_ids: messageIdsList } : {}),
 				parent_id: userMessage?.parentId ?? null,
+				...(userMessage?.meta?.status === 'pending' ? { queue: true } : {}),
 				// Whether a message is queued is the backend's call, not a status the browser sends.
 				user_message:
 					userMessage?.meta?.status === 'pending'
@@ -5576,9 +5818,10 @@
 		if (history.messages[message.id].done == true) {
 			const responseMessage = history.messages[message.id];
 			responseMessage.done = false;
+			responseMessage.error = null;
 			await tick();
 
-			const model = $models
+			const model = ($models ?? [])
 				.filter((m) => m.id === (responseMessage?.selectedModelId ?? responseMessage.model))
 				.at(0);
 
@@ -5653,7 +5896,7 @@
 	const initChatHandler = async (_history: typeof history) => {
 		let _chatId = $chatId;
 		const selectedFolderId = $selectedFolder?.id ?? draftFolderId;
-		const context = terminalContext;
+		const context = machineContext;
 
 		if (!$temporaryChat) {
 			const createdChat = await createNewChat(
@@ -5663,9 +5906,9 @@
 					title: draftTitle || $i18n.t('New Chat'),
 					...(parentChatId && { originalChatId: parentChatId, branchPointMessageId }),
 					models: selectedModels,
-					terminal_id: $selectedTerminalId,
+					machine_id: $selectedMachineId,
 					working_directory:
-						context?.terminalId === $selectedTerminalId ? context.currentDirectory : '',
+						context?.machineId === $selectedMachineId ? context.currentDirectory : '',
 					system: $settings.system ?? undefined,
 					params: params,
 					history: _history,
@@ -5679,9 +5922,9 @@
 			);
 
 			if (!createdChat?.id) throw new Error($i18n.t('Failed to create chat'));
-			if (!_history.currentId) {
-				// A refused first message leaves no empty chat behind.
-				await initializeTerminalDirectory(createdChat.id, context).catch(async (error) => {
+			if (!Object.values(_history.messages).some((message) => message.role === 'assistant')) {
+				// A refused first message leaves no chat behind.
+				await initializeMachineDirectory(createdChat.id, context).catch(async (error) => {
 					if (await deleteChatById(localStorage.token, createdChat.id).catch(() => null))
 						throw error;
 				});
@@ -5707,18 +5950,16 @@
 
 			await tick();
 
-			await refreshChatList(localStorage.token);
-
-			if (selectedFolderId) {
-				await refreshFolderChatLists(selectedFolderId, chat);
-			}
+			// The sidebar catches up on its own; the reply does not wait for it.
+			void refreshChatList(localStorage.token);
+			if (selectedFolderId) void refreshFolderChatLists(selectedFolderId, chat);
 
 			if ($chatId === _chatId && $selectedFolder?.id === selectedFolderId) selectedFolder.set(null);
 		} else {
 			_chatId = isTemporaryChatId(_chatId) ? _chatId : createTemporaryChatId($socket?.id);
 			await chatId.set(_chatId);
 		}
-		await initializeTerminalDirectory(_chatId, context);
+		await initializeMachineDirectory(_chatId, context);
 		await tick();
 
 		return _chatId;
@@ -5784,15 +6025,23 @@
 		return folderId ? `chat-input-folder-${folderId}` : 'chat-input';
 	};
 
-	const getChatInputDraft = () => ({
-		prompt,
-		files: files
-			.filter((file) => file.type !== 'image' && !(file.file instanceof File))
-			.map((file) => ({
-				...file,
-				user: undefined,
-				access_grants: undefined
-			})),
+	const getEmbeddedDraft = (text?: string, inputFiles: any[] = []) =>
+		structuredClone({
+			selectedModels: atSelectedModel ? [atSelectedModel.id] : selectedModels,
+			params,
+			history,
+			chatFiles,
+			chatVariables,
+			temporary: $temporaryChat,
+			machineId: $selectedMachineId,
+			machineContext,
+			controls: getChatInputControls(),
+			prompt: text ?? '',
+			files: inputFiles,
+			submit: text !== undefined
+		});
+
+	const getChatInputControls = () => ({
 		selectedToolIds,
 		selectedSkillIds,
 		selectedFilterIds,
@@ -5802,6 +6051,21 @@
 		selectedVideoModelId,
 		webSearchEnabled,
 		codeInterpreterEnabled
+	});
+
+	const getChatInputDraft = () => ({
+		prompt,
+		files: files
+			.filter(
+				(file) =>
+					file.type !== 'image' && !(file.file instanceof File) && file.status !== 'uploading'
+			)
+			.map((file) => ({
+				...file,
+				user: undefined,
+				access_grants: undefined
+			})),
+		...getChatInputControls()
 	});
 
 	const saveDraft = async (draft: any, chatId: string | null = null, debounce = true) => {
@@ -5966,8 +6230,8 @@
 		<button
 			type="button"
 			class="flex shrink-0 cursor-pointer items-center justify-center {tabbed || fullWidthTabs
-				? 'size-4 rounded text-gray-400 hover:bg-gray-200 hover:text-gray-700 dark:hover:bg-white/10 dark:hover:text-white'
-				: 'size-6 rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200'}"
+				? 'size-4 rounded text-base-400 hover:bg-base-200 hover:text-base-700 dark:hover:bg-base-0/10 dark:hover:text-base-0'
+				: 'size-6 rounded-lg text-base-500 transition hover:bg-base-50/40 hover:text-base-700 dark:text-base-400 dark:hover:bg-base-800/40 dark:hover:text-base-200'}"
 			id={embedded ? undefined : 'chat-context-menu-button'}
 			aria-label={$i18n.t('Chat actions')}
 		>
@@ -5979,13 +6243,25 @@
 	</ChatMenu>
 {/snippet}
 
+{#snippet renderChatStatus()}
+	<ChatStatus
+		chatId={$chatId}
+		{contextUsage}
+		queuedCount={messageQueue.length}
+		taskCount={chatTasks.length}
+		onCompact={contextCompactionEnabled && !streaming && !taskIds?.length
+			? handleManualCompact
+			: undefined}
+	/>
+{/snippet}
+
 {#snippet renderTitleEditor()}
 	<input
 		bind:this={titleInput}
 		bind:value={titleDraft}
 		class="min-w-0 flex-1 bg-transparent {tabbed || fullWidthTabs
 			? 'text-sm'
-			: 'md:py-1 text-[0.9375rem]'} font-normal text-gray-700 outline-hidden dark:text-gray-300"
+			: 'md:py-1 text-[0.9375rem]'} font-normal text-base-700 outline-hidden dark:text-base-300"
 		aria-label={$i18n.t('Title')}
 		placeholder={generatingTitle ? $i18n.t('Generating...') : ''}
 		disabled={generatingTitle}
@@ -6006,7 +6282,7 @@
 
 	<Tooltip content={$i18n.t('Generate')}>
 		<button
-			class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-gray-500 transition hover:bg-gray-50/40 hover:text-gray-700 disabled:cursor-not-allowed dark:text-gray-400 dark:hover:bg-gray-800/40 dark:hover:text-gray-200"
+			class="flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-lg text-base-500 transition hover:bg-base-50/40 hover:text-base-700 disabled:cursor-not-allowed dark:text-base-400 dark:hover:bg-base-800/40 dark:hover:text-base-200"
 			aria-label={$i18n.t('Generate')}
 			disabled={generatingTitle}
 			on:mousedown={(e) => e.preventDefault()}
@@ -6021,14 +6297,14 @@
 
 <audio bind:this={audioElement} style="display: none;"></audio>
 
-{#if getChatVariablesForm(selectedModelIds, chatVariables, $models).conflicts.length > 0}
+{#if getChatVariablesForm(selectedModelIds, chatVariables, $models ?? []).conflicts.length > 0}
 	<Modal ariaLabel={$i18n.t('Chat Variables')} bind:show={showChatVariablesModal} size="md">
 		<div>
-			<div class="flex justify-between px-4 pt-3 pb-1 dark:text-gray-300">
+			<div class="flex justify-between px-4 pt-3 pb-1 dark:text-base-300">
 				<div class="self-center text-sm font-medium">{$i18n.t('Chat Variables')}</div>
 				<button
 					aria-label={$i18n.t('Close')}
-					class="self-center rounded-lg py-1 text-gray-500 transition hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 px-0"
+					class="self-center rounded-lg py-1 text-base-500 transition hover:text-base-700 dark:text-base-400 dark:hover:text-base-200 px-0"
 					on:click={() => {
 						showChatVariablesModal = false;
 					}}
@@ -6037,15 +6313,15 @@
 				</button>
 			</div>
 
-			<div class="px-5 pb-4 text-sm text-gray-600 dark:text-gray-300">
-				<div class="mb-2 text-xs text-gray-500 dark:text-gray-400">
+			<div class="px-5 pb-4 text-sm text-base-600 dark:text-base-300">
+				<div class="mb-2 text-xs text-base-500 dark:text-base-400">
 					{$i18n.t('Selected models define incompatible Chat Variables.')}
 				</div>
 				<div class="flex flex-col gap-1">
-					{#each getChatVariablesForm(selectedModelIds, chatVariables, $models).conflicts as conflict}
+					{#each getChatVariablesForm(selectedModelIds, chatVariables, $models ?? []).conflicts as conflict}
 						<div class="rounded-lg border border-red-200 px-3 py-2 text-xs dark:border-red-900/60">
 							<div class="font-medium text-red-600 dark:text-red-400">{conflict.key}</div>
-							<div class="mt-1 text-gray-500 dark:text-gray-400">
+							<div class="mt-1 text-base-500 dark:text-base-400">
 								{conflict.modelIds.join(', ')}
 							</div>
 						</div>
@@ -6058,7 +6334,7 @@
 	<InputVariablesModal
 		bind:show={showChatVariablesModal}
 		title={$i18n.t('Chat Variables')}
-		variables={getChatVariablesForm(selectedModelIds, chatVariables, $models).variables}
+		variables={getChatVariablesForm(selectedModelIds, chatVariables, $models ?? []).variables}
 		onSave={saveChatVariables}
 	/>
 {/if}
@@ -6079,7 +6355,7 @@
 	}}
 	on:cancel={() => (pendingUrlActions = null)}
 >
-	<div class="text-sm text-gray-500 space-y-2 max-h-60 overflow-auto break-words">
+	<div class="text-sm text-base-500 space-y-2 max-h-60 overflow-auto break-words">
 		{#if pendingUrlActions?.urls.length}
 			<p>{$i18n.t('Load content from these URLs?')}</p>
 			{#each pendingUrlActions.urls as url}
@@ -6118,7 +6394,7 @@
 		confirmDeleteChat();
 	}}
 >
-	<div class=" text-sm text-gray-500 flex-1 line-clamp-3">
+	<div class=" text-sm text-base-500 flex-1 line-clamp-3">
 		{$i18n.t('This will delete')} <span class="  font-normal">{$chatTitle}</span>.
 	</div>
 </DeleteConfirmDialog>
@@ -6167,7 +6443,7 @@
 			on:confirm={() => resolveBrowserInteraction(interaction, true)}
 			on:cancel={() => resolveBrowserInteraction(interaction, false)}
 		>
-			<div class="text-sm text-gray-500">
+			<div class="text-sm text-base-500">
 				<div class="font-medium break-all">{interaction.data.tool_call.name}</div>
 				<pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all">{JSON.stringify(
 						interaction.data.tool_call.arguments,
@@ -6200,7 +6476,7 @@
 				style="background-image: url({backgroundImage})"
 			/>
 			<div
-				class="pointer-events-none absolute top-0 left-0 w-full h-full bg-linear-to-t from-white/90 to-white/55 dark:from-gray-900/90 dark:to-gray-900/65 z-0"
+				class="pointer-events-none absolute top-0 left-0 w-full h-full bg-linear-to-t from-base-0/90 to-base-0/55 dark:from-base-900/90 dark:to-base-900/65 z-0"
 			></div>
 		{/if}
 
@@ -6218,17 +6494,20 @@
 				role={fullWidthTabs ? 'tabpanel' : undefined}
 				aria-labelledby={fullWidthTabs ? 'chat-panel-main-chat' : undefined}
 			>
-				{#if loading}
-					{#if !fullWidthTabs}
+				<!-- An empty new chat keeps its input on screen while it sets itself up. -->
+				{#if loading && (embedded || $page.url.pathname !== '/' || history.currentId)}
+					{#if !fullWidthTabs && !embeddedCollapsed}
 						<div class="flex items-center justify-center h-full w-full">
 							<Spinner className="size-5" />
 						</div>
 					{/if}
 				{:else}
 					<FilesOverlay show={dragged} />
-					{#if embedded && !tabbed}
+					{#if embedded && !tabbed && !embeddedCollapsed}
 						<div
-							class="h-8 shrink-0 flex items-center justify-between gap-2 border-b border-gray-50/80 px-3 pb-1 text-gray-700 dark:border-gray-850/40 dark:text-gray-200"
+							class="h-8 shrink-0 flex items-center justify-between gap-2 border-b border-base-50/80 pb-1 text-base-700 dark:border-base-850/40 dark:text-base-200 {embeddedInset
+								? 'px-4'
+								: 'px-3'}"
 						>
 							<div class="flex min-w-0 items-center gap-2">
 								<EmbeddedChatHistoryDropdown
@@ -6242,10 +6521,20 @@
 									onDeleteChat={onDeleteEmbeddedChat}
 								/>
 							</div>
+							{#if onCollapseEmbedded}<Tooltip content={$i18n.t('Collapse')} placement="bottom">
+									<button
+										type="button"
+										class="rounded-md py-1 text-base-500 transition hover:text-base-900 dark:hover:text-base-0 px-0"
+										on:click={() => onCollapseEmbedded?.()}
+										aria-label={$i18n.t('Collapse')}
+									>
+										<ChevronDown className="size-4" strokeWidth="2" />
+									</button>
+								</Tooltip>{/if}
 							{#if onCloseEmbedded}<Tooltip content={$i18n.t('Close')} placement="bottom">
 									<button
 										type="button"
-										class="rounded-md py-1 text-gray-500 transition hover:text-gray-900 dark:hover:text-white px-0"
+										class="rounded-md py-1 text-base-500 transition hover:text-base-900 dark:hover:text-base-0 px-0"
 										on:click={() => onCloseEmbedded?.()}
 										aria-label={$i18n.t('Close')}
 									>
@@ -6258,6 +6547,7 @@
 							tabbed={fullWidthTabs}
 							{tabTitleEditor}
 							{chatMenu}
+							{chatStatus}
 							bind:tabActions
 							bind:tabBarActions
 							{liveParticipants}
@@ -6295,10 +6585,10 @@
 											id: uuidv4(),
 											title: title.length > 50 ? `${title.slice(0, 50)}...` : title,
 											models: selectedModels,
-											terminal_id: $selectedTerminalId,
+											machine_id: $selectedMachineId,
 											working_directory:
-												terminalContext?.terminalId === $selectedTerminalId
-													? terminalContext.currentDirectory
+												machineContext?.machineId === $selectedMachineId
+													? machineContext.currentDirectory
 													: '',
 											params: params,
 											history: history,
@@ -6326,12 +6616,16 @@
 					{/if}
 					<div
 						id="chat-pane"
-						class="flex min-h-0 flex-col flex-auto z-10 w-full @container overflow-auto"
+						class="flex min-h-0 flex-col flex-auto z-10 w-full @container {embeddedCollapsed
+							? 'overflow-visible'
+							: 'overflow-auto'}"
 					>
 						<div class="sr-only" aria-live="polite" aria-atomic="true">{liveStatus}</div>
-						{#if (!tabbed && $settings?.landingPageMode === 'chat' && !$selectedFolder) || (!contextOnly && createMessagesList(history, history.currentId).length > 0)}
+						{#if (!embedded && $settings?.landingPageMode === 'chat' && !$selectedFolder) || (!contextOnly && createMessagesList(history, history.currentId).length > 0)}
 							<div
 								class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
+								class:hidden={embeddedCollapsed}
+								class:px-2={embeddedInset}
 								id={messagesContainerId}
 								bind:this={messagesContainerElement}
 								on:scroll={(e) => {
@@ -6342,7 +6636,6 @@
 										scrollHeight - scrollTop <= clientHeight + 5 ||
 										(autoScroll && scrollTop >= lastScrollTop);
 									lastScrollTop = scrollTop;
-									isNearTop = scrollTop <= 100;
 								}}
 							>
 								<div class=" h-full w-full flex flex-col">
@@ -6390,10 +6683,10 @@
 							{#if isShared && !chat?.write_access}
 								{#if canClone}
 									<div
-										class="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center gap-2 bg-linear-to-t from-white dark:from-gray-900 to-transparent pb-5 pt-10"
+										class="pointer-events-none absolute inset-x-0 bottom-0 z-10 flex justify-center gap-2 bg-linear-to-t from-base-0 dark:from-base-900 to-transparent pb-5 pt-10"
 									>
 										<button
-											class="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-gray-900 px-2.5 text-xs font-normal text-white transition hover:bg-black disabled:opacity-60 dark:bg-gray-100 dark:text-gray-900 dark:hover:bg-white pointer-events-auto"
+											class="flex h-7 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-base-900 px-2.5 text-xs font-normal text-base-0 transition hover:bg-base-1000 disabled:opacity-60 dark:bg-base-100 dark:text-base-900 dark:hover:bg-base-0 pointer-events-auto"
 											disabled={cloning}
 											on:click={cloneSharedChat}
 										>
@@ -6407,12 +6700,17 @@
 									class=" pb-2 {dragged ? 'z-0' : 'z-10'}"
 								>
 									<MessageInput
-										{selectedTerminalId}
-										{terminalSkills}
+										{selectedMachineId}
+										machineSelectionEnabled={!machineFixed}
+										disabled={!canUseMachine}
+										placeholder={canUseMachine
+											? ''
+											: $i18n.t('This machine is offline or not shared with you')}
+										{machineSkills}
 										{messagesContainerId}
 										{inputId}
 										{onTemporaryChange}
-										bind:terminalContext
+										bind:machineContext
 										{typingUsers}
 										on:typing={(event) => emitTyping(event.detail)}
 										callActive={!!(bridge?.connected || bridge?.connecting)}
@@ -6447,6 +6745,8 @@
 										{contextUsage}
 										{contextCompactionEnabled}
 										{embedded}
+										autofocus={!embeddedCollapsed}
+										{onRecordedAudio}
 										compactHandler={handleManualCompact}
 										statusHandler={handleStatusCommand}
 										forkHandler={handleForkChat}
@@ -6483,7 +6783,7 @@
 									/>
 
 									<div
-										class="absolute bottom-1 text-xs text-gray-500 text-center line-clamp-1 right-0 left-0"
+										class="absolute bottom-1 text-xs text-base-500 text-center line-clamp-1 right-0 left-0"
 									>
 										<!-- {$i18n.t('LLMs can make mistakes. Verify important information.')} -->
 									</div>
@@ -6494,27 +6794,36 @@
 								{#if tabbed}
 									<div class="flex flex-1 items-center justify-center px-6">
 										<div class="max-w-56 text-center">
-											<p class="text-sm font-normal text-gray-600 dark:text-gray-300">
+											<p class="text-sm font-normal text-base-600 dark:text-base-300">
 												{$temporaryChat ? $i18n.t('Temporary chat') : $i18n.t('New Chat')}
 											</p>
-											<p class="mt-1.5 text-xs leading-relaxed text-gray-400 dark:text-gray-500">
+											<p class="mt-1.5 text-xs leading-relaxed text-base-400 dark:text-base-500">
 												{$temporaryChat
 													? $i18n.t('Messages disappear when you close this tab.')
 													: $i18n.t('Messages are saved to your chats.')}
 											</p>
 										</div>
 									</div>
-								{:else if suggestedPrompts.length > 0}
+									{#if modelSuggestionPrompts?.length}
+										<div class="mx-auto w-full max-w-2xl px-5 pb-3">
+											<Suggestions
+												suggestionPrompts={modelSuggestionPrompts}
+												inputValue={prompt}
+												{onSelect}
+											/>
+										</div>
+									{/if}
+								{:else if suggestedPrompts.length > 0 && !embeddedCollapsed}
 									<div class="flex flex-1 items-end px-5 pb-8">
 										<div class="w-full">
-											<div class="mb-2 text-[0.75rem] text-gray-300 dark:text-gray-700">
+											<div class="mb-2 text-[0.75rem] text-base-300 dark:text-base-700">
 												{$i18n.t('Suggested prompts')}
 											</div>
 											<div class="flex flex-col">
 												{#each suggestedPrompts as suggestion}
 													<button
 														type="button"
-														class="flex min-h-8 w-full items-center justify-between py-1 text-left text-[0.8125rem] leading-5 text-gray-500 transition hover:text-gray-700 dark:text-gray-500 dark:hover:text-gray-300"
+														class="flex min-h-8 w-full items-center justify-between py-1 text-left text-[0.8125rem] leading-5 text-base-500 transition hover:text-base-700 dark:text-base-500 dark:hover:text-base-300"
 														on:click={async () => {
 															await tick();
 															await submitHandler(withSelectedText(suggestion));
@@ -6529,12 +6838,17 @@
 								{/if}
 								<div id={embedded ? messageInputDropzoneId : undefined} class="pb-2 z-10">
 									<MessageInput
-										{selectedTerminalId}
-										{terminalSkills}
+										{selectedMachineId}
+										machineSelectionEnabled={!machineFixed}
+										disabled={!canUseMachine}
+										placeholder={canUseMachine
+											? ''
+											: $i18n.t('This machine is offline or not shared with you')}
+										{machineSkills}
 										{messagesContainerId}
 										{inputId}
 										{onTemporaryChange}
-										bind:terminalContext
+										bind:machineContext
 										{typingUsers}
 										on:typing={(event) => emitTyping(event.detail)}
 										callActive={!!(bridge?.connected || bridge?.connecting)}
@@ -6569,6 +6883,8 @@
 										{contextUsage}
 										{contextCompactionEnabled}
 										{embedded}
+										autofocus={!embeddedCollapsed}
+										{onRecordedAudio}
 										compactHandler={handleManualCompact}
 										statusHandler={handleStatusCommand}
 										forkHandler={handleForkChat}
@@ -6611,12 +6927,18 @@
 									: 'items-center'}"
 							>
 								<Placeholder
+									onNewFolderChat={() => tabs?.openFeatureTab('chat')}
 									bind:folderTabActions
-									{selectedTerminalId}
-									{terminalSkills}
+									{selectedMachineId}
+									machineSelectionEnabled={!machineFixed}
+									disabled={!canUseMachine}
+									placeholder={canUseMachine
+										? ''
+										: $i18n.t('This machine is offline or not shared with you')}
+									{machineSkills}
 									chatId={$chatId}
 									{onTemporaryChange}
-									bind:terminalContext
+									bind:machineContext
 									callActive={!!(bridge?.connected || bridge?.connecting)}
 									callEnabled={!isShared}
 									bind:selectedModelIdx
@@ -6679,9 +7001,11 @@
 				{/if}
 			</div>
 
-			{#if !embedded}
+			<!-- Restored tabs resolve their machines on mount, so they wait for the lists. -->
+			{#if !embedded && $models !== null}
 				<Tabs
 					{mainChatHref}
+					{getEmbeddedDraft}
 					chatLoading={loading}
 					chatStreaming={streaming}
 					bind:fullWidth={fullWidthTabs}
@@ -6709,7 +7033,7 @@
 							? folderTabActions
 							: tabActions}
 					tabBarActions={loading ? undefined : tabBarActions}
-					{terminalContext}
+					{machineContext}
 					bind:chatHistory={history}
 					bind:files
 					chatId={$chatId}

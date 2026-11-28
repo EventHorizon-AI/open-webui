@@ -9,7 +9,6 @@
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import { removeFormattings, sanitizeResponseContent } from '$lib/utils';
-	import ChevronRight from '$lib/components/icons/ChevronRight.svelte';
 	import { resolveLocalizedModelDescription } from '$lib/utils/localizedContent';
 	import Check from '$lib/components/icons/Check.svelte';
 	import Tag from '$lib/components/icons/Tag.svelte';
@@ -25,9 +24,6 @@
 	export let compareEnabled = false;
 
 	export let selectionOnly = false;
-
-	export let controlsEnabled = false;
-	export let onOpenControls: () => void = () => {};
 
 	export let onClick: () => void = () => {};
 
@@ -115,9 +111,6 @@
 	};
 
 	$: isSelected = compareEnabled ? selectedValues.includes(item.value) : value === item.value;
-	$: hasControls =
-		controlsEnabled && Object.keys(item.model?.info?.params?.model_controls ?? {}).length > 0;
-	$: controlAlwaysVisible = ($settings?.highContrastMode ?? false) || ($mobile && isSelected);
 </script>
 
 <button
@@ -126,18 +119,18 @@
 	aria-selected={isSelected}
 	aria-label={$i18n.t('Select {{modelName}} model', { modelName: item.label })}
 	aria-describedby={localizedDescription ? `model-description-${index}` : undefined}
-	class="focus-ring group/item relative flex h-8 w-full cursor-pointer select-none items-center rounded-xl px-2 text-left text-[0.8125rem] font-normal text-gray-700 outline-hidden transition-colors duration-75 dark:text-gray-100 {($settings?.highContrastMode ??
+	class="focus-ring group/item relative flex h-8 w-full cursor-pointer select-none items-center rounded-xl px-2 text-left text-[0.8125rem] font-normal text-base-700 outline-hidden transition-colors duration-75 dark:text-base-100 {($settings?.highContrastMode ??
 	false)
-		? 'hover:bg-gray-200 dark:hover:bg-gray-800'
-		: 'hover:bg-gray-50/40 dark:hover:bg-gray-800/40'} {index === selectedModelIdx &&
+		? 'hover:bg-base-200 dark:hover:bg-base-800'
+		: 'hover:bg-base-50/40 dark:hover:bg-base-800/40'} {index === selectedModelIdx &&
 	!compareEnabled
 		? ($settings?.highContrastMode ?? false)
-			? 'bg-gray-200 dark:bg-gray-800'
-			: 'bg-gray-50/70 dark:bg-gray-800/60'
+			? 'bg-base-200 dark:bg-base-800'
+			: 'bg-base-50/70 dark:bg-base-800/60'
 		: ''} {isSelected
 		? ($settings?.highContrastMode ?? false)
-			? 'bg-gray-200 dark:bg-gray-800'
-			: 'bg-gray-50/70 dark:bg-gray-800/60'
+			? 'bg-base-200 dark:bg-base-800'
+			: 'bg-base-50/70 dark:bg-base-800/60'
 		: ''}"
 	data-arrow-selected={index === selectedModelIdx}
 	data-value={item.value}
@@ -169,7 +162,7 @@
 				{#each item.model?.tags.sort((a, b) => a.name.localeCompare(b.name)) as tag}
 					<Tooltip content={tag.name} className="flex-shrink-0">
 						<div
-							class=" text-xs font-normal px-1 rounded-sm uppercase bg-gray-500/20 text-gray-700 dark:text-gray-200"
+							class=" text-xs font-normal px-1 rounded-sm uppercase bg-base-500/20 text-base-700 dark:text-base-200"
 						>
 							{tag.name}
 						</div>
@@ -182,7 +175,7 @@
 			<div class="flex items-center min-w-fit">
 				<Tooltip content={$user?.role === 'admin' ? (item?.value ?? '') : ''} placement="top-start">
 					<img
-						src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${item.model.id}&lang=${$i18n.language}`}
+						src={`${WEBUI_API_BASE_URL}/models/model/profile/image?id=${item.model.id}&lang=${$i18n.language}&v=${item.model.info?.updated_at}`}
 						alt={$i18n.t('{{modelName}} profile image', { modelName: item.label })}
 						class="flex size-4 items-center rounded-full"
 						loading="lazy"
@@ -221,7 +214,7 @@
 								className="self-end"
 							>
 								<span
-									class="line-clamp-1 text-[0.6875rem] font-normal text-gray-500 dark:text-gray-400"
+									class="line-clamp-1 text-[0.6875rem] font-normal text-base-500 dark:text-base-400"
 									>{item.model.ollama?.details?.parameter_size ?? ''}</span
 								>
 							</Tooltip>
@@ -240,7 +233,7 @@
 								className="self-end"
 							>
 								<span
-									class="line-clamp-1 text-[0.6875rem] font-normal text-gray-500 dark:text-gray-400"
+									class="line-clamp-1 text-[0.6875rem] font-normal text-base-500 dark:text-base-400"
 								>
 									{parameterSize || quantization || formatSize(size)}
 								</span>
@@ -329,29 +322,9 @@
 	</div>
 
 	<div class="ml-auto flex shrink-0 items-center gap-1.5 pl-2">
-		{#if isSelected || (hasControls && (!$mobile || controlAlwaysVisible))}
-			<div class="relative flex size-3 shrink-0 items-center justify-center">
-				{#if isSelected && !(hasControls && controlAlwaysVisible)}
-					<Check className="size-3 {hasControls ? 'group-hover/item:opacity-0' : ''}" />
-				{/if}
-
-				{#if hasControls}
-					<Tooltip
-						content={$i18n.t('Model controls')}
-						className="absolute inset-0 {controlAlwaysVisible
-							? ''
-							: 'pointer-events-none opacity-0 group-hover/item:pointer-events-auto group-hover/item:opacity-100'}"
-					>
-						<button
-							type="button"
-							class="focus-ring flex size-full items-center justify-center"
-							aria-label={$i18n.t('Model controls')}
-							on:click|preventDefault|stopPropagation={onOpenControls}
-						>
-							<ChevronRight className="size-3" strokeWidth="2" />
-						</button>
-					</Tooltip>
-				{/if}
+		{#if isSelected}
+			<div>
+				<Check className="size-3" />
 			</div>
 		{/if}
 	</div>

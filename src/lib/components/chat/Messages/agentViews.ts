@@ -387,9 +387,9 @@ export const agentViewName = (view: AgentView) => {
 		case 'command':
 			return view.command.split('\n')[0];
 		case 'edit':
-			return view.files.map((file) => fileName(file.path)).join(', ');
+			return view.files.map((file) => fileName(file.path)).join(' · ');
 		case 'read':
-			return view.paths.map(fileName).join(', ');
+			return view.paths.map(fileName).join(' · ');
 		case 'search':
 		case 'web':
 			return view.query;

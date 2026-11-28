@@ -13,6 +13,7 @@
 	import { config, pinnedModels, showSettings, user, visibleControls } from '$lib/stores';
 	import GlobeAlt from '$lib/components/icons/GlobeAlt.svelte';
 	import { computePosition, flip, shift } from '@floating-ui/dom';
+	import { isMachine } from '$lib/utils/machines';
 
 	const i18n = getContext('i18n');
 
@@ -60,7 +61,7 @@
 	};
 
 	$: canEdit =
-		menu?.model?.owned_by !== 'terminal' &&
+		!isMachine(menu?.model?.owned_by) &&
 		(menu?.model?.preset || menu?.model?.info?.base_model_id
 			? menu?.model?.info?.user_id === $user?.id
 			: $user?.role === 'admin');
@@ -71,7 +72,7 @@
 		$user &&
 		menu?.model?.id &&
 		!menu?.model?.owner_id &&
-		!menu?.model?.arena &&
+		!menu?.model?.router &&
 		(menu?.model?.info || $user?.role === 'admin');
 </script>
 
@@ -88,7 +89,7 @@
 			{#if canEdit}
 				<button
 					type="button"
-					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+					class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 					on:click={(e) => {
 						e.stopPropagation();
 						e.preventDefault();
@@ -113,7 +114,7 @@
 					{onComment}
 					menu
 					resource={{ resource_type: 'model', resource_id: menu?.model?.id }}
-					className="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-gray-50/40 dark:hover:bg-gray-800/40 transition"
+					className="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 					onOpen={() => {
 						onClose();
 						onEdit();
@@ -125,7 +126,7 @@
 				{#if $user?.role === 'admin' && (menu?.model?.owned_by === 'ollama' || providerSupportsDelete(menu?.model?.provider))}
 					<button
 						type="button"
-						class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+						class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 						on:click={(e) => {
 							e.stopPropagation();
 							e.preventDefault();
@@ -156,7 +157,7 @@
 				{#if $user?.role === 'admin' && menu?.model?.loaded}
 					<button
 						type="button"
-						class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+						class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 						on:click={(e) => {
 							e.stopPropagation();
 							e.preventDefault();
@@ -171,14 +172,14 @@
 					</button>
 				{/if}
 
-				<hr class="border-gray-50 dark:border-gray-800/30 mx-1 my-0.5" />
+				<hr class="border-base-50 dark:border-base-800/30 mx-1 my-0.5" />
 			{/if}
 
 			{#if $visibleControls['models.pin']}
 				<button
 					type="button"
 					aria-pressed={$pinnedModels.includes(menu?.model?.id)}
-					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+					class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 					on:click={(e) => {
 						e.stopPropagation();
 						e.preventDefault();
@@ -205,7 +206,7 @@
 
 			<button
 				type="button"
-				class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+				class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 				on:click={(e) => {
 					e.stopPropagation();
 					e.preventDefault();
@@ -220,13 +221,13 @@
 			</button>
 
 			{#if $config?.features.enable_community_sharing}
-				<hr class="border-gray-50 dark:border-gray-800/30 mx-1 my-0.5" />
+				<hr class="border-base-50 dark:border-base-800/30 mx-1 my-0.5" />
 			{/if}
 
 			{#if $config?.features.enable_community_sharing}
 				<button
 					type="button"
-					class="select-none flex h-7 w-full items-center gap-2 rounded-lg px-2 text-xs hover:bg-gray-50/40 dark:hover:bg-white/4 transition"
+					class="select-none flex h-[1.6875rem] w-full items-center gap-2 rounded-xl px-2 text-[0.8125rem] hover:bg-base-50/40 dark:hover:bg-base-800/40 transition"
 					on:click={(e) => {
 						e.stopPropagation();
 						e.preventDefault();

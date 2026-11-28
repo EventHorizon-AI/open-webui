@@ -67,13 +67,13 @@
 	<div class="flex min-w-56 flex-col gap-2.5 py-0.5 text-left">
 		{#each sections as section}
 			<div class="flex flex-col gap-1">
-				<div class="text-[0.625rem] font-semibold tracking-wider text-gray-400 uppercase">
+				<div class="text-[0.625rem] font-semibold tracking-wider text-base-400 uppercase">
 					{sectionLabels[section.key]}{section.lastCall ? ` (${lastCallLabel})` : ''}
 				</div>
 				<div class="flex flex-col gap-0.5">
 					{#each section.rows as row}
 						<div class="flex items-baseline justify-between gap-6">
-							<span class="shrink-0 text-gray-400">{fieldLabel(row)}</span>
+							<span class="shrink-0 text-base-400">{fieldLabel(row)}</span>
 							<span class="min-w-0 text-right font-medium break-words">
 								{row.value}{row.unit === 'tokensPerSecond' ? ` ${tokensPerSecondLabel}` : ''}
 							</span>

@@ -116,14 +116,14 @@
 
 <div class="space-y-2 px-2 py-2 text-xs">
 	<div class="flex items-center gap-2">
-		<span class="text-gray-700 dark:text-gray-100">{control.label}</span>
-		<span class="min-w-0 flex-1 truncate text-gray-500 dark:text-gray-400">{label}</span>
+		<span class="text-base-700 dark:text-base-100">{control.label}</span>
+		<span class="min-w-0 flex-1 truncate text-base-500 dark:text-base-400">{label}</span>
 		{#if control.description}
 			<Tooltip content={control.description}>
 				<button
 					type="button"
 					aria-label={control.description}
-					class="text-gray-400 transition-colors duration-150 hover:text-gray-600 dark:hover:text-gray-200"
+					class="text-base-400 transition-colors duration-150 hover:text-base-600 dark:hover:text-base-200"
 				>
 					<QuestionMarkCircle className="size-3.5" />
 				</button>
@@ -132,7 +132,7 @@
 	</div>
 	<div class="space-y-1">
 		<div
-			class="flex justify-between gap-2 text-[0.6875rem] text-gray-500 dark:text-gray-400"
+			class="flex justify-between gap-2 text-[0.6875rem] text-base-500 dark:text-base-400"
 			aria-hidden="true"
 		>
 			<span class="truncate">{options[0]?.[1].label}</span>
@@ -141,7 +141,7 @@
 
 		<div
 			bind:this={trackEl}
-			class="slider relative flex h-5 cursor-pointer touch-none select-none items-center rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-gray-400 [--slider-fill:var(--color-gray-300)] dark:[--slider-fill:var(--color-gray-600)]"
+			class="slider relative flex h-5 cursor-pointer touch-none select-none items-center rounded-md outline-offset-2 focus-visible:outline focus-visible:outline-2 focus-visible:outline-base-400 [--slider-fill:var(--color-base-300)] dark:[--slider-fill:var(--color-base-600)]"
 			class:is-disabled={disabled}
 			role="slider"
 			tabindex={disabled ? -1 : 0}
@@ -159,7 +159,7 @@
 			on:keydown={onKeydown}
 		>
 			<div
-				class="pointer-events-none absolute inset-0 rounded-md bg-gray-100 dark:bg-gray-800"
+				class="pointer-events-none absolute inset-0 rounded-md bg-base-100 dark:bg-base-800"
 				aria-hidden="true"
 			></div>
 			<div
@@ -175,7 +175,7 @@
 				></div>
 				{#each options as [key], i (key)}
 					<span
-						class="absolute top-1/2 size-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-gray-400 dark:bg-gray-500"
+						class="absolute top-1/2 size-0.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-base-400 dark:bg-base-500"
 						style:left={tickLeft(i)}
 					></span>
 				{/each}
@@ -192,7 +192,7 @@
 		type="button"
 		disabled={disabled || !value}
 		on:click={() => dispatch('change', '')}
-		class="text-[0.6875rem] text-gray-500 transition-colors duration-150 enabled:hover:text-gray-900 dark:text-gray-400 dark:enabled:hover:text-gray-100"
+		class="text-[0.6875rem] text-base-500 transition-colors duration-150 enabled:hover:text-base-900 dark:text-base-400 dark:enabled:hover:text-base-100"
 	>
 		{$i18n.t('Default')}{#if control.options[control.default ?? '']?.label}{' · '}{control.options[
 				control.default ?? ''
